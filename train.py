@@ -33,11 +33,17 @@ except Exception:
     device = "cpu"
 
 print(f"Fine-tuning on {data}  (device: {device})")
+# NOTE: kept LIGHT on purpose so it doesn't eat all the RAM on a laptop you're using.
+#   batch=4 + imgsz=512 uses ~3-4 GB instead of ~15 GB. Raise them only if you have
+#   lots of free memory (e.g. batch=8, imgsz=640) or are running it while away.
 results = model.train(
     data=data,
     epochs=60,
-    imgsz=640,
-    patience=15,        # stop early if it stops improving
+    imgsz=512,          # smaller image = far less memory
+    batch=4,            # SMALL batch = gentle on RAM (this is the big memory lever)
+    workers=2,
+    cache=False,
+    patience=15,        # stop early once it stops improving
     device=device,
 )
 
