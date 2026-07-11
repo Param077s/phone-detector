@@ -719,7 +719,7 @@ def ensure_producers():
 app = FastAPI(title="Vigil")
 
 # Paths reachable without logging in
-_PUBLIC = {"/login", "/setup", "/logout"}
+_PUBLIC = {"/login", "/setup", "/logout", "/favicon.svg"}
 # API paths that should return 401 (not redirect) when not authed
 _API_PREFIXES = ("/alerts", "/cameras", "/evidence/list", "/evidence/image", "/snapshot")
 
@@ -753,6 +753,28 @@ async def auth_gate(request: Request, call_next):
 
     request.state.user = user
     return await call_next(request)
+
+
+@app.get("/favicon.svg")
+def favicon():
+    svg = ('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none">'
+           '<rect width="24" height="24" rx="6" fill="#0e1116"/>'
+           '<path d="M6 10V7.5A1.5 1.5 0 0 1 7.5 6H10M14 6h2.5A1.5 1.5 0 0 1 18 7.5V10'
+           'M18 14v2.5a1.5 1.5 0 0 1-1.5 1.5H14M10 18H7.5A1.5 1.5 0 0 1 6 16.5V14" '
+           'stroke="#7a8595" stroke-width="1.8" stroke-linecap="round"/>'
+           '<circle cx="12" cy="12" r="2.6" fill="#4ade80"/></svg>')
+    return Response(content=svg, media_type="image/svg+xml")
+
+
+@app.get("/stats")
+def stats():
+    today = datetime.now().strftime("%Y-%m-%d")
+    with _db() as c:
+        alerts_today = c.execute("SELECT COUNT(*) FROM alerts WHERE date = ?", (today,)).fetchone()[0]
+        pending = c.execute("SELECT COUNT(*) FROM alerts WHERE status = 'pending'").fetchone()[0]
+    with cameras_lock:
+        cams = len(cameras)
+    return {"cameras": cams, "alerts_today": alerts_today, "pending": pending}
 
 
 @app.get("/snapshot/{camera_id}")
@@ -856,50 +878,77 @@ def update_alert(alert_id: int, action: str):
 
 
 # ---- Shared look ----------------------------------------------------------
+LOGO_MARK = ('<svg class="logo-mark" width="21" height="21" viewBox="0 0 24 24" fill="none">'
+             '<path d="M4 9V6a2 2 0 0 1 2-2h3M15 4h3a2 2 0 0 1 2 2v3M20 15v3a2 2 0 0 1-2 2h-3M9 20H6a2 2 0 0 1-2-2v-3" '
+             'stroke="currentColor" stroke-width="2" stroke-linecap="round"/>'
+             '<circle cx="12" cy="12" r="3" fill="#4ade80"/></svg>')
+
 STYLE = """
+<link rel="icon" href="/favicon.svg">
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: -apple-system, Segoe UI, Roboto, sans-serif;
-    background: #0e1116; color: #e6e9ef; height: 100vh; display: flex; flex-direction: column; }
-  header { display: flex; align-items: center; gap: 14px;
-    padding: 12px 22px; background: #151a21; border-bottom: 1px solid #232a34; }
+    background: radial-gradient(1100px 560px at 82% -12%, #17212c 0%, #0e1116 55%) fixed, #0e1116;
+    color: #e6e9ef; height: 100vh; display: flex; flex-direction: column; -webkit-font-smoothing: antialiased; }
+  header { display: flex; align-items: center; gap: 14px; padding: 11px 22px;
+    background: rgba(21,26,33,.92); border-bottom: 1px solid #232a34; z-index: 5; }
+  .brand { display:flex; align-items:center; gap:9px; }
+  .logo-mark { color:#7a8595; flex-shrink:0; }
   .dot { width: 9px; height: 9px; border-radius: 50%; background: #4ade80;
     box-shadow: 0 0 8px #4ade80; animation: pulse 1.6s infinite; }
-  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
-  .logo { font-weight: 700; font-size: 20px; letter-spacing: .5px; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.35} }
+  .logo { font-weight: 800; font-size: 20px; letter-spacing: .3px; }
   .logo span { color: #4ade80; }
-  .nav { display:flex; gap:6px; margin-left: 10px; margin-right:auto; }
-  .nav a { font-size:13px; color:#9aa4b2; text-decoration:none; padding:6px 12px; border-radius:8px; }
-  .nav a.active { background:#232a34; color:#e6e9ef; }
-  .cam-btn { background:#4ade80; color:#0e1116; border:none;
-    padding:8px 15px; border-radius:8px; font-size:13px; font-weight:600; cursor:pointer; }
+  .nav { display:flex; gap:4px; margin-left: 14px; margin-right:auto; }
+  .nav a { font-size:13px; color:#9aa4b2; text-decoration:none; padding:7px 13px;
+    border-radius:8px; transition: background .15s, color .15s; }
+  .nav a:hover { color:#e6e9ef; background:#1c222b; }
+  .nav a.active { background:#232a34; color:#fff; }
+  .cam-btn { background:#4ade80; color:#0e1116; border:none; padding:8px 16px;
+    border-radius:8px; font-size:13px; font-weight:700; cursor:pointer;
+    transition: transform .1s, box-shadow .15s; box-shadow: 0 2px 12px rgba(74,222,128,.22); }
+  .cam-btn:hover { transform: translateY(-1px); box-shadow: 0 5px 18px rgba(74,222,128,.34); }
   .clock { font-size: 13px; color: #9aa4b2; font-variant-numeric: tabular-nums; }
   .clock.push { }
   .userchip { font-size:13px; color:#9aa4b2; }
   .logout { font-size:13px; color:#9aa4b2; text-decoration:none; padding:6px 12px;
-    border:1px solid #232a34; border-radius:8px; }
-  .logout:hover { color:#e6e9ef; }
+    border:1px solid #232a34; border-radius:8px; transition: color .15s, border-color .15s; }
+  .logout:hover { color:#e6e9ef; border-color:#3a4557; }
   .badge.admin { background:rgba(74,222,128,.15); color:#4ade80; }
   .badge.invigilator { background:rgba(148,163,184,.15); color:#94a3b8; }
 
   main { flex: 1; display: flex; gap: 18px; padding: 18px; min-height: 0; }
-  .cameras { flex:1; display:flex; min-height:0; }
+  .cameras { flex:1; display:flex; flex-direction:column; gap:14px; min-height:0; }
+  .overview { display:flex; gap:12px; flex-wrap:wrap; }
+  .stat { background:#151a21; border:1px solid #232a34; border-radius:12px; padding:11px 16px; min-width:118px; }
+  .stat .n { font-size:22px; font-weight:800; letter-spacing:.5px; line-height:1; }
+  .stat .l { font-size:10.5px; color:#9aa4b2; text-transform:uppercase; letter-spacing:.7px; margin-top:6px; }
+  .stat.ok .n { color:#4ade80; }
+  .stat.warn .n { color:#eab308; }
   .grid { flex:1; display:grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
-    grid-auto-rows: minmax(240px, 1fr); gap:14px; overflow-y:auto; align-content:start; }
-  .panel { background:#151a21; border:1px solid #232a34; border-radius:12px;
-    overflow:hidden; display:flex; flex-direction:column; }
-  .panel-head { display:flex; align-items:center; gap:8px; padding:10px 12px;
-    border-bottom:1px solid #232a34; font-size:13px; }
+    grid-auto-rows: minmax(230px, 1fr); gap:14px; overflow-y:auto; align-content:start; padding-right:2px; }
+  .panel { background:#151a21; border:1px solid #232a34; border-radius:12px; overflow:hidden;
+    display:flex; flex-direction:column; transition: border-color .15s, transform .15s, box-shadow .15s; }
+  .panel:hover { border-color:#2f3a49; transform: translateY(-2px); box-shadow: 0 10px 26px rgba(0,0,0,.35); }
+  .panel-head { display:flex; align-items:center; gap:8px; padding:10px 13px;
+    border-bottom:1px solid #232a34; font-size:13px; font-weight:600; }
   .panel-body { flex:1; background:#000; display:flex; align-items:center; justify-content:center; min-height:0; }
   .panel-body img { max-width:100%; max-height:100%; }
-  .live-tag { margin-left:auto; font-size:10px; font-weight:700; color:#0e1116;
-    background:#4ade80; padding:3px 8px; border-radius:20px; }
+  .live-tag { margin-left:auto; display:inline-flex; align-items:center; gap:5px;
+    font-size:10px; font-weight:800; letter-spacing:.5px; color:#4ade80;
+    background:rgba(74,222,128,.12); padding:3px 9px 3px 8px; border-radius:20px; }
+  .live-tag::before { content:''; width:6px; height:6px; border-radius:50%; background:#4ade80;
+    box-shadow:0 0 6px #4ade80; animation: pulse 1.4s infinite; }
   .icon-btn { background:transparent; border:none; color:#7a8595; font-size:15px;
-    cursor:pointer; line-height:1; padding:0 3px; }
+    cursor:pointer; line-height:1; padding:0 3px; transition: color .12s; }
   .icon-btn:hover { color:#e6e9ef; }
   .remove { font-size:18px; }
   .remove:hover { color:#ef4444; }
-  .grid-empty { grid-column:1/-1; text-align:center; color:#5b6675; padding:60px 20px; font-size:14px; }
+  .grid-empty { grid-column:1/-1; display:flex; flex-direction:column; align-items:center;
+    justify-content:center; gap:12px; color:#7a8595; padding:64px 20px; text-align:center; }
+  .grid-empty h3 { color:#e6e9ef; font-size:17px; font-weight:700; }
+  .grid-empty p { font-size:13px; max-width:340px; line-height:1.6; }
+  .grid-empty .cam-btn { margin-top:6px; }
 
   aside { width: 340px; background: #151a21; border: 1px solid #232a34; border-radius: 14px;
     display: flex; flex-direction: column; }
@@ -911,6 +960,7 @@ STYLE = """
   .empty { padding: 40px 20px; text-align: center; color: #5b6675; font-size: 13px; line-height: 1.6; }
   .alert { display:flex; gap:12px; background:#1b212a; border:1px solid #283040;
     border-radius:10px; padding:10px; }
+  .alert.pending { border-color: rgba(234,179,8,.35); box-shadow: 0 0 0 1px rgba(234,179,8,.10); }
   .alert.dismissed { opacity:.45; }
   .alert img { width:56px; height:72px; object-fit:cover; border-radius:6px; background:#000; flex-shrink:0; }
   .alert-info { flex:1; display:flex; flex-direction:column; gap:3px; min-width:0; }
@@ -992,7 +1042,7 @@ DASHBOARD_HTML = """<!doctype html>
 <title>Vigil — Live Monitor</title>__STYLE__</head>
 <body>
   <header>
-    <span class="dot"></span>
+    __LOGO__
     <span class="logo">Vig<span>i</span>l</span>
     <nav class="nav"><a href="/" class="active">Live Monitor</a><a href="/evidence">Evidence Log</a>__ADMIN_NAV__</nav>
     <button class="cam-btn" id="cam-btn">+ Add camera</button>
@@ -1001,7 +1051,14 @@ DASHBOARD_HTML = """<!doctype html>
     <span class="clock" id="clock"></span>
   </header>
   <main>
-    <section class="cameras"><div class="grid" id="grid"></div></section>
+    <section class="cameras">
+      <div class="overview">
+        <div class="stat ok"><div class="n" id="stat-cameras">–</div><div class="l">Cameras</div></div>
+        <div class="stat"><div class="n" id="stat-today">–</div><div class="l">Alerts today</div></div>
+        <div class="stat warn"><div class="n" id="stat-pending">–</div><div class="l">Pending review</div></div>
+      </div>
+      <div class="grid" id="grid"></div>
+    </section>
     <aside>
       <div class="aside-head">Alerts <span class="count" id="alert-count" style="display:none"></span></div>
       <div id="alerts"><div class="empty">No alerts yet.<br>Hold a phone up to a camera.</div></div>
@@ -1031,7 +1088,12 @@ DASHBOARD_HTML = """<!doctype html>
       const grid = document.getElementById('grid');
       grid.innerHTML = cams.length
         ? cams.map(panelHTML).join('')
-        : '<div class="grid-empty">No cameras yet. Click “+ Add camera” to add one.</div>';
+        : `<div class="grid-empty">
+             <svg width="46" height="46" viewBox="0 0 24 24" fill="none"><path d="M4 9V6a2 2 0 0 1 2-2h3M15 4h3a2 2 0 0 1 2 2v3M20 15v3a2 2 0 0 1-2 2h-3M9 20H6a2 2 0 0 1-2-2v-3" stroke="#3a4557" stroke-width="1.6" stroke-linecap="round"/><circle cx="12" cy="12" r="2.4" fill="#3a4557"/></svg>
+             <h3>No cameras yet</h3>
+             <p>Add your webcam, a phone (via the IP Webcam app), or a CCTV camera to start watching for phones.</p>
+             ${IS_ADMIN ? '<button class="cam-btn" onclick="openAdd()">+ Add your first camera</button>' : '<p style="color:#5b6675">Ask an admin to add a camera.</p>'}
+           </div>`;
     }
 
     let editingId = null;
@@ -1169,6 +1231,18 @@ DASHBOARD_HTML = """<!doctype html>
       });
     }
     setInterval(refreshSnapshots, 250);
+
+    // ---- Overview stats ----
+    async function loadStats() {
+      try {
+        const s = await (await fetch('/stats')).json();
+        document.getElementById('stat-cameras').textContent = s.cameras;
+        document.getElementById('stat-today').textContent = s.alerts_today;
+        document.getElementById('stat-pending').textContent = s.pending;
+      } catch (e) {}
+    }
+    setInterval(loadStats, 2000);
+    loadStats();
   </script>
 </body></html>"""
 
@@ -1180,7 +1254,7 @@ EVIDENCE_HTML = """<!doctype html>
 <title>Vigil — Evidence Log</title>__STYLE__</head>
 <body>
   <header>
-    <span class="dot"></span>
+    __LOGO__
     <span class="logo">Vig<span>i</span>l</span>
     <nav class="nav"><a href="/">Live Monitor</a><a href="/evidence" class="active">Evidence Log</a>__ADMIN_NAV__</nav>
     <span class="userchip">👤 __USERNAME__</span>
@@ -1258,7 +1332,7 @@ USERS_HTML = """<!doctype html>
 </style></head>
 <body>
   <header>
-    <span class="dot"></span><span class="logo">Vig<span>i</span>l</span>
+    __LOGO__<span class="logo">Vig<span>i</span>l</span>
     <nav class="nav"><a href="/">Live Monitor</a><a href="/evidence">Evidence Log</a><a href="/users" class="active">Users</a><a href="/settings">Settings</a></nav>
     <span class="userchip">👤 __USERNAME__</span>
     <a class="logout" href="/logout">Log out</a>
@@ -1297,7 +1371,7 @@ def _admin_nav(user):
 def dashboard(request: Request):
     user = getattr(request.state, "user", None) or {"username": "", "role": "invigilator"}
     return (DASHBOARD_HTML
-            .replace("__STYLE__", STYLE)
+            .replace("__STYLE__", STYLE).replace("__LOGO__", LOGO_MARK)
             .replace("__CAMERA_MODAL__", CAMERA_MODAL)
             .replace("__USERNAME__", user["username"])
             .replace("__ADMIN_NAV__", _admin_nav(user))
@@ -1307,7 +1381,7 @@ def dashboard(request: Request):
 @app.get("/evidence", response_class=HTMLResponse)
 def evidence_page(request: Request):
     user = getattr(request.state, "user", None) or {"username": "", "role": "invigilator"}
-    return (EVIDENCE_HTML.replace("__STYLE__", STYLE)
+    return (EVIDENCE_HTML.replace("__STYLE__", STYLE).replace("__LOGO__", LOGO_MARK)
             .replace("__USERNAME__", user["username"])
             .replace("__ADMIN_NAV__", _admin_nav(user)))
 
@@ -1331,7 +1405,9 @@ AUTH_TEMPLATE = """<!doctype html>
     padding:9px 12px; border-radius:8px; margin-bottom:14px; }
 </style></head>
 <body>
-  <header><span class="dot"></span><span class="logo">Vig<span>i</span>l</span></header>
+  <header>__LOGO__<span class="logo">Vig<span>i</span>l</span>
+    <span style="color:#5b6675;font-size:12.5px;margin-left:4px">AI phone detection for exams &amp; secure areas</span>
+  </header>
   <div class="auth-wrap">
     <form class="auth" method="post" action="__ACTION__">
       <h2>__HEADING__</h2>
@@ -1349,7 +1425,7 @@ AUTH_TEMPLATE = """<!doctype html>
 
 def _auth_page(title, heading, hint, action, button, error=""):
     err = f'<div class="err">{error}</div>' if error else ""
-    return (AUTH_TEMPLATE.replace("__STYLE__", STYLE).replace("__TITLE__", title)
+    return (AUTH_TEMPLATE.replace("__STYLE__", STYLE).replace("__LOGO__", LOGO_MARK).replace("__TITLE__", title)
             .replace("__HEADING__", heading).replace("__HINT__", hint)
             .replace("__ACTION__", action).replace("__BUTTON__", button)
             .replace("__ERROR__", err))
@@ -1424,7 +1500,7 @@ def _users_rows(current_username):
 @app.get("/users", response_class=HTMLResponse)
 def users_page(request: Request):
     user = getattr(request.state, "user", None) or {"username": "", "role": ""}
-    return (USERS_HTML.replace("__STYLE__", STYLE)
+    return (USERS_HTML.replace("__STYLE__", STYLE).replace("__LOGO__", LOGO_MARK)
             .replace("__USERNAME__", user["username"])
             .replace("__ROWS__", _users_rows(user["username"])))
 
@@ -1467,7 +1543,7 @@ SETTINGS_SHELL = """<!doctype html>
 </style></head>
 <body>
   <header>
-    <span class="dot"></span><span class="logo">Vig<span>i</span>l</span>
+    __LOGO__<span class="logo">Vig<span>i</span>l</span>
     <nav class="nav"><a href="/">Live Monitor</a><a href="/evidence">Evidence Log</a><a href="/users">Users</a><a href="/settings" class="active">Settings</a></nav>
     <span class="userchip">👤 __USERNAME__</span>
     <a class="logout" href="/logout">Log out</a>
@@ -1558,7 +1634,7 @@ def settings_page(request: Request, saved: str = "", test: str = ""):
         <span class="hint" style="margin:0">Uses the saved config — click Save first.</span>
       </form>
     """
-    return (SETTINGS_SHELL.replace("__STYLE__", STYLE)
+    return (SETTINGS_SHELL.replace("__STYLE__", STYLE).replace("__LOGO__", LOGO_MARK)
             .replace("__USERNAME__", u["username"]).replace("__BODY__", body))
 
 
