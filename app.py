@@ -607,74 +607,110 @@ def _get_detector(camera_id):
         return d
 
 
-def generate_frames(camera_id):
-    """Serve ONE camera. Frames are shown as fast as they arrive; a background
-    Detector does the (heavy, tiled) phone detection so the video never stutters.
-    The built-in webcam is read INLINE here — macOS AVFoundation crashes if a webcam
-    is read from a background thread. Network cameras use CameraStream."""
-    inline_cap = None              # local webcam capture (this thread only)
-    inline_source = None
+# --- One producer per camera: always running, keeps the latest annotated JPEG.
+#     The dashboard polls cheap snapshots, so there's NO limit on the number of
+#     cameras (old live-streams were capped at ~6 by the browser). Detection also
+#     runs for every camera even when nobody is watching it. ---
+snapshots = {}                     # camera_id -> latest annotated JPEG bytes
+snapshots_lock = threading.Lock()
+producers = {}                     # camera_id -> Producer
+producers_lock = threading.Lock()
 
-    while True:
-        source, label = _find_camera(camera_id)
-        if source is None:                              # camera removed — clean up
-            if inline_cap is not None:
-                inline_cap.release()
-            with streams_lock:
-                s = streams.pop(camera_id, None)
-            if s is not None:
-                s.stop()
-            with detectors_lock:
-                d = detectors.pop(camera_id, None)
-            if d is not None:
-                d.stop()
-            break
 
-        is_webcam = source.isdigit()
+class Producer:
+    def __init__(self, camera_id):
+        self.camera_id = camera_id
+        self.running = True
+        self.thread = threading.Thread(target=self._run, daemon=True)
+        self.thread.start()
 
-        if is_webcam:
-            # --- read the webcam in THIS thread (safe) ---
-            if inline_cap is None or inline_source != source:
+    def _run(self):
+        inline_cap = None
+        inline_source = None
+        while self.running:
+            source, label = _find_camera(self.camera_id)
+            if source is None:                          # camera removed
+                break
+            is_webcam = source.isdigit()
+
+            if is_webcam:
+                # Open+read the webcam in THIS one thread (the safe pattern).
+                if inline_cap is None or inline_source != source:
+                    if inline_cap is not None:
+                        inline_cap.release()
+                    inline_cap = cv2.VideoCapture(_resolve_source(source))
+                    inline_source = source
+                frame = None
+                if inline_cap is not None and inline_cap.isOpened():
+                    ok, frame = inline_cap.read()
+                    if not ok:
+                        inline_cap.release()
+                        inline_cap = None
+                        frame = None
+            else:
                 if inline_cap is not None:
                     inline_cap.release()
-                inline_cap = cv2.VideoCapture(_resolve_source(source))
-                inline_source = source
-            frame = None
-            if inline_cap is not None and inline_cap.isOpened():
-                ok, frame = inline_cap.read()
-                if not ok:
-                    inline_cap.release()
                     inline_cap = None
-                    frame = None
-        else:
-            # --- network camera: background reader (low latency) ---
-            if inline_cap is not None:
-                inline_cap.release()
-                inline_cap = None
-                inline_source = None
-            frame = _get_stream(camera_id, source).read()
+                    inline_source = None
+                frame = _get_stream(self.camera_id, source).read()
 
-        if frame is None:
-            msg = "Camera not connected" if is_webcam else "Connecting to camera..."
-            frame = _placeholder(msg)
-            time.sleep(0.05)
-        else:
-            # Hand the clean frame to the background detector; draw its latest boxes.
-            detector = _get_detector(camera_id)
-            detector.submit(frame, label)
-            boxes = detector.boxes()
-            if boxes:
-                frame = frame.copy()                    # draw on a copy — keep detector's frame clean
-                for (x1, y1, x2, y2, conf) in boxes:
-                    cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 220, 90), 2)
-                    cv2.putText(frame, f"PHONE {conf:.0%}", (x1, max(y1 - 10, 20)),
-                                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 220, 90), 2)
+            if frame is None:
+                msg = "Camera not connected" if is_webcam else "Connecting to camera..."
+                frame = _placeholder(msg)
+                time.sleep(0.1)
+            else:
+                detector = _get_detector(self.camera_id)
+                detector.submit(frame, label)
+                boxes = detector.boxes()
+                if boxes:
+                    frame = frame.copy()
+                    for (x1, y1, x2, y2, conf) in boxes:
+                        cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 220, 90), 2)
+                        cv2.putText(frame, f"PHONE {conf:.0%}", (x1, max(y1 - 10, 20)),
+                                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 220, 90), 2)
 
-        ok, buffer = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, JPEG_QUALITY])
-        if not ok:
-            continue
-        yield (b"--frame\r\n"
-               b"Content-Type: image/jpeg\r\n\r\n" + buffer.tobytes() + b"\r\n")
+            ok, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, JPEG_QUALITY])
+            if ok:
+                with snapshots_lock:
+                    snapshots[self.camera_id] = buf.tobytes()
+            time.sleep(0.04)
+
+        # cleanup when the camera is removed or stopped
+        if inline_cap is not None:
+            inline_cap.release()
+        with streams_lock:
+            s = streams.pop(self.camera_id, None)
+        if s is not None:
+            s.stop()
+        with detectors_lock:
+            d = detectors.pop(self.camera_id, None)
+        if d is not None:
+            d.stop()
+        with snapshots_lock:
+            snapshots.pop(self.camera_id, None)
+        with producers_lock:
+            producers.pop(self.camera_id, None)
+
+    def stop(self):
+        self.running = False
+
+
+def _get_producer(camera_id):
+    with producers_lock:
+        p = producers.get(camera_id)
+        if p is None or not p.running:
+            p = Producer(camera_id)
+            producers[camera_id] = p
+        return p
+
+
+def ensure_producers():
+    """Make sure every configured camera has a running producer (so detection
+    and alerts run for all of them, viewed or not)."""
+    with cameras_lock:
+        ids = [c["id"] for c in cameras]
+    for cid in ids:
+        _get_producer(cid)
 
 
 # ---------------------------------------------------------------------------
@@ -685,7 +721,7 @@ app = FastAPI(title="Vigil")
 # Paths reachable without logging in
 _PUBLIC = {"/login", "/setup", "/logout"}
 # API paths that should return 401 (not redirect) when not authed
-_API_PREFIXES = ("/alerts", "/cameras", "/evidence/list", "/evidence/image", "/video_feed")
+_API_PREFIXES = ("/alerts", "/cameras", "/evidence/list", "/evidence/image", "/snapshot")
 
 
 @app.middleware("http")
@@ -719,10 +755,16 @@ async def auth_gate(request: Request, call_next):
     return await call_next(request)
 
 
-@app.get("/video_feed/{camera_id}")
-def video_feed(camera_id: str):
-    return StreamingResponse(generate_frames(camera_id),
-                             media_type="multipart/x-mixed-replace; boundary=frame")
+@app.get("/snapshot/{camera_id}")
+def snapshot(camera_id: str):
+    _get_producer(camera_id)                            # make sure it's running
+    with snapshots_lock:
+        data = snapshots.get(camera_id)
+    if not data:
+        ok, buf = cv2.imencode(".jpg", _placeholder("Starting..."))
+        data = buf.tobytes() if ok else b""
+    return Response(content=data, media_type="image/jpeg",
+                    headers={"Cache-Control": "no-store, max-age=0"})
 
 
 @app.get("/cameras")
@@ -740,6 +782,7 @@ def add_camera(payload: dict):
     with cameras_lock:
         cameras.append(cam)
         _save_cameras()
+    _get_producer(cam["id"])
     return cam
 
 
@@ -764,6 +807,10 @@ def remove_camera(cam_id: str):
     with cameras_lock:
         cameras[:] = [c for c in cameras if c["id"] != cam_id]
         _save_cameras()
+    with producers_lock:
+        p = producers.get(cam_id)
+    if p is not None:
+        p.stop()
     return {"ok": True}
 
 
@@ -975,7 +1022,7 @@ DASHBOARD_HTML = """<!doctype html>
         : '';
       return `<div class="panel">
         <div class="panel-head">📹 ${place}<span class="live-tag">● LIVE</span>${controls}</div>
-        <div class="panel-body"><img src="/video_feed/${c.id}" alt="feed"></div>
+        <div class="panel-body"><img class="cam-snap" data-cam="${c.id}" alt="feed"></div>
       </div>`;
     }
     async function loadCameras() {
@@ -1104,6 +1151,24 @@ DASHBOARD_HTML = """<!doctype html>
     }
     setInterval(loadAlerts, 1500);
     loadAlerts();
+
+    // ---- Live camera snapshots (poll — no limit on number of cameras) ----
+    function refreshSnapshots() {
+      document.querySelectorAll('img.cam-snap').forEach(img => {
+        const id = img.dataset.cam;
+        fetch('/snapshot/' + id + '?t=' + Date.now())
+          .then(r => r.ok ? r.blob() : null)
+          .then(blob => {
+            if (!blob) return;
+            const url = URL.createObjectURL(blob);
+            const prev = img.dataset.url;
+            img.src = url;
+            img.dataset.url = url;
+            if (prev) URL.revokeObjectURL(prev);
+          }).catch(() => {});
+      });
+    }
+    setInterval(refreshSnapshots, 250);
   </script>
 </body></html>"""
 
@@ -1574,3 +1639,6 @@ def _seed_demo_alerts():
 
 if os.getenv("VIGIL_DEMO") == "1":
     _seed_demo_alerts()
+
+# Start a producer for every configured camera (detection/alerts run for all).
+ensure_producers()
