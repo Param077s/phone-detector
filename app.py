@@ -38,6 +38,10 @@ CONFIDENCE     = 0.40
 PHONE_CLASS    = 67
 ALERT_COOLDOWN = 3
 
+DETECT_EVERY   = 2      # run YOLO every Nth frame; show every frame (smooth video)
+IMG_SIZE       = 480    # smaller = faster detection (640 is the default, slower)
+JPEG_QUALITY   = 75     # streamed video quality (lower = faster / less bandwidth)
+
 DB_PATH        = "evidence.db"
 EVIDENCE_DIR   = "evidence"
 CAMERAS_CONFIG = "cameras.json"
@@ -47,6 +51,19 @@ os.makedirs(EVIDENCE_DIR, exist_ok=True)
 print("Loading YOLO...")
 model = YOLO("yolo11n.pt")
 model_lock = threading.Lock()          # YOLO is shared across camera threads
+
+# Use the Mac's GPU (Apple Silicon "mps") if available — a big speed-up. Else CPU.
+try:
+    import torch
+    DEVICE = "mps" if torch.backends.mps.is_available() else ("cuda" if torch.cuda.is_available() else "cpu")
+except Exception:
+    DEVICE = "cpu"
+try:
+    model(np.zeros((IMG_SIZE, IMG_SIZE, 3), dtype=np.uint8), imgsz=IMG_SIZE, device=DEVICE, verbose=False)
+    print(f"Detection device: {DEVICE}")
+except Exception as e:
+    print(f"Device '{DEVICE}' unavailable ({e}); falling back to CPU")
+    DEVICE = "cpu"
 
 
 # ---------------------------------------------------------------------------
@@ -169,47 +186,109 @@ def _placeholder(text):
     return img
 
 
+# --- Background camera reader: always keeps the NEWEST frame (low latency) ---
+class CameraStream:
+    """Reads a camera in its own thread and holds only the latest frame, so the
+    viewer never falls behind the live action (no lag build-up)."""
+    def __init__(self, source):
+        self.source = source
+        self.frame = None
+        self.running = True
+        self.lock = threading.Lock()
+        self.cap = self._open()
+        self.thread = threading.Thread(target=self._reader, daemon=True)
+        self.thread.start()
+
+    def _open(self):
+        cap = cv2.VideoCapture(_resolve_source(self.source))
+        try:
+            cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)     # don't queue old frames
+        except Exception:
+            pass
+        return cap
+
+    def _reader(self):
+        while self.running:
+            if self.cap is None or not self.cap.isOpened():
+                time.sleep(0.3)
+                self.cap = self._open()
+                continue
+            ok, f = self.cap.read()
+            if not ok:
+                time.sleep(0.05)
+                self.cap.release()
+                self.cap = self._open()
+                continue
+            with self.lock:
+                self.frame = f
+
+    def read(self):
+        with self.lock:
+            return None if self.frame is None else self.frame.copy()
+
+    def stop(self):
+        self.running = False
+        try:
+            self.cap.release()
+        except Exception:
+            pass
+
+
+streams = {}                       # camera_id -> CameraStream
+streams_lock = threading.Lock()
+
+
+def _get_stream(camera_id, source):
+    with streams_lock:
+        s = streams.get(camera_id)
+        if s is None or s.source != source:
+            if s is not None:
+                s.stop()
+            s = CameraStream(source)
+            streams[camera_id] = s
+        return s
+
+
 def generate_frames(camera_id):
-    """Stream + detect for ONE camera. Stops if the camera is removed."""
-    current_source = None
-    cap = None
+    """Serve ONE camera: always show the newest frame, detect every Nth frame."""
+    frame_i = 0
+    last_boxes = []                # remembered between detections so video stays smooth
 
     while True:
         source, label = _find_camera(camera_id)
-        if source is None:
-            break                                    # camera was removed
+        if source is None:                              # camera removed
+            with streams_lock:
+                s = streams.pop(camera_id, None)
+            if s is not None:
+                s.stop()
+            break
 
-        if source != current_source:
-            if cap is not None:
-                cap.release()
-            cap = cv2.VideoCapture(_resolve_source(source))
-            current_source = source
-
-        frame = None
-        if cap is not None and cap.isOpened():
-            ok, frame = cap.read()
-            if not ok:
-                cap.release()
-                cap = cv2.VideoCapture(_resolve_source(source))
-                frame = None
+        stream = _get_stream(camera_id, source)
+        frame = stream.read()
 
         if frame is None:
             msg = "Camera not connected" if source == "0" else "Connecting to camera..."
             frame = _placeholder(msg)
-            time.sleep(0.15)
+            time.sleep(0.05)
         else:
-            with model_lock:
-                results = model(frame, classes=[PHONE_CLASS], conf=CONFIDENCE, verbose=False)
-            for box in results[0].boxes:
-                x1, y1, x2, y2 = map(int, box.xyxy[0])
-                conf = float(box.conf[0])
-                crop = frame[y1:y2, x1:x2].copy()
+            frame_i += 1
+            if frame_i % DETECT_EVERY == 0:             # run YOLO on this frame
+                with model_lock:
+                    results = model(frame, classes=[PHONE_CLASS], conf=CONFIDENCE,
+                                    imgsz=IMG_SIZE, device=DEVICE, verbose=False)
+                last_boxes = []
+                for box in results[0].boxes:
+                    x1, y1, x2, y2 = map(int, box.xyxy[0])
+                    conf = float(box.conf[0])
+                    last_boxes.append((x1, y1, x2, y2, conf))
+                    maybe_add_alert(frame[y1:y2, x1:x2].copy(), conf, label, camera_id)
+
+            for (x1, y1, x2, y2, conf) in last_boxes:   # draw on EVERY frame (smooth)
                 cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 220, 90), 2)
                 cv2.putText(frame, f"PHONE {conf:.0%}", (x1, max(y1 - 10, 20)),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 220, 90), 2)
-                maybe_add_alert(crop, conf, label, camera_id)
 
-        ok, buffer = cv2.imencode(".jpg", frame)
+        ok, buffer = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, JPEG_QUALITY])
         if not ok:
             continue
         yield (b"--frame\r\n"
