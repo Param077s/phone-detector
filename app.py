@@ -60,10 +60,17 @@ REQUIRED_HITS  = 3      # a phone must be seen this many detections IN A ROW bef
 PHONE_CLASS    = 67
 ALERT_COOLDOWN = 3
 
-DETECT_EVERY   = 3      # run YOLO every Nth frame (3 keeps it smooth at the higher res)
-IMG_SIZE       = 1280   # KEY for distance: analyze at higher detail so far-away phones
-                        # aren't shrunk away. 640=fast/near, 960=balance, 1280=best range.
+IMG_SIZE       = 960    # detail for the full-frame pass (catches near/large phones)
 JPEG_QUALITY   = 75     # streamed video quality (lower = faster / less bandwidth)
+
+# --- Tiling (for spotting phones far away) -------------------------------
+# Slice each frame into overlapping tiles and scan each one zoomed-in, so a
+# distant phone (tiny in the whole frame) is large enough inside its tile to see.
+TILING         = True
+TILE_COLS      = 2      # tiles across
+TILE_ROWS      = 2      # tiles down   (2x2 = 4 tiles + 1 full-frame pass)
+TILE_OVERLAP   = 0.15   # overlap so a phone on a tile seam isn't cut in half
+TILE_IMGSZ     = 768    # detail per tile
 
 DB_PATH        = "evidence.db"
 EVIDENCE_DIR   = "evidence"
@@ -291,14 +298,117 @@ def _get_stream(camera_id, source):
         return s
 
 
+def _iou(a, b):
+    ix1, iy1 = max(a[0], b[0]), max(a[1], b[1])
+    ix2, iy2 = min(a[2], b[2]), min(a[3], b[3])
+    iw, ih = max(0, ix2 - ix1), max(0, iy2 - iy1)
+    inter = iw * ih
+    union = (a[2]-a[0])*(a[3]-a[1]) + (b[2]-b[0])*(b[3]-b[1]) - inter
+    return inter / union if union > 0 else 0.0
+
+
+def _nms(boxes, iou_thr=0.5):
+    """Remove duplicate boxes (same phone seen in overlapping tiles)."""
+    boxes = sorted(boxes, key=lambda b: b[4], reverse=True)
+    keep = []
+    for b in boxes:
+        if all(_iou(b, k) < iou_thr for k in keep):
+            keep.append(b)
+    return keep
+
+
+def _detect(image, imgsz):
+    with model_lock:
+        res = model(image, classes=[PHONE_CLASS], conf=CONFIDENCE,
+                    imgsz=imgsz, device=DEVICE, verbose=False)
+    return [(*map(int, b.xyxy[0]), float(b.conf[0])) for b in res[0].boxes]
+
+
+def detect_phones(frame):
+    """Detect phones. With TILING on, also scan zoomed tiles so far-away phones
+    (tiny in the full frame) become big enough inside a tile to be recognized."""
+    h, w = frame.shape[:2]
+    boxes = _detect(frame, IMG_SIZE)                       # full frame: near/large phones
+    if TILING and w > 0 and h > 0:
+        tw, th = w // TILE_COLS, h // TILE_ROWS
+        ox, oy = int(tw * TILE_OVERLAP), int(th * TILE_OVERLAP)
+        for r in range(TILE_ROWS):
+            for c in range(TILE_COLS):
+                x0, y0 = max(0, c * tw - ox), max(0, r * th - oy)
+                x1, y1 = min(w, (c + 1) * tw + ox), min(h, (r + 1) * th + oy)
+                tile = frame[y0:y1, x0:x1]
+                if tile.size == 0:
+                    continue
+                for (bx1, by1, bx2, by2, cf) in _detect(tile, TILE_IMGSZ):
+                    boxes.append((bx1 + x0, by1 + y0, bx2 + x0, by2 + y0, cf))
+    return _nms(boxes, 0.5)
+
+
+class Detector:
+    """Runs phone detection in the background on the LATEST frame, so the video
+    loop stays smooth even when tiling makes each detection heavy. Also raises the
+    alerts (with the persistence filter), so that happens once per camera."""
+    def __init__(self, camera_id):
+        self.camera_id = camera_id
+        self._frame = None
+        self._label = ""
+        self._boxes = []
+        self._lock = threading.Lock()
+        self.running = True
+        self.thread = threading.Thread(target=self._run, daemon=True)
+        self.thread.start()
+
+    def submit(self, frame, label):
+        with self._lock:
+            self._frame = frame
+            self._label = label
+
+    def boxes(self):
+        with self._lock:
+            return list(self._boxes)
+
+    def _run(self):
+        streak = 0
+        while self.running:
+            with self._lock:
+                frame, label = self._frame, self._label
+                self._frame = None
+            if frame is None:
+                time.sleep(0.02)
+                continue
+            found = detect_phones(frame)
+            with self._lock:
+                self._boxes = found
+            if found:
+                streak += 1
+                if streak >= REQUIRED_HITS:             # persistence filter
+                    x1, y1, x2, y2, cf = max(found, key=lambda b: b[4])
+                    maybe_add_alert(frame[y1:y2, x1:x2].copy(), cf, label, self.camera_id)
+            else:
+                streak = 0
+
+    def stop(self):
+        self.running = False
+
+
+detectors = {}                     # camera_id -> Detector
+detectors_lock = threading.Lock()
+
+
+def _get_detector(camera_id):
+    with detectors_lock:
+        d = detectors.get(camera_id)
+        if d is None:
+            d = Detector(camera_id)
+            detectors[camera_id] = d
+        return d
+
+
 def generate_frames(camera_id):
-    """Serve ONE camera: detect every Nth frame.
-    The built-in webcam is read INLINE in this thread — macOS AVFoundation crashes
-    if a webcam is read from a background thread. Network cameras use the background
-    reader (CameraStream) for low latency."""
-    frame_i = 0
-    last_boxes = []                # remembered between detections so video stays smooth
-    detect_streak = 0              # how many detections in a row saw a phone
+    """Serve ONE camera. Frames are shown as fast as they arrive; a background
+    Detector does the (heavy, tiled) phone detection so the video never stutters.
+    The built-in webcam is read INLINE here — macOS AVFoundation crashes if a webcam
+    is read from a background thread. Network cameras use CameraStream."""
     inline_cap = None              # local webcam capture (this thread only)
     inline_source = None
 
@@ -311,6 +421,10 @@ def generate_frames(camera_id):
                 s = streams.pop(camera_id, None)
             if s is not None:
                 s.stop()
+            with detectors_lock:
+                d = detectors.pop(camera_id, None)
+            if d is not None:
+                d.stop()
             break
 
         is_webcam = source.isdigit()
@@ -342,26 +456,16 @@ def generate_frames(camera_id):
             frame = _placeholder(msg)
             time.sleep(0.05)
         else:
-            frame_i += 1
-            if frame_i % DETECT_EVERY == 0:             # run YOLO on this frame
-                with model_lock:
-                    results = model(frame, classes=[PHONE_CLASS], conf=CONFIDENCE,
-                                    imgsz=IMG_SIZE, device=DEVICE, verbose=False)
-                last_boxes = [(*map(int, b.xyxy[0]), float(b.conf[0])) for b in results[0].boxes]
-
-                if last_boxes:
-                    detect_streak += 1
-                    # only alert once the phone has persisted for several frames in a row
-                    if detect_streak >= REQUIRED_HITS:
-                        x1, y1, x2, y2, conf = max(last_boxes, key=lambda b: b[4])
-                        maybe_add_alert(frame[y1:y2, x1:x2].copy(), conf, label, camera_id)
-                else:
-                    detect_streak = 0                   # broke the streak — reset
-
-            for (x1, y1, x2, y2, conf) in last_boxes:   # draw on EVERY frame (smooth)
-                cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 220, 90), 2)
-                cv2.putText(frame, f"PHONE {conf:.0%}", (x1, max(y1 - 10, 20)),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 220, 90), 2)
+            # Hand the clean frame to the background detector; draw its latest boxes.
+            detector = _get_detector(camera_id)
+            detector.submit(frame, label)
+            boxes = detector.boxes()
+            if boxes:
+                frame = frame.copy()                    # draw on a copy — keep detector's frame clean
+                for (x1, y1, x2, y2, conf) in boxes:
+                    cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 220, 90), 2)
+                    cv2.putText(frame, f"PHONE {conf:.0%}", (x1, max(y1 - 10, 20)),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 220, 90), 2)
 
         ok, buffer = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, JPEG_QUALITY])
         if not ok:
