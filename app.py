@@ -50,8 +50,8 @@ except Exception:
 #   yolo11n  <  yolo11s  <  yolo11m  <  yolo11l  <  yolo11x
 MODEL_NAME     = "yolo11m.pt"
 
-CONFIDENCE     = 0.60   # ignore weak guesses. Raise toward 0.7 if still false-alarming;
-                        # lower toward 0.45 if it misses real phones.
+CONFIDENCE     = 0.65   # ignore weak guesses. Raise toward 0.75 if still false-alarming;
+                        # lower toward 0.5 if it misses real phones.
 REQUIRED_HITS  = 3      # a phone must be seen this many detections IN A ROW before it
                         # raises an alert — this is what kills brief false positives on
                         # random objects (a real phone held up stays; junk flickers).
@@ -70,6 +70,14 @@ os.makedirs(EVIDENCE_DIR, exist_ok=True)
 
 print(f"Loading YOLO ({MODEL_NAME})...")
 model = YOLO(MODEL_NAME)
+
+# Auto-detect which class id is the phone, so a FINE-TUNED model works too:
+#   COCO pretrained -> 67 ("cell phone");  fine-tuned single-class -> usually 0 ("phone")
+try:
+    PHONE_CLASS = next((i for i, n in model.names.items() if "phone" in str(n).lower()), PHONE_CLASS)
+    print(f"Phone class id: {PHONE_CLASS} ({model.names.get(PHONE_CLASS)})")
+except Exception:
+    pass
 model_lock = threading.Lock()          # YOLO is shared across camera threads
 
 # Use the Mac's GPU (Apple Silicon "mps") if available — a big speed-up. Else CPU.
@@ -644,10 +652,37 @@ DASHBOARD_HTML = """<!doctype html>
     document.getElementById('cam-btn').onclick = openAdd;
     loadCameras();
 
+    // ---- Real-time notification when a NEW phone alert arrives ----
+    let lastAlertId = 0, firstAlertLoad = true;
+    if ('Notification' in window && Notification.permission === 'default') {
+      try { Notification.requestPermission(); } catch (e) {}
+    }
+    function notifyAlert(a) {
+      try {                                    // short beep
+        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        const o = ctx.createOscillator(), g = ctx.createGain();
+        o.connect(g); g.connect(ctx.destination);
+        o.type = 'sine'; o.frequency.value = 880; g.gain.value = 0.08;
+        o.start(); o.stop(ctx.currentTime + 0.18);
+      } catch (e) {}
+      try {                                    // desktop notification
+        if ('Notification' in window && Notification.permission === 'granted') {
+          new Notification('📱 Phone detected · ' + Math.round(a.confidence * 100) + '%',
+            { body: '📍 ' + a.camera + '  ·  ' + a.time });
+        }
+      } catch (e) {}
+    }
+
     // ---- Alerts ----
     async function loadAlerts() {
       let data = [];
       try { data = await (await fetch('/alerts')).json(); } catch (e) { return; }
+      if (data.length) {                       // ping on a genuinely new pending alert
+        const newest = data[0];
+        if (!firstAlertLoad && newest.id > lastAlertId && newest.status === 'pending') notifyAlert(newest);
+        lastAlertId = Math.max(lastAlertId, newest.id);
+      }
+      firstAlertLoad = false;
       const box = document.getElementById('alerts');
       const countEl = document.getElementById('alert-count');
       const pending = data.filter(a => a.status === 'pending').length;

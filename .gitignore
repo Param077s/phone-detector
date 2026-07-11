@@ -19,3 +19,7 @@ cameras.json
 
 # macOS junk
 .DS_Store
+
+# Fine-tuning dataset & training outputs (big generated data, not code)
+dataset/
+runs/
