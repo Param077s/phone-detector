@@ -34,12 +34,18 @@ from fastapi.responses import StreamingResponse, HTMLResponse, FileResponse
 # ---------------------------------------------------------------------------
 # SETTINGS
 # ---------------------------------------------------------------------------
-CONFIDENCE     = 0.40
+# Accuracy ladder (bigger = smarter but slower). You have a GPU, so 'm' is a big
+# jump from 'n' with fine speed. Want the most powerful? use "yolo11x.pt".
+#   yolo11n  <  yolo11s  <  yolo11m  <  yolo11l  <  yolo11x
+MODEL_NAME     = "yolo11m.pt"
+
+CONFIDENCE     = 0.55   # ignore weak guesses. Raise toward 0.7 if still false-alarming;
+                        # lower toward 0.45 if it misses real phones.
 PHONE_CLASS    = 67
 ALERT_COOLDOWN = 3
 
 DETECT_EVERY   = 2      # run YOLO every Nth frame; show every frame (smooth video)
-IMG_SIZE       = 480    # smaller = faster detection (640 is the default, slower)
+IMG_SIZE       = 640    # bigger = better at small/distant phones (640 = full accuracy)
 JPEG_QUALITY   = 75     # streamed video quality (lower = faster / less bandwidth)
 
 DB_PATH        = "evidence.db"
@@ -48,8 +54,8 @@ CAMERAS_CONFIG = "cameras.json"
 
 os.makedirs(EVIDENCE_DIR, exist_ok=True)
 
-print("Loading YOLO...")
-model = YOLO("yolo11n.pt")
+print(f"Loading YOLO ({MODEL_NAME})...")
+model = YOLO(MODEL_NAME)
 model_lock = threading.Lock()          # YOLO is shared across camera threads
 
 # Use the Mac's GPU (Apple Silicon "mps") if available — a big speed-up. Else CPU.
