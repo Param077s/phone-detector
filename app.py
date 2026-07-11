@@ -229,7 +229,7 @@ class CameraStream:
         self.frame = None
         self.running = True
         self.lock = threading.Lock()
-        self.cap = self._open()
+        self.cap = None
         self.thread = threading.Thread(target=self._reader, daemon=True)
         self.thread.start()
 
@@ -242,6 +242,7 @@ class CameraStream:
         return cap
 
     def _reader(self):
+        self.cap = self._open()                     # open IN this thread (thread-safe)
         fails = 0
         while self.running:
             if self.cap is None or not self.cap.isOpened():
@@ -289,25 +290,53 @@ def _get_stream(camera_id, source):
 
 
 def generate_frames(camera_id):
-    """Serve ONE camera: always show the newest frame, detect every Nth frame."""
+    """Serve ONE camera: detect every Nth frame.
+    The built-in webcam is read INLINE in this thread — macOS AVFoundation crashes
+    if a webcam is read from a background thread. Network cameras use the background
+    reader (CameraStream) for low latency."""
     frame_i = 0
     last_boxes = []                # remembered between detections so video stays smooth
     detect_streak = 0              # how many detections in a row saw a phone
+    inline_cap = None              # local webcam capture (this thread only)
+    inline_source = None
 
     while True:
         source, label = _find_camera(camera_id)
-        if source is None:                              # camera removed
+        if source is None:                              # camera removed — clean up
+            if inline_cap is not None:
+                inline_cap.release()
             with streams_lock:
                 s = streams.pop(camera_id, None)
             if s is not None:
                 s.stop()
             break
 
-        stream = _get_stream(camera_id, source)
-        frame = stream.read()
+        is_webcam = source.isdigit()
+
+        if is_webcam:
+            # --- read the webcam in THIS thread (safe) ---
+            if inline_cap is None or inline_source != source:
+                if inline_cap is not None:
+                    inline_cap.release()
+                inline_cap = cv2.VideoCapture(_resolve_source(source))
+                inline_source = source
+            frame = None
+            if inline_cap is not None and inline_cap.isOpened():
+                ok, frame = inline_cap.read()
+                if not ok:
+                    inline_cap.release()
+                    inline_cap = None
+                    frame = None
+        else:
+            # --- network camera: background reader (low latency) ---
+            if inline_cap is not None:
+                inline_cap.release()
+                inline_cap = None
+                inline_source = None
+            frame = _get_stream(camera_id, source).read()
 
         if frame is None:
-            msg = "Camera not connected" if source == "0" else "Connecting to camera..."
+            msg = "Camera not connected" if is_webcam else "Connecting to camera..."
             frame = _placeholder(msg)
             time.sleep(0.05)
         else:
