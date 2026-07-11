@@ -1,0 +1,36 @@
+=======================================================
+   V I G I L   —   READ ME FIRST
+=======================================================
+
+Vigil watches your camera and alerts you if it sees a phone.
+
+
+TO START IT:
+
+   • Mac:      double-click   Vigil.command
+              (first time: right-click it -> Open -> Open)
+
+   • Windows:  double-click   Vigil-Windows.bat
+              (if a warning shows: More info -> Run anyway)
+
+
+WHAT TO EXPECT:
+
+   • The FIRST time takes about 5-15 minutes to set itself
+     up (it downloads ~2 GB). Just keep the window open and
+     wait. This only happens ONCE.
+
+   • Then your web browser opens automatically.
+
+   • On the first screen, create your own account. Done!
+
+   • Every time after, it opens in seconds.
+
+
+NEED IT? You'll want a webcam (or a phone as a camera),
+internet for the one-time setup, and Python 3 (the app
+points you to it if it's missing).
+
+More detail is in  INSTALL.md
+
+=======================================================
