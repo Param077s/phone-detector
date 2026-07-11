@@ -12,3 +12,6 @@ alerts/
 # Evidence log — the database and saved evidence photos (generated data)
 evidence/
 evidence.db
+
+# Which camera was last selected (local setting, not code)
+camera_config.json
