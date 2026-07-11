@@ -1,103 +1,64 @@
-# Phone Detector — Layer 0
+# Vigil
 
-The tiniest working version of our exam-security idea.
-It watches the webcam and, when it sees a phone, it draws a box around it,
-prints an alert, and saves a cropped photo into the `alerts/` folder.
+AI phone-detection for exams and secure areas. Vigil watches your cameras (webcam,
+phone, or CCTV), flags phones in real time, and alerts a person — with a cropped
+photo and the location — for them to confirm. Everything runs on your own computer;
+your video never leaves the building.
 
-Everything big later (real cameras, seats, dashboards, universities) is just
-this same idea, scaled up. Get this working first.
+## Install (no coding needed)
 
----
+**Just double-click the launcher for your system** — it installs everything the
+first time, then opens Vigil in your browser:
 
-## What you need
-- A computer with a webcam
-- **Python 3** installed (check with: `python3 --version`)
+- **Mac:** `Vigil.command`
+- **Windows:** `Vigil-Windows.bat`
+- **Linux:** `./Vigil-Linux.sh`
 
----
+First launch asks you to create an **admin account**. Full step-by-step: see
+[INSTALL.md](INSTALL.md).
 
-## Setup (do this once, each person on their own machine)
+> Want to hand Vigil to someone else? Run `make-release.command` to build a
+> shareable `Vigil.zip` — they unzip it and double-click the launcher.
 
-Open a terminal **inside this folder**, then run these lines one by one:
+## What it does
+
+- **Live monitor** — many cameras at once, phones boxed in real time (with tiling
+  for spotting phones far away).
+- **Alerts** — a phone triggers an alert card with a cropped photo + location; a
+  human clicks Confirm or Dismiss (the AI never accuses on its own).
+- **Evidence log** — a searchable, timestamped history for disputes.
+- **Accounts & roles** — admins manage cameras and users; invigilators just
+  receive alerts.
+- **Notifications** — a beep + desktop notification on each new detection.
+
+## Cameras
+
+Add a camera from **+ Add camera**: leave the address blank for this computer's
+webcam, or paste a stream URL:
+- **Phone (test):** the free **IP Webcam** app → `http://<phone-ip>:8080/video`
+  (phone and computer on the same WiFi).
+- **CCTV:** an `rtsp://…` URL from the camera.
+
+## Accuracy
+
+Vigil ships with a solid general model. To make it sharper for *your* cameras and
+stop specific false alarms, fine-tune it on your own footage — see
+[FINETUNING.md](FINETUNING.md).
+
+## Tuning (top of `app.py`)
+
+`CONFIDENCE`, `REQUIRED_HITS` (false-alarm control), `IMG_SIZE`, `TILING` /
+`TILE_COLS` / `TILE_ROWS` (range vs speed), `MODEL_NAME` (which model to use).
+
+## For developers
+
+It's a FastAPI + Ultralytics YOLO + OpenCV app (`app.py`), SQLite for the evidence
+log and users. Run directly with:
 
 ```bash
-# 1) Make a private workspace for this project's tools
-python3 -m venv venv
-
-# 2) Turn it on   (Mac/Linux)
-source venv/bin/activate
-#    (on Windows it's:  venv\Scripts\activate )
-
-# 3) Install YOLO + the camera library (this is a biggish download, be patient)
+python3 -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
+python -m uvicorn app:app --port 8000
 ```
 
-## Run it
-
-```bash
-python detect.py
-```
-
-A window opens showing your webcam. **Hold a phone up to the camera.**
-You should see a green box appear around it, an `[ALERT]` line in the terminal,
-and a photo saved in the `alerts/` folder. Press **q** to quit.
-
----
-
-## How the code works (read `detect.py` — it's fully commented)
-
-The whole thing is a loop that repeats many times per second:
-
-1. Grab one photo from the webcam.
-2. Hand it to YOLO → YOLO says where any phones are.
-3. For each phone: draw a box, and (every couple of seconds) save a cropped photo + print an alert.
-4. Show the live window.
-5. Repeat.
-
-**YOLO is only the "eyes."** All the rest — the alert, the cropping, the saving —
-is *our* code. That's the important lesson: the product is the logic we write
-*around* YOLO, not YOLO itself.
-
-### Things to try together (change a number, re-run, see the effect)
-- `CONFIDENCE` — lower it to `0.25` (more sensitive) or raise to `0.6` (stricter).
-- Point it at a calculator or wallet — does it false-alarm? (This is why real systems keep a human in the loop.)
-- Move the phone far away — notice how detection gets harder at distance. (That's the camera-angle lesson from our plan.)
-
----
-
-## Working as a team (both of us, equally)
-
-We use **git + GitHub** so we both have the same code and can see each other's changes.
-
-**One-time, one of us creates the shared repo:**
-```bash
-# after installing GitHub CLI, or create it on github.com in the browser
-gh repo create phone-detector --private --source=. --push
-```
-Then add the other brother as a **collaborator** in the repo's Settings → Collaborators.
-
-**Everyday routine (both of us):**
-```bash
-git pull            # get the latest before you start working
-# ... make your changes ...
-git add -A
-git commit -m "what I changed"
-git push            # share your changes
-```
-
-Rule of thumb: **pull before you start, push when you finish.** Tell each other
-what you're working on so you don't edit the same lines at the same time.
-
----
-
-## Troubleshooting
-- **"Could not open the webcam"** on Mac → the terminal needs camera permission:
-  System Settings → Privacy & Security → Camera → allow your terminal app. Then re-run.
-- **Error mentioning `yolo11n.pt`** → replace it in `detect.py` with `yolov8n.pt` (an older but very stable model).
-- **First run is slow** → it's downloading YOLO's model file once. After that it's fast.
-
----
-
-## What's next (Layer 1)
-Once this works, we point it at a real camera feed instead of the webcam, add a
-location tag, send the alert to a phone instead of just saving a photo, and put
-it on a small dashboard. Same core loop — just wired to the real world.
+Runs on Apple Silicon GPU (MPS) automatically when available.

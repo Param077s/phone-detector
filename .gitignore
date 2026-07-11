@@ -25,6 +25,9 @@ secret.key
 # macOS junk
 .DS_Store
 
+# Built release zip
+dist/
+
 # Fine-tuning dataset & training outputs (big generated data, not code)
 dataset/
 runs/
