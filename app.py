@@ -100,11 +100,16 @@ def _resolve_source(s):
     return int(s) if s.isdigit() else s
 
 
+def _place(c):
+    """The location shown on alerts — falls back to the camera name."""
+    return (c.get("location") or "").strip() or c["label"]
+
+
 def _find_camera(cam_id):
     with cameras_lock:
         for c in cameras:
             if c["id"] == cam_id:
-                return c["source"], c["label"]
+                return c["source"], _place(c)
     return None, None
 
 
@@ -316,12 +321,29 @@ def list_cameras():
 @app.post("/cameras")
 def add_camera(payload: dict):
     label = str(payload.get("label", "Camera")).strip() or "Camera"
+    location = str(payload.get("location", "")).strip()
     source = str(payload.get("source", "0")).strip() or "0"
-    cam = {"id": uuid.uuid4().hex[:8], "label": label, "source": source}
+    cam = {"id": uuid.uuid4().hex[:8], "label": label, "location": location, "source": source}
     with cameras_lock:
         cameras.append(cam)
         _save_cameras()
     return cam
+
+
+@app.put("/cameras/{cam_id}")
+def edit_camera(cam_id: str, payload: dict):
+    with cameras_lock:
+        for c in cameras:
+            if c["id"] == cam_id:
+                if "label" in payload:
+                    c["label"] = str(payload["label"]).strip() or c["label"]
+                if "location" in payload:
+                    c["location"] = str(payload["location"]).strip()
+                if "source" in payload:
+                    c["source"] = str(payload["source"]).strip() or c["source"]
+                _save_cameras()
+                return c
+    return {"ok": False}
 
 
 @app.delete("/cameras/{cam_id}")
@@ -406,8 +428,10 @@ STYLE = """
   .panel-body img { max-width:100%; max-height:100%; }
   .live-tag { margin-left:auto; font-size:10px; font-weight:700; color:#0e1116;
     background:#4ade80; padding:3px 8px; border-radius:20px; }
-  .remove { background:transparent; border:none; color:#7a8595; font-size:18px;
-    cursor:pointer; line-height:1; padding:0 2px; }
+  .icon-btn { background:transparent; border:none; color:#7a8595; font-size:15px;
+    cursor:pointer; line-height:1; padding:0 3px; }
+  .icon-btn:hover { color:#e6e9ef; }
+  .remove { font-size:18px; }
   .remove:hover { color:#ef4444; }
   .grid-empty { grid-column:1/-1; text-align:center; color:#5b6675; padding:60px 20px; font-size:14px; }
 
@@ -475,17 +499,19 @@ STYLE = """
 CAMERA_MODAL = """
 <div class="modal-bg" id="cam-modal">
   <div class="modal">
-    <h3>Add a camera</h3>
-    <p>Phone with the <b>IP Webcam</b> app? Put the URL it shows plus <code>/video</code>,
-       e.g. <code>http://192.168.1.5:8080/video</code>. Real CCTV uses an <code>rtsp://…</code> URL.
-       (Same WiFi required.)</p>
+    <h3 id="cam-title">Add a camera</h3>
+    <p>The <b>location</b> shows on every alert and in the evidence log, so staff know
+       exactly where to go. Phone via the <b>IP Webcam</b> app? Put the URL it shows plus
+       <code>/video</code>. Real CCTV uses an <code>rtsp://…</code> URL. (Same WiFi required.)</p>
     <label>Camera name</label>
-    <input id="cam-label" placeholder="e.g. Corridor 2  /  Bag-drop">
+    <input id="cam-label" placeholder="e.g. Cam 2">
+    <label>Location / place it watches</label>
+    <input id="cam-location" placeholder="e.g. Bag-drop · West gate">
     <label>Stream URL (leave blank for this Mac's webcam)</label>
     <input id="cam-input" placeholder="http://192.168.1.5:8080/video   (or rtsp://...)">
     <div class="modal-actions">
-      <button class="btn-primary" onclick="addCam()">Add camera</button>
-      <button class="btn-ghost" onclick="addWebcam()">Add this Mac's webcam</button>
+      <button class="btn-primary" id="cam-submit" onclick="submitCam()">Add camera</button>
+      <button class="btn-ghost" id="cam-webcam" onclick="addWebcam()">Add this Mac's webcam</button>
       <button class="btn-ghost" onclick="closeCam()">Cancel</button>
     </div>
   </div>
@@ -520,9 +546,11 @@ DASHBOARD_HTML = """<!doctype html>
 
     // ---- Camera grid ----
     function panelHTML(c) {
+      const place = (c.location && c.location.trim()) ? c.location : c.label;
       return `<div class="panel">
-        <div class="panel-head">📹 ${c.label}<span class="live-tag">● LIVE</span>
-          <button class="remove" title="Remove camera" onclick="removeCam('${c.id}')">×</button></div>
+        <div class="panel-head">📹 ${place}<span class="live-tag">● LIVE</span>
+          <button class="icon-btn" title="Edit camera" onclick="openEdit('${c.id}')">✎</button>
+          <button class="icon-btn remove" title="Remove camera" onclick="removeCam('${c.id}')">×</button></div>
         <div class="panel-body"><img src="/video_feed/${c.id}" alt="feed"></div>
       </div>`;
     }
@@ -534,27 +562,56 @@ DASHBOARD_HTML = """<!doctype html>
         ? cams.map(panelHTML).join('')
         : '<div class="grid-empty">No cameras yet. Click “+ Add camera” to add one.</div>';
     }
-    async function addCam() {
-      const label = document.getElementById('cam-label').value.trim() || 'Camera';
-      const source = document.getElementById('cam-input').value.trim() || '0';
-      await fetch('/cameras', { method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ label, source }) });
+
+    let editingId = null;
+    function openCam(){ document.getElementById('cam-modal').classList.add('open'); }
+    function closeCam(){ document.getElementById('cam-modal').classList.remove('open'); }
+    function openAdd() {
+      editingId = null;
+      document.getElementById('cam-title').textContent = 'Add a camera';
+      document.getElementById('cam-submit').textContent = 'Add camera';
+      document.getElementById('cam-webcam').style.display = '';
       document.getElementById('cam-label').value = '';
+      document.getElementById('cam-location').value = '';
       document.getElementById('cam-input').value = '';
+      openCam();
+    }
+    async function openEdit(id) {
+      let cams = [];
+      try { cams = await (await fetch('/cameras')).json(); } catch (e) { return; }
+      const c = cams.find(x => x.id === id);
+      if (!c) return;
+      editingId = id;
+      document.getElementById('cam-title').textContent = 'Edit camera';
+      document.getElementById('cam-submit').textContent = 'Save';
+      document.getElementById('cam-webcam').style.display = 'none';
+      document.getElementById('cam-label').value = c.label || '';
+      document.getElementById('cam-location').value = c.location || '';
+      document.getElementById('cam-input').value = (c.source === '0') ? '' : (c.source || '');
+      openCam();
+    }
+    async function submitCam() {
+      const label = document.getElementById('cam-label').value.trim() || 'Camera';
+      const location = document.getElementById('cam-location').value.trim();
+      const source = document.getElementById('cam-input').value.trim() || '0';
+      const body = JSON.stringify({ label, location, source });
+      if (editingId) {
+        await fetch('/cameras/' + editingId, { method:'PUT', headers:{'Content-Type':'application/json'}, body });
+      } else {
+        await fetch('/cameras', { method:'POST', headers:{'Content-Type':'application/json'}, body });
+      }
       closeCam(); loadCameras();
     }
     async function addWebcam() {
       await fetch('/cameras', { method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ label: "Mac webcam", source: '0' }) });
+        body: JSON.stringify({ label: "Mac webcam", location: "", source: '0' }) });
       closeCam(); loadCameras();
     }
     async function removeCam(id) {
       await fetch('/cameras/' + id, { method:'DELETE' });
       loadCameras();
     }
-    function openCam(){ document.getElementById('cam-modal').classList.add('open'); }
-    function closeCam(){ document.getElementById('cam-modal').classList.remove('open'); }
-    document.getElementById('cam-btn').onclick = openCam;
+    document.getElementById('cam-btn').onclick = openAdd;
     loadCameras();
 
     // ---- Alerts ----
@@ -575,7 +632,7 @@ DASHBOARD_HTML = """<!doctype html>
           <img src="${a.image}">
           <div class="alert-info">
             <div class="alert-title">Phone detected · ${Math.round(a.confidence*100)}%</div>
-            <div class="alert-cam">${a.camera}</div>
+            <div class="alert-cam">📍 ${a.camera}</div>
             <div class="alert-time">${a.time}</div>
             ${a.status === 'pending'
               ? `<div class="alert-actions">
@@ -618,7 +675,7 @@ EVIDENCE_HTML = """<!doctype html>
     </div>
     <div class="table">
       <table>
-        <thead><tr><th>Photo</th><th>Date</th><th>Time</th><th>Camera</th><th>Confidence</th><th>Status</th></tr></thead>
+        <thead><tr><th>Photo</th><th>Date</th><th>Time</th><th>Location</th><th>Confidence</th><th>Status</th></tr></thead>
         <tbody id="rows"></tbody>
       </table>
     </div>
@@ -684,8 +741,8 @@ def _seed_demo_alerts():
     cv2.rectangle(fake, (40, 22), (80, 120), (30, 33, 40), -1)
     ok, buf = cv2.imencode(".jpg", fake)
     jpg = buf.tobytes()
-    _store_alert(jpg, 0.87, "Camera 1 · Webcam", status="confirmed")
-    _store_alert(jpg, 0.91, "Camera 2 · Phone", status="pending")
+    _store_alert(jpg, 0.87, "Bag-drop · West gate", status="confirmed")
+    _store_alert(jpg, 0.91, "Corridor 2 · Block A", status="pending")
 
 
 if os.getenv("VIGIL_DEMO") == "1":
