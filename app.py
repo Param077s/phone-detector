@@ -52,16 +52,17 @@ MODEL_NAME     = "yolo11m.pt"       # generic model (reliable). The auto-labeled
                                     # "vigil-phone.pt" fine-tune learned bad labels
                                     # (faces marked as phones) — needs clean labels first.
 
-CONFIDENCE     = 0.65   # ignore weak guesses. Raise toward 0.75 if still false-alarming;
-                        # lower toward 0.5 if it misses real phones.
+CONFIDENCE     = 0.45   # lower = catches faint/distant phones (but more false alarms).
+                        # Raise toward 0.6 if it false-alarms; lower toward 0.35 for more range.
 REQUIRED_HITS  = 3      # a phone must be seen this many detections IN A ROW before it
                         # raises an alert — this is what kills brief false positives on
                         # random objects (a real phone held up stays; junk flickers).
 PHONE_CLASS    = 67
 ALERT_COOLDOWN = 3
 
-DETECT_EVERY   = 2      # run YOLO every Nth frame; show every frame (smooth video)
-IMG_SIZE       = 640    # bigger = better at small/distant phones (640 = full accuracy)
+DETECT_EVERY   = 3      # run YOLO every Nth frame (3 keeps it smooth at the higher res)
+IMG_SIZE       = 1280   # KEY for distance: analyze at higher detail so far-away phones
+                        # aren't shrunk away. 640=fast/near, 960=balance, 1280=best range.
 JPEG_QUALITY   = 75     # streamed video quality (lower = faster / less bandwidth)
 
 DB_PATH        = "evidence.db"
