@@ -26,6 +26,8 @@ os.environ.setdefault("OPENCV_FFMPEG_LOGLEVEL", "-8")
 import time
 import json
 import uuid
+import urllib.request
+import urllib.parse
 import hmac
 import hashlib
 import secrets
@@ -86,9 +88,13 @@ os.makedirs(EVIDENCE_DIR, exist_ok=True)
 # --- Live-tunable settings (editable from the in-app Settings page) ---------
 # The values above are the DEFAULTS; settings.json (if present) overrides them,
 # and the Settings page updates both the running values and settings.json.
+TELEGRAM_TOKEN    = ""   # Telegram bot token (set from the Settings page)
+TELEGRAM_CHAT_IDS = ""   # comma-separated chat id(s) to send alerts to
+
 SETTINGS_FILE = "settings.json"
 TUNABLE = ["MODEL_NAME", "CONFIDENCE", "REQUIRED_HITS", "ALERT_COOLDOWN", "IMG_SIZE",
-           "TILING", "TILE_COLS", "TILE_ROWS", "TILE_OVERLAP", "TILE_IMGSZ"]
+           "TILING", "TILE_COLS", "TILE_ROWS", "TILE_OVERLAP", "TILE_IMGSZ",
+           "TELEGRAM_TOKEN", "TELEGRAM_CHAT_IDS"]
 
 
 def _apply_saved_settings():
@@ -364,6 +370,45 @@ _cooldown_lock = threading.Lock()
 _last_alert_time = {}    # camera_id -> timestamp
 
 
+# --- Telegram alerts (optional; configured in Settings) --------------------
+def _telegram_chat_ids():
+    return [c.strip() for c in (TELEGRAM_CHAT_IDS or "").replace(";", ",").split(",") if c.strip()]
+
+
+def _telegram_send_message(token, chat_id, text):
+    data = urllib.parse.urlencode({"chat_id": chat_id, "text": text}).encode()
+    req = urllib.request.Request(f"https://api.telegram.org/bot{token}/sendMessage", data=data)
+    urllib.request.urlopen(req, timeout=10).read()
+
+
+def _telegram_send_photo(token, chat_id, jpg_bytes, caption):
+    boundary = "----VigilBoundaryZ9x1"
+    parts = []
+    for name, value in (("chat_id", str(chat_id)), ("caption", caption)):
+        parts.append((f'--{boundary}\r\nContent-Disposition: form-data; name="{name}"\r\n\r\n{value}\r\n').encode())
+    parts.append((f'--{boundary}\r\nContent-Disposition: form-data; name="photo"; filename="alert.jpg"\r\n'
+                  f'Content-Type: image/jpeg\r\n\r\n').encode())
+    body = b"".join(parts) + jpg_bytes + b"\r\n" + f"--{boundary}--\r\n".encode()
+    req = urllib.request.Request(f"https://api.telegram.org/bot{token}/sendPhoto", data=body,
+                                 headers={"Content-Type": f"multipart/form-data; boundary={boundary}"})
+    urllib.request.urlopen(req, timeout=15).read()
+
+
+def send_telegram_alert(jpg_bytes, caption):
+    """Send an alert photo to all configured Telegram chats, in the background."""
+    token = (TELEGRAM_TOKEN or "").strip()
+    chat_ids = _telegram_chat_ids()
+    if not token or not chat_ids:
+        return
+    def _worker():
+        for cid in chat_ids:
+            try:
+                _telegram_send_photo(token, cid, jpg_bytes, caption)
+            except Exception as e:
+                print(f"Telegram send failed for {cid}: {e}")
+    threading.Thread(target=_worker, daemon=True).start()
+
+
 def maybe_add_alert(crop, confidence, camera_label, camera_id):
     now = time.time()
     with _cooldown_lock:
@@ -373,7 +418,11 @@ def maybe_add_alert(crop, confidence, camera_label, camera_id):
         if not ok:
             return
         _last_alert_time[camera_id] = now
-        _store_alert(buf.tobytes(), confidence, camera_label, status="pending")
+        jpg = buf.tobytes()
+        _store_alert(jpg, confidence, camera_label, status="pending")
+        caption = (f"📱 Phone detected · {round(confidence * 100)}%\n"
+                   f"📍 {camera_label}\n🕐 {datetime.now().strftime('%H:%M:%S')}")
+        send_telegram_alert(jpg, caption)
 
 
 def _placeholder(text):
@@ -1363,11 +1412,17 @@ SETTINGS_SHELL = """<!doctype html>
 
 
 @app.get("/settings", response_class=HTMLResponse)
-def settings_page(request: Request, saved: str = ""):
+def settings_page(request: Request, saved: str = "", test: str = ""):
     u = getattr(request.state, "user", None) or {"username": "", "role": ""}
     g = globals()
     banner = ('<div class="saved">✓ Saved — changes apply live (a model change takes a few seconds).</div>'
               if saved else '')
+    if test == "ok":
+        banner += '<div class="saved">✓ Test message sent — check your Telegram.</div>'
+    elif test == "fail":
+        banner += '<div class="saved" style="background:rgba(239,68,68,.15);color:#f87171">✗ Test failed — check the token and chat ID.</div>'
+    elif test == "noconfig":
+        banner += '<div class="saved" style="background:rgba(234,179,8,.15);color:#eab308">Add a bot token and chat ID, click Save, then test.</div>'
     checked = "checked" if g["TILING"] else ""
     body = f"""
       <h2>Detection settings</h2>
@@ -1414,7 +1469,28 @@ def settings_page(request: Request, saved: str = ""):
           <input type="text" name="model_name" value="{g['MODEL_NAME']}" style="width:340px">
         </div>
 
+        <div class="sec">Phone alerts via Telegram (optional)</div>
+        <div class="field">
+          <div class="hint">Get alerts on your phone with the photo + location. Setup: in Telegram, message
+          <b>@BotFather</b> → <code>/newbot</code> → copy the <b>token</b>. Then send any message to your new
+          bot, open <code>https://api.telegram.org/bot&lt;token&gt;/getUpdates</code> and copy the <b>chat id</b>.
+          Leave blank to turn off.</div>
+        </div>
+        <div class="field">
+          <label>Bot token</label>
+          <input type="text" name="telegram_token" value="{g['TELEGRAM_TOKEN']}" style="width:340px" placeholder="123456:ABC-DEF...">
+        </div>
+        <div class="field">
+          <label>Chat ID(s)</label>
+          <div class="hint">One or more, comma-separated (one per person who should get alerts).</div>
+          <input type="text" name="telegram_chat_ids" value="{g['TELEGRAM_CHAT_IDS']}" style="width:340px" placeholder="123456789, 987654321">
+        </div>
+
         <div class="save-row"><button type="submit">Save settings</button></div>
+      </form>
+      <form method="post" action="/settings/telegram-test" style="margin-top:12px;display:flex;gap:12px;align-items:center">
+        <button type="submit" style="background:#2b3340;color:#c4ccd8;border:none;padding:10px 18px;border-radius:8px;font-weight:600;cursor:pointer">Send test message</button>
+        <span class="hint" style="margin:0">Uses the saved config — click Save first.</span>
       </form>
     """
     return (SETTINGS_SHELL.replace("__STYLE__", STYLE)
@@ -1437,6 +1513,8 @@ def settings_save(
     tile_overlap: float = Form(0.15),
     tile_imgsz: int = Form(768),
     model_name: str = Form("yolo11m.pt"),
+    telegram_token: str = Form(""),
+    telegram_chat_ids: str = Form(""),
 ):
     old_model = MODEL_NAME
     save_settings({
@@ -1450,6 +1528,8 @@ def settings_save(
         "TILE_OVERLAP": min(max(tile_overlap, 0.0), 0.4),
         "TILE_IMGSZ": min(max(_round32(tile_imgsz), 320), 1280),
         "MODEL_NAME": model_name.strip() or old_model,
+        "TELEGRAM_TOKEN": telegram_token.strip(),
+        "TELEGRAM_CHAT_IDS": telegram_chat_ids.strip(),
     })
     if MODEL_NAME != old_model:
         try:
@@ -1457,6 +1537,22 @@ def settings_save(
         except Exception:
             save_settings({"MODEL_NAME": old_model})       # bad model -> revert
     return RedirectResponse("/settings?saved=1", status_code=303)
+
+
+@app.post("/settings/telegram-test")
+def telegram_test():
+    token = (TELEGRAM_TOKEN or "").strip()
+    chat_ids = _telegram_chat_ids()
+    if not token or not chat_ids:
+        return RedirectResponse("/settings?test=noconfig", status_code=303)
+    ok_any = False
+    for cid in chat_ids:
+        try:
+            _telegram_send_message(token, cid, "✅ Vigil test — phone alerts are working. You'll get a photo here when a phone is detected.")
+            ok_any = True
+        except Exception as e:
+            print(f"Telegram test failed for {cid}: {e}")
+    return RedirectResponse(f"/settings?test={'ok' if ok_any else 'fail'}", status_code=303)
 
 
 # ---------------------------------------------------------------------------
