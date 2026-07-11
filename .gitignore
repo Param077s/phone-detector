@@ -1,0 +1,10 @@
+# Python virtual environment (each person makes their own — don't share it)
+venv/
+.venv/
+__pycache__/
+
+# The YOLO model file (it re-downloads automatically — no need to store in git)
+*.pt
+
+# The saved phone photos (these are generated, not code)
+alerts/
