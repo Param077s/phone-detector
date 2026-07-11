@@ -613,6 +613,8 @@ def _get_detector(camera_id):
 #     runs for every camera even when nobody is watching it. ---
 snapshots = {}                     # camera_id -> latest annotated JPEG bytes
 snapshots_lock = threading.Lock()
+camera_status = {}                 # camera_id -> "online" | "offline"
+status_lock = threading.Lock()
 producers = {}                     # camera_id -> Producer
 producers_lock = threading.Lock()
 
@@ -655,10 +657,14 @@ class Producer:
                 frame = _get_stream(self.camera_id, source).read()
 
             if frame is None:
+                with status_lock:
+                    camera_status[self.camera_id] = "offline"
                 msg = "Camera not connected" if is_webcam else "Connecting to camera..."
                 frame = _placeholder(msg)
                 time.sleep(0.1)
             else:
+                with status_lock:
+                    camera_status[self.camera_id] = "online"
                 detector = _get_detector(self.camera_id)
                 detector.submit(frame, label)
                 boxes = detector.boxes()
@@ -688,6 +694,8 @@ class Producer:
             d.stop()
         with snapshots_lock:
             snapshots.pop(self.camera_id, None)
+        with status_lock:
+            camera_status.pop(self.camera_id, None)
         with producers_lock:
             producers.pop(self.camera_id, None)
 
@@ -721,7 +729,7 @@ app = FastAPI(title="Vigil")
 # Paths reachable without logging in
 _PUBLIC = {"/login", "/setup", "/logout", "/favicon.svg"}
 # API paths that should return 401 (not redirect) when not authed
-_API_PREFIXES = ("/alerts", "/cameras", "/evidence/list", "/evidence/image", "/snapshot")
+_API_PREFIXES = ("/alerts", "/cameras", "/evidence/list", "/evidence/image", "/snapshot", "/camera_status")
 
 
 @app.middleware("http")
@@ -775,6 +783,12 @@ def stats():
     with cameras_lock:
         cams = len(cameras)
     return {"cameras": cams, "alerts_today": alerts_today, "pending": pending}
+
+
+@app.get("/camera_status")
+def camera_status_ep():
+    with status_lock:
+        return dict(camera_status)
 
 
 @app.get("/snapshot/{camera_id}")
@@ -934,11 +948,13 @@ STYLE = """
     border-bottom:1px solid #232a34; font-size:13px; font-weight:600; }
   .panel-body { flex:1; background:#000; display:flex; align-items:center; justify-content:center; min-height:0; }
   .panel-body img { max-width:100%; max-height:100%; }
-  .live-tag { margin-left:auto; display:inline-flex; align-items:center; gap:5px;
-    font-size:10px; font-weight:800; letter-spacing:.5px; color:#4ade80;
-    background:rgba(74,222,128,.12); padding:3px 9px 3px 8px; border-radius:20px; }
-  .live-tag::before { content:''; width:6px; height:6px; border-radius:50%; background:#4ade80;
-    box-shadow:0 0 6px #4ade80; animation: pulse 1.4s infinite; }
+  .status-pill { margin-left:auto; display:inline-flex; align-items:center; gap:5px;
+    font-size:10px; font-weight:800; letter-spacing:.5px; padding:3px 9px 3px 8px; border-radius:20px; }
+  .status-pill .sdot { width:6px; height:6px; border-radius:50%; }
+  .status-pill.online { color:#4ade80; background:rgba(74,222,128,.12); }
+  .status-pill.online .sdot { background:#4ade80; box-shadow:0 0 6px #4ade80; animation: pulse 1.4s infinite; }
+  .status-pill.offline { color:#94a3b8; background:rgba(148,163,184,.12); }
+  .status-pill.offline .sdot { background:#7a8595; }
   .icon-btn { background:transparent; border:none; color:#7a8595; font-size:15px;
     cursor:pointer; line-height:1; padding:0 3px; transition: color .12s; }
   .icon-btn:hover { color:#e6e9ef; }
@@ -1078,7 +1094,7 @@ DASHBOARD_HTML = """<!doctype html>
            <button class="icon-btn remove" title="Remove camera" onclick="removeCam('${c.id}')">×</button>`
         : '';
       return `<div class="panel">
-        <div class="panel-head">📹 ${place}<span class="live-tag">● LIVE</span>${controls}</div>
+        <div class="panel-head">📹 ${place}<span class="status-pill offline" data-cam="${c.id}"><span class="sdot"></span><span class="stext">…</span></span>${controls}</div>
         <div class="panel-body"><img class="cam-snap" data-cam="${c.id}" alt="feed"></div>
       </div>`;
     }
@@ -1231,6 +1247,20 @@ DASHBOARD_HTML = """<!doctype html>
       });
     }
     setInterval(refreshSnapshots, 250);
+
+    // ---- Per-camera online/offline status ----
+    async function refreshStatus() {
+      let st = {};
+      try { st = await (await fetch('/camera_status')).json(); } catch (e) { return; }
+      document.querySelectorAll('.status-pill').forEach(p => {
+        const online = st[p.dataset.cam] === 'online';
+        p.classList.toggle('online', online);
+        p.classList.toggle('offline', !online);
+        p.querySelector('.stext').textContent = online ? 'LIVE' : 'OFFLINE';
+      });
+    }
+    setInterval(refreshStatus, 1500);
+    refreshStatus();
 
     // ---- Overview stats ----
     async function loadStats() {
