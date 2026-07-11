@@ -17,6 +17,12 @@ Camera source rules:
 """
 
 import os
+
+# Quiet OpenCV/FFmpeg so a disconnected camera doesn't flood the terminal.
+# (must be set before cv2 is imported)
+os.environ.setdefault("OPENCV_LOG_LEVEL", "OFF")
+os.environ.setdefault("OPENCV_FFMPEG_LOGLEVEL", "-8")
+
 import time
 import json
 import uuid
@@ -30,6 +36,11 @@ from ultralytics import YOLO
 from fastapi import FastAPI, Response
 from fastapi.responses import StreamingResponse, HTMLResponse, FileResponse
 
+try:
+    cv2.setLogLevel(0)     # extra-quiet OpenCV (belt and braces with the env vars above)
+except Exception:
+    pass
+
 
 # ---------------------------------------------------------------------------
 # SETTINGS
@@ -39,8 +50,11 @@ from fastapi.responses import StreamingResponse, HTMLResponse, FileResponse
 #   yolo11n  <  yolo11s  <  yolo11m  <  yolo11l  <  yolo11x
 MODEL_NAME     = "yolo11m.pt"
 
-CONFIDENCE     = 0.55   # ignore weak guesses. Raise toward 0.7 if still false-alarming;
+CONFIDENCE     = 0.60   # ignore weak guesses. Raise toward 0.7 if still false-alarming;
                         # lower toward 0.45 if it misses real phones.
+REQUIRED_HITS  = 3      # a phone must be seen this many detections IN A ROW before it
+                        # raises an alert — this is what kills brief false positives on
+                        # random objects (a real phone held up stays; junk flickers).
 PHONE_CLASS    = 67
 ALERT_COOLDOWN = 3
 
@@ -219,17 +233,22 @@ class CameraStream:
         return cap
 
     def _reader(self):
+        fails = 0
         while self.running:
             if self.cap is None or not self.cap.isOpened():
-                time.sleep(0.3)
+                time.sleep(1.0)
                 self.cap = self._open()
                 continue
             ok, f = self.cap.read()
-            if not ok:
-                time.sleep(0.05)
+            if not ok:                                  # stream dropped / camera off
+                fails += 1
+                with self.lock:
+                    self.frame = None
                 self.cap.release()
+                time.sleep(min(10.0, 1.0 * fails))      # back off hard — a dead camera logs rarely
                 self.cap = self._open()
                 continue
+            fails = 0
             with self.lock:
                 self.frame = f
 
@@ -264,6 +283,7 @@ def generate_frames(camera_id):
     """Serve ONE camera: always show the newest frame, detect every Nth frame."""
     frame_i = 0
     last_boxes = []                # remembered between detections so video stays smooth
+    detect_streak = 0              # how many detections in a row saw a phone
 
     while True:
         source, label = _find_camera(camera_id)
@@ -287,12 +307,16 @@ def generate_frames(camera_id):
                 with model_lock:
                     results = model(frame, classes=[PHONE_CLASS], conf=CONFIDENCE,
                                     imgsz=IMG_SIZE, device=DEVICE, verbose=False)
-                last_boxes = []
-                for box in results[0].boxes:
-                    x1, y1, x2, y2 = map(int, box.xyxy[0])
-                    conf = float(box.conf[0])
-                    last_boxes.append((x1, y1, x2, y2, conf))
-                    maybe_add_alert(frame[y1:y2, x1:x2].copy(), conf, label, camera_id)
+                last_boxes = [(*map(int, b.xyxy[0]), float(b.conf[0])) for b in results[0].boxes]
+
+                if last_boxes:
+                    detect_streak += 1
+                    # only alert once the phone has persisted for several frames in a row
+                    if detect_streak >= REQUIRED_HITS:
+                        x1, y1, x2, y2, conf = max(last_boxes, key=lambda b: b[4])
+                        maybe_add_alert(frame[y1:y2, x1:x2].copy(), conf, label, camera_id)
+                else:
+                    detect_streak = 0                   # broke the streak — reset
 
             for (x1, y1, x2, y2, conf) in last_boxes:   # draw on EVERY frame (smooth)
                 cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 220, 90), 2)
