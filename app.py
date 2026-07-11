@@ -1,27 +1,25 @@
 """
-Vigil — Product v1, Step 5: real IP cameras (RTSP / IP Webcam)
-=============================================================
+Vigil — Product v1, Step 6: multiple cameras at once
+====================================================
 
-Until now we only used the built-in webcam. Step 5 lets Vigil connect to a
-REAL camera over the network by its address — exactly like a university's CCTV.
+Now Vigil watches MANY cameras at the same time, in a grid — exactly like a
+real security room. Each camera has its own live feed and its own detection.
+So you can run your Mac's webcam AND your phone (via IP Webcam) together.
 
-You can test it right now with your phone:
-    1. Install the "IP Webcam" app (Android) — or "DroidCam" / "IP Camera Lite" (iOS).
-    2. Start the server in the app. It shows a URL like  http://192.168.1.5:8080
-    3. In Vigil, click "Camera" (top right), paste:  http://192.168.1.5:8080/video
-    4. Connect. Your phone is now a live CCTV camera and Vigil watches it.
+Add cameras from the "⚙ Camera" button (name + stream URL). They're saved to
+cameras.json so they come back after a restart. Remove one with the × on it.
 
-Your phone and computer must be on the SAME WiFi.
-
-How the camera switching works:
-    - The current source is kept in camera_state and saved to camera_config.json.
-    - The video loop notices when the source changes and reconnects on the fly.
-    - "0" means the built-in webcam; anything else is treated as a URL.
+Camera source rules:
+    "0"  -> the Mac's built-in webcam
+    a URL -> a network camera:
+        phone (IP Webcam app):  http://192.168.1.5:8080/video
+        real CCTV:              rtsp://user:pass@192.168.1.50:554/stream1
 """
 
 import os
 import time
 import json
+import uuid
 import sqlite3
 import threading
 from datetime import datetime
@@ -38,49 +36,59 @@ from fastapi.responses import StreamingResponse, HTMLResponse, FileResponse
 # ---------------------------------------------------------------------------
 CONFIDENCE     = 0.40
 PHONE_CLASS    = 67
-CAMERA_LABEL   = "Camera 1 · Main Hall"
 ALERT_COOLDOWN = 3
 
 DB_PATH        = "evidence.db"
 EVIDENCE_DIR   = "evidence"
-CAMERA_CONFIG  = "camera_config.json"
+CAMERAS_CONFIG = "cameras.json"
 
 os.makedirs(EVIDENCE_DIR, exist_ok=True)
-_cooldown_lock = threading.Lock()
-_last_alert_time = 0.0
 
 print("Loading YOLO...")
 model = YOLO("yolo11n.pt")
+model_lock = threading.Lock()          # YOLO is shared across camera threads
 
 
 # ---------------------------------------------------------------------------
-# CAMERA SOURCE (which camera we're watching — webcam or a network URL)
+# CAMERAS (a list — each is {id, label, source})
 # ---------------------------------------------------------------------------
-camera_lock = threading.Lock()
+cameras_lock = threading.Lock()
 
 
-def _load_camera():
+def _load_cameras():
     try:
-        with open(CAMERA_CONFIG) as f:
-            return str(json.load(f).get("source", "0"))
+        with open(CAMERAS_CONFIG) as f:
+            data = json.load(f)
+            if isinstance(data, list) and data:
+                return data
     except Exception:
-        return os.getenv("VIGIL_CAMERA", "0")
+        pass
+    # Default: one camera = the Mac's built-in webcam
+    return [{"id": "cam1", "label": "Camera 1 · Webcam", "source": "0"}]
 
 
-def _save_camera(src):
+def _save_cameras():
     try:
-        with open(CAMERA_CONFIG, "w") as f:
-            json.dump({"source": src}, f)
+        with open(CAMERAS_CONFIG, "w") as f:
+            json.dump(cameras, f)
     except Exception:
         pass
 
 
-camera_state = {"source": _load_camera()}
+cameras = _load_cameras()
 
 
 def _resolve_source(s):
-    """'0' or '1' -> webcam number; anything else -> a URL (rtsp/http)."""
+    """'0'/'1' -> webcam number; anything else -> a URL."""
     return int(s) if s.isdigit() else s
+
+
+def _find_camera(cam_id):
+    with cameras_lock:
+        for c in cameras:
+            if c["id"] == cam_id:
+                return c["source"], c["label"]
+    return None, None
 
 
 # ---------------------------------------------------------------------------
@@ -108,14 +116,14 @@ def init_db():
         """)
 
 
-def _store_alert(jpg_bytes, confidence, status="pending", dt=None):
+def _store_alert(jpg_bytes, confidence, camera, status="pending", dt=None):
     dt = dt or datetime.now()
     with _db() as c:
         cur = c.execute(
             "INSERT INTO alerts (created_at, date, time, confidence, camera, image_file, status)"
             " VALUES (?, ?, ?, ?, ?, ?, ?)",
             (dt.isoformat(), dt.strftime("%Y-%m-%d"), dt.strftime("%H:%M:%S"),
-             round(confidence, 2), CAMERA_LABEL, "", status))
+             round(confidence, 2), camera, "", status))
         alert_id = cur.lastrowid
         fname = os.path.join(EVIDENCE_DIR, f"alert_{alert_id}_{dt.strftime('%Y%m%d_%H%M%S')}.jpg")
         with open(fname, "wb") as f:
@@ -136,57 +144,62 @@ init_db()
 
 
 # ---------------------------------------------------------------------------
-# DETECTION
+# DETECTION  (per-camera cooldown so cameras don't block each other)
 # ---------------------------------------------------------------------------
-def maybe_add_alert(crop, confidence):
-    global _last_alert_time
+_cooldown_lock = threading.Lock()
+_last_alert_time = {}    # camera_id -> timestamp
+
+
+def maybe_add_alert(crop, confidence, camera_label, camera_id):
     now = time.time()
     with _cooldown_lock:
-        if now - _last_alert_time < ALERT_COOLDOWN or crop.size == 0:
+        if now - _last_alert_time.get(camera_id, 0) < ALERT_COOLDOWN or crop.size == 0:
             return
         ok, buf = cv2.imencode(".jpg", crop)
         if not ok:
             return
-        _last_alert_time = now
-        _store_alert(buf.tobytes(), confidence, status="pending")
+        _last_alert_time[camera_id] = now
+        _store_alert(buf.tobytes(), confidence, camera_label, status="pending")
 
 
 def _placeholder(text):
     img = np.full((480, 640, 3), 32, dtype=np.uint8)
-    cv2.putText(img, text, (40, 240), cv2.FONT_HERSHEY_SIMPLEX,
-                0.8, (180, 180, 180), 2)
+    cv2.putText(img, text, (30, 240), cv2.FONT_HERSHEY_SIMPLEX,
+                0.7, (170, 170, 170), 2)
     return img
 
 
-def generate_frames():
-    """Streams frames, and reconnects automatically if the camera source changes."""
+def generate_frames(camera_id):
+    """Stream + detect for ONE camera. Stops if the camera is removed."""
     current_source = None
     cap = None
 
     while True:
-        # Has the user pointed us at a different camera?
-        with camera_lock:
-            desired = camera_state["source"]
-        if desired != current_source:
+        source, label = _find_camera(camera_id)
+        if source is None:
+            break                                    # camera was removed
+
+        if source != current_source:
             if cap is not None:
                 cap.release()
-            cap = cv2.VideoCapture(_resolve_source(desired))
-            current_source = desired
+            cap = cv2.VideoCapture(_resolve_source(source))
+            current_source = source
 
         frame = None
         if cap is not None and cap.isOpened():
             ok, frame = cap.read()
             if not ok:
-                cap.release()                                   # lost the stream — retry
-                cap = cv2.VideoCapture(_resolve_source(desired))
+                cap.release()
+                cap = cv2.VideoCapture(_resolve_source(source))
                 frame = None
 
         if frame is None:
-            msg = "Camera not connected - demo mode" if desired == "0" else "Connecting to camera..."
+            msg = "Camera not connected" if source == "0" else "Connecting to camera..."
             frame = _placeholder(msg)
             time.sleep(0.15)
         else:
-            results = model(frame, classes=[PHONE_CLASS], conf=CONFIDENCE, verbose=False)
+            with model_lock:
+                results = model(frame, classes=[PHONE_CLASS], conf=CONFIDENCE, verbose=False)
             for box in results[0].boxes:
                 x1, y1, x2, y2 = map(int, box.xyxy[0])
                 conf = float(box.conf[0])
@@ -194,7 +207,7 @@ def generate_frames():
                 cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 220, 90), 2)
                 cv2.putText(frame, f"PHONE {conf:.0%}", (x1, max(y1 - 10, 20)),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 220, 90), 2)
-                maybe_add_alert(crop, conf)
+                maybe_add_alert(crop, conf, label, camera_id)
 
         ok, buffer = cv2.imencode(".jpg", frame)
         if not ok:
@@ -209,25 +222,35 @@ def generate_frames():
 app = FastAPI(title="Vigil")
 
 
-@app.get("/video_feed")
-def video_feed():
-    return StreamingResponse(generate_frames(),
+@app.get("/video_feed/{camera_id}")
+def video_feed(camera_id: str):
+    return StreamingResponse(generate_frames(camera_id),
                              media_type="multipart/x-mixed-replace; boundary=frame")
 
 
-@app.get("/camera")
-def get_camera():
-    with camera_lock:
-        return {"source": camera_state["source"]}
+@app.get("/cameras")
+def list_cameras():
+    with cameras_lock:
+        return list(cameras)
 
 
-@app.post("/camera")
-def set_camera(payload: dict):
-    src = str(payload.get("source", "0")).strip() or "0"
-    with camera_lock:
-        camera_state["source"] = src
-    _save_camera(src)
-    return {"ok": True, "source": src}
+@app.post("/cameras")
+def add_camera(payload: dict):
+    label = str(payload.get("label", "Camera")).strip() or "Camera"
+    source = str(payload.get("source", "0")).strip() or "0"
+    cam = {"id": uuid.uuid4().hex[:8], "label": label, "source": source}
+    with cameras_lock:
+        cameras.append(cam)
+        _save_cameras()
+    return cam
+
+
+@app.delete("/cameras/{cam_id}")
+def remove_camera(cam_id: str):
+    with cameras_lock:
+        cameras[:] = [c for c in cameras if c["id"] != cam_id]
+        _save_cameras()
+    return {"ok": True}
 
 
 @app.get("/alerts")
@@ -287,20 +310,27 @@ STYLE = """
   .nav { display:flex; gap:6px; margin-left: 10px; }
   .nav a { font-size:13px; color:#9aa4b2; text-decoration:none; padding:6px 12px; border-radius:8px; }
   .nav a.active { background:#232a34; color:#e6e9ef; }
-  .cam-btn { margin-left:auto; background:#232a34; color:#e6e9ef; border:none;
-    padding:7px 14px; border-radius:8px; font-size:13px; cursor:pointer; }
+  .cam-btn { margin-left:auto; background:#4ade80; color:#0e1116; border:none;
+    padding:8px 15px; border-radius:8px; font-size:13px; font-weight:600; cursor:pointer; }
   .clock { font-size: 13px; color: #9aa4b2; font-variant-numeric: tabular-nums; }
-  .clock.push { margin-left: auto; }
+  .clock.push { margin-left:auto; }
 
   main { flex: 1; display: flex; gap: 18px; padding: 18px; min-height: 0; }
-  .feed { flex: 1; background: #151a21; border: 1px solid #232a34; border-radius: 14px;
-    overflow: hidden; display: flex; flex-direction: column; }
-  .feed-head { display:flex; align-items:center; gap:8px; padding: 12px 16px;
-    border-bottom: 1px solid #232a34; font-size: 14px; }
-  .feed-body { flex:1; display:flex; align-items:center; justify-content:center; background:#000; min-height:0; }
-  .feed-body img { max-width: 100%; max-height: 100%; }
-  .live-tag { margin-left:auto; font-size:11px; font-weight:700; color:#0e1116;
+  .cameras { flex:1; display:flex; min-height:0; }
+  .grid { flex:1; display:grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+    grid-auto-rows: minmax(240px, 1fr); gap:14px; overflow-y:auto; align-content:start; }
+  .panel { background:#151a21; border:1px solid #232a34; border-radius:12px;
+    overflow:hidden; display:flex; flex-direction:column; }
+  .panel-head { display:flex; align-items:center; gap:8px; padding:10px 12px;
+    border-bottom:1px solid #232a34; font-size:13px; }
+  .panel-body { flex:1; background:#000; display:flex; align-items:center; justify-content:center; min-height:0; }
+  .panel-body img { max-width:100%; max-height:100%; }
+  .live-tag { margin-left:auto; font-size:10px; font-weight:700; color:#0e1116;
     background:#4ade80; padding:3px 8px; border-radius:20px; }
+  .remove { background:transparent; border:none; color:#7a8595; font-size:18px;
+    cursor:pointer; line-height:1; padding:0 2px; }
+  .remove:hover { color:#ef4444; }
+  .grid-empty { grid-column:1/-1; text-align:center; color:#5b6675; padding:60px 20px; font-size:14px; }
 
   aside { width: 340px; background: #151a21; border: 1px solid #232a34; border-radius: 14px;
     display: flex; flex-direction: column; }
@@ -314,8 +344,9 @@ STYLE = """
     border-radius:10px; padding:10px; }
   .alert.dismissed { opacity:.45; }
   .alert img { width:56px; height:72px; object-fit:cover; border-radius:6px; background:#000; flex-shrink:0; }
-  .alert-info { flex:1; display:flex; flex-direction:column; gap:4px; min-width:0; }
+  .alert-info { flex:1; display:flex; flex-direction:column; gap:3px; min-width:0; }
   .alert-title { font-size:13px; font-weight:600; }
+  .alert-cam { font-size:11px; color:#4ade80; }
   .alert-time { font-size:12px; color:#9aa4b2; }
   .alert-actions { display:flex; gap:8px; margin-top:4px; }
   .alert-actions button { flex:1; border:none; border-radius:6px; padding:6px 0;
@@ -344,39 +375,40 @@ STYLE = """
   td img { width:40px; height:52px; object-fit:cover; border-radius:5px; background:#000; }
   tr:hover td { background:#1a2028; }
 
-  /* Camera settings modal */
+  /* Add-camera modal */
   .modal-bg { position:fixed; inset:0; background:rgba(0,0,0,.6); display:none;
     align-items:center; justify-content:center; z-index:50; }
   .modal-bg.open { display:flex; }
-  .modal { background:#151a21; border:1px solid #232a34; border-radius:14px; padding:22px; width:460px; max-width:92vw; }
+  .modal { background:#151a21; border:1px solid #232a34; border-radius:14px; padding:22px; width:470px; max-width:92vw; }
   .modal h3 { font-size:16px; margin-bottom:8px; }
   .modal p { font-size:13px; color:#9aa4b2; line-height:1.55; margin-bottom:14px; }
   .modal code { background:#0e1116; padding:2px 6px; border-radius:5px; color:#4ade80; font-size:12px; }
+  .modal label { display:block; font-size:12px; color:#9aa4b2; margin:0 0 5px 2px; }
   .modal input { width:100%; background:#0e1116; border:1px solid #2b3340; color:#e6e9ef;
     padding:11px 12px; border-radius:8px; font-size:13px; margin-bottom:12px; }
   .modal-actions { display:flex; gap:8px; }
   .modal-actions button { flex:1; border:none; border-radius:8px; padding:11px 0; font-size:13px; font-weight:600; cursor:pointer; }
   .btn-primary { background:#4ade80; color:#0e1116; }
   .btn-ghost { background:#2b3340; color:#c4ccd8; }
-  .hint { font-size:12px; color:#5b6675; margin-top:12px; }
 </style>
 """
 
 CAMERA_MODAL = """
 <div class="modal-bg" id="cam-modal">
   <div class="modal">
-    <h3>Connect a camera</h3>
-    <p>Paste your camera's stream address.<br>
-       Testing with your phone and the <b>IP Webcam</b> app? Enter the URL it shows plus <code>/video</code>,
-       for example <code>http://192.168.1.5:8080/video</code>.<br>
-       (Phone and computer must be on the same WiFi.)</p>
+    <h3>Add a camera</h3>
+    <p>Phone with the <b>IP Webcam</b> app? Put the URL it shows plus <code>/video</code>,
+       e.g. <code>http://192.168.1.5:8080/video</code>. Real CCTV uses an <code>rtsp://…</code> URL.
+       (Same WiFi required.)</p>
+    <label>Camera name</label>
+    <input id="cam-label" placeholder="e.g. Corridor 2  /  Bag-drop">
+    <label>Stream URL (leave blank for this Mac's webcam)</label>
     <input id="cam-input" placeholder="http://192.168.1.5:8080/video   (or rtsp://...)">
     <div class="modal-actions">
-      <button class="btn-primary" onclick="connectCam()">Connect</button>
-      <button class="btn-ghost" onclick="useWebcam()">Use webcam</button>
+      <button class="btn-primary" onclick="addCam()">Add camera</button>
+      <button class="btn-ghost" onclick="addWebcam()">Add this Mac's webcam</button>
       <button class="btn-ghost" onclick="closeCam()">Cancel</button>
     </div>
-    <div class="hint" id="cam-current"></div>
   </div>
 </div>
 """
@@ -392,17 +424,14 @@ DASHBOARD_HTML = """<!doctype html>
     <span class="dot"></span>
     <span class="logo">Vig<span>i</span>l</span>
     <nav class="nav"><a href="/" class="active">Live Monitor</a><a href="/evidence">Evidence Log</a></nav>
-    <button class="cam-btn" id="cam-btn">⚙ Camera</button>
+    <button class="cam-btn" id="cam-btn">+ Add camera</button>
     <span class="clock" id="clock"></span>
   </header>
   <main>
-    <section class="feed">
-      <div class="feed-head">📹 __CAMERA_LABEL__<span class="live-tag">● LIVE</span></div>
-      <div class="feed-body"><img src="/video_feed" alt="live camera feed"></div>
-    </section>
+    <section class="cameras"><div class="grid" id="grid"></div></section>
     <aside>
       <div class="aside-head">Alerts <span class="count" id="alert-count" style="display:none"></span></div>
-      <div id="alerts"><div class="empty">No alerts yet.<br>Hold a phone up to the camera.</div></div>
+      <div id="alerts"><div class="empty">No alerts yet.<br>Hold a phone up to a camera.</div></div>
     </aside>
   </main>
   __CAMERA_MODAL__
@@ -410,6 +439,46 @@ DASHBOARD_HTML = """<!doctype html>
     const clock = document.getElementById('clock');
     setInterval(() => { clock.textContent = new Date().toLocaleTimeString(); }, 1000);
 
+    // ---- Camera grid ----
+    function panelHTML(c) {
+      return `<div class="panel">
+        <div class="panel-head">📹 ${c.label}<span class="live-tag">● LIVE</span>
+          <button class="remove" title="Remove camera" onclick="removeCam('${c.id}')">×</button></div>
+        <div class="panel-body"><img src="/video_feed/${c.id}" alt="feed"></div>
+      </div>`;
+    }
+    async function loadCameras() {
+      let cams = [];
+      try { cams = await (await fetch('/cameras')).json(); } catch (e) { return; }
+      const grid = document.getElementById('grid');
+      grid.innerHTML = cams.length
+        ? cams.map(panelHTML).join('')
+        : '<div class="grid-empty">No cameras yet. Click “+ Add camera” to add one.</div>';
+    }
+    async function addCam() {
+      const label = document.getElementById('cam-label').value.trim() || 'Camera';
+      const source = document.getElementById('cam-input').value.trim() || '0';
+      await fetch('/cameras', { method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ label, source }) });
+      document.getElementById('cam-label').value = '';
+      document.getElementById('cam-input').value = '';
+      closeCam(); loadCameras();
+    }
+    async function addWebcam() {
+      await fetch('/cameras', { method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ label: "Mac webcam", source: '0' }) });
+      closeCam(); loadCameras();
+    }
+    async function removeCam(id) {
+      await fetch('/cameras/' + id, { method:'DELETE' });
+      loadCameras();
+    }
+    function openCam(){ document.getElementById('cam-modal').classList.add('open'); }
+    function closeCam(){ document.getElementById('cam-modal').classList.remove('open'); }
+    document.getElementById('cam-btn').onclick = openCam;
+    loadCameras();
+
+    // ---- Alerts ----
     async function loadAlerts() {
       let data = [];
       try { data = await (await fetch('/alerts')).json(); } catch (e) { return; }
@@ -419,7 +488,7 @@ DASHBOARD_HTML = """<!doctype html>
       countEl.style.display = pending ? 'inline-block' : 'none';
       countEl.textContent = pending;
       if (data.length === 0) {
-        box.innerHTML = '<div class="empty">No alerts yet.<br>Hold a phone up to the camera.</div>';
+        box.innerHTML = '<div class="empty">No alerts yet.<br>Hold a phone up to a camera.</div>';
         return;
       }
       box.innerHTML = data.map(a => `
@@ -427,6 +496,7 @@ DASHBOARD_HTML = """<!doctype html>
           <img src="${a.image}">
           <div class="alert-info">
             <div class="alert-title">Phone detected · ${Math.round(a.confidence*100)}%</div>
+            <div class="alert-cam">${a.camera}</div>
             <div class="alert-time">${a.time}</div>
             ${a.status === 'pending'
               ? `<div class="alert-actions">
@@ -443,30 +513,6 @@ DASHBOARD_HTML = """<!doctype html>
     }
     setInterval(loadAlerts, 1500);
     loadAlerts();
-
-    // ---- Camera settings ----
-    function openCam(){ document.getElementById('cam-modal').classList.add('open'); loadCam(); }
-    function closeCam(){ document.getElementById('cam-modal').classList.remove('open'); }
-    async function loadCam(){
-      try {
-        const c = await (await fetch('/camera')).json();
-        const label = c.source === '0' ? 'Built-in webcam' : c.source;
-        document.getElementById('cam-current').textContent = 'Current source: ' + label;
-        document.getElementById('cam-input').value = c.source === '0' ? '' : c.source;
-      } catch (e) {}
-    }
-    async function connectCam(){
-      const v = document.getElementById('cam-input').value.trim();
-      await fetch('/camera', { method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ source: v || '0' }) });
-      closeCam();
-    }
-    async function useWebcam(){
-      await fetch('/camera', { method:'POST', headers:{'Content-Type':'application/json'},
-        body: JSON.stringify({ source: '0' }) });
-      closeCam();
-    }
-    document.getElementById('cam-btn').onclick = openCam;
   </script>
 </body></html>"""
 
@@ -501,7 +547,6 @@ EVIDENCE_HTML = """<!doctype html>
   <script>
     const clock = document.getElementById('clock');
     setInterval(() => { clock.textContent = new Date().toLocaleTimeString(); }, 1000);
-
     let currentStatus = 'all';
     function setStatus(btn) {
       currentStatus = btn.dataset.status;
@@ -539,8 +584,7 @@ EVIDENCE_HTML = """<!doctype html>
 def dashboard():
     return (DASHBOARD_HTML
             .replace("__STYLE__", STYLE)
-            .replace("__CAMERA_MODAL__", CAMERA_MODAL)
-            .replace("__CAMERA_LABEL__", CAMERA_LABEL))
+            .replace("__CAMERA_MODAL__", CAMERA_MODAL))
 
 
 @app.get("/evidence", response_class=HTMLResponse)
@@ -549,7 +593,7 @@ def evidence_page():
 
 
 # ---------------------------------------------------------------------------
-# DEMO MODE — seed example alerts (only if the log is empty).  VIGIL_DEMO=1
+# DEMO MODE — seed example alerts (only if empty).  VIGIL_DEMO=1
 # ---------------------------------------------------------------------------
 def _seed_demo_alerts():
     with _db() as c:
@@ -561,8 +605,8 @@ def _seed_demo_alerts():
     cv2.rectangle(fake, (40, 22), (80, 120), (30, 33, 40), -1)
     ok, buf = cv2.imencode(".jpg", fake)
     jpg = buf.tobytes()
-    _store_alert(jpg, 0.87, status="confirmed")
-    _store_alert(jpg, 0.91, status="pending")
+    _store_alert(jpg, 0.87, "Camera 1 · Webcam", status="confirmed")
+    _store_alert(jpg, 0.91, "Camera 2 · Phone", status="pending")
 
 
 if os.getenv("VIGIL_DEMO") == "1":
