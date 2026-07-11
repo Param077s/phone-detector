@@ -82,6 +82,46 @@ CAMERAS_CONFIG = "cameras.json"
 
 os.makedirs(EVIDENCE_DIR, exist_ok=True)
 
+
+# --- Live-tunable settings (editable from the in-app Settings page) ---------
+# The values above are the DEFAULTS; settings.json (if present) overrides them,
+# and the Settings page updates both the running values and settings.json.
+SETTINGS_FILE = "settings.json"
+TUNABLE = ["MODEL_NAME", "CONFIDENCE", "REQUIRED_HITS", "ALERT_COOLDOWN", "IMG_SIZE",
+           "TILING", "TILE_COLS", "TILE_ROWS", "TILE_OVERLAP", "TILE_IMGSZ"]
+
+
+def _apply_saved_settings():
+    try:
+        with open(SETTINGS_FILE) as f:
+            data = json.load(f)
+    except Exception:
+        return
+    g = globals()
+    for k in TUNABLE:
+        if k in data:
+            g[k] = data[k]
+
+
+def current_settings():
+    g = globals()
+    return {k: g[k] for k in TUNABLE}
+
+
+def save_settings(new):
+    g = globals()
+    for k in TUNABLE:
+        if k in new:
+            g[k] = new[k]
+    try:
+        with open(SETTINGS_FILE, "w") as f:
+            json.dump(current_settings(), f, indent=2)
+    except Exception:
+        pass
+
+
+_apply_saved_settings()
+
 print(f"Loading YOLO ({MODEL_NAME})...")
 model = YOLO(MODEL_NAME)
 
@@ -106,6 +146,18 @@ try:
 except Exception as e:
     print(f"Device '{DEVICE}' unavailable ({e}); falling back to CPU")
     DEVICE = "cpu"
+
+
+def reload_model():
+    """Swap in a different model (called when MODEL_NAME changes in Settings)."""
+    global model, PHONE_CLASS
+    with model_lock:
+        new_model = YOLO(MODEL_NAME)                      # raises if the file/name is bad
+        model = new_model
+        try:
+            PHONE_CLASS = next((i for i, n in model.names.items() if "phone" in str(n).lower()), PHONE_CLASS)
+        except Exception:
+            pass
 
 
 # ---------------------------------------------------------------------------
@@ -607,10 +659,11 @@ async def auth_gate(request: Request, call_next):
         return RedirectResponse("/login")
 
     # Only admins may change cameras or manage users
-    if request.method in ("POST", "PUT", "DELETE") and (path.startswith("/cameras") or path.startswith("/users")):
+    if request.method in ("POST", "PUT", "DELETE") and \
+            (path.startswith("/cameras") or path.startswith("/users") or path.startswith("/settings")):
         if user["role"] != "admin":
             return JSONResponse({"error": "admin only"}, status_code=403)
-    if path.startswith("/users") and user["role"] != "admin":
+    if path.startswith(("/users", "/settings")) and user["role"] != "admin":
         return RedirectResponse("/")
 
     request.state.user = user
@@ -1092,7 +1145,7 @@ USERS_HTML = """<!doctype html>
 <body>
   <header>
     <span class="dot"></span><span class="logo">Vig<span>i</span>l</span>
-    <nav class="nav"><a href="/">Live Monitor</a><a href="/evidence">Evidence Log</a><a href="/users" class="active">Users</a></nav>
+    <nav class="nav"><a href="/">Live Monitor</a><a href="/evidence">Evidence Log</a><a href="/users" class="active">Users</a><a href="/settings">Settings</a></nav>
     <span class="userchip">👤 __USERNAME__</span>
     <a class="logout" href="/logout">Log out</a>
   </header>
@@ -1122,7 +1175,8 @@ USERS_HTML = """<!doctype html>
 
 
 def _admin_nav(user):
-    return '<a href="/users">Users</a>' if user.get("role") == "admin" else ""
+    return ('<a href="/users">Users</a><a href="/settings">Settings</a>'
+            if user.get("role") == "admin" else "")
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -1271,6 +1325,138 @@ def users_add(username: str = Form(...), password: str = Form(...), role: str = 
 def users_delete(username: str = Form(...)):
     delete_user(username)
     return RedirectResponse("/users", status_code=303)
+
+
+# ---- Settings (admin only; gated in the middleware) -----------------------
+SETTINGS_SHELL = """<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vigil — Settings</title>__STYLE__
+<style>
+  .settings-wrap { flex:1; padding:18px; overflow-y:auto; }
+  .settings { max-width:720px; background:#151a21; border:1px solid #232a34; border-radius:14px; padding:24px; }
+  .settings h2 { font-size:16px; margin-bottom:4px; }
+  .settings .sub { font-size:13px; color:#9aa4b2; margin-bottom:18px; }
+  .field { margin-bottom:16px; }
+  .field label { display:block; font-size:13px; font-weight:600; margin-bottom:3px; }
+  .field .hint { font-size:12px; color:#9aa4b2; margin-bottom:7px; }
+  .field input[type=text], .field input[type=number] { width:180px; background:#0e1116;
+    border:1px solid #2b3340; color:#e6e9ef; padding:9px 11px; border-radius:8px; font-size:13px; }
+  .toggle { display:flex; align-items:center; gap:8px; }
+  .toggle label { margin:0; }
+  .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:16px; max-width:420px; }
+  .save-row { margin-top:20px; }
+  .save-row button { background:#4ade80; color:#0e1116; border:none; padding:11px 24px;
+    border-radius:8px; font-weight:700; cursor:pointer; }
+  .saved { background:rgba(74,222,128,.15); color:#4ade80; font-size:13px; padding:10px 12px; border-radius:8px; margin-bottom:16px; }
+  .sec { border-top:1px solid #232a34; margin:22px 0 16px; padding-top:16px; font-size:13px; color:#9aa4b2; font-weight:700; }
+</style></head>
+<body>
+  <header>
+    <span class="dot"></span><span class="logo">Vig<span>i</span>l</span>
+    <nav class="nav"><a href="/">Live Monitor</a><a href="/evidence">Evidence Log</a><a href="/users">Users</a><a href="/settings" class="active">Settings</a></nav>
+    <span class="userchip">👤 __USERNAME__</span>
+    <a class="logout" href="/logout">Log out</a>
+  </header>
+  <div class="settings-wrap"><div class="settings">__BODY__</div></div>
+</body></html>"""
+
+
+@app.get("/settings", response_class=HTMLResponse)
+def settings_page(request: Request, saved: str = ""):
+    u = getattr(request.state, "user", None) or {"username": "", "role": ""}
+    g = globals()
+    banner = ('<div class="saved">✓ Saved — changes apply live (a model change takes a few seconds).</div>'
+              if saved else '')
+    checked = "checked" if g["TILING"] else ""
+    body = f"""
+      <h2>Detection settings</h2>
+      <div class="sub">Accuracy vs. speed. Changes apply live — no restart needed.</div>
+      {banner}
+      <form method="post" action="/settings">
+        <div class="field">
+          <label>Confidence threshold</label>
+          <div class="hint">Lower catches faint/distant phones but false-alarms more. 0.05–0.95.</div>
+          <input type="number" name="confidence" step="0.05" min="0.05" max="0.95" value="{g['CONFIDENCE']}">
+        </div>
+        <div class="field">
+          <label>Persistence (frames in a row)</label>
+          <div class="hint">A phone must be seen this many detections in a row before it alerts. Higher = fewer false alarms.</div>
+          <input type="number" name="required_hits" min="1" max="10" value="{g['REQUIRED_HITS']}">
+        </div>
+        <div class="field">
+          <label>Alert cooldown (seconds)</label>
+          <div class="hint">Minimum gap between alerts from one camera.</div>
+          <input type="number" name="alert_cooldown" min="1" max="60" value="{g['ALERT_COOLDOWN']}">
+        </div>
+        <div class="field">
+          <label>Detection detail (image size)</label>
+          <div class="hint">Higher = better on small/distant phones, but slower. 320–1536 (640 fast · 960 balanced · 1280 long-range).</div>
+          <input type="number" name="img_size" step="32" min="320" max="1536" value="{g['IMG_SIZE']}">
+        </div>
+
+        <div class="sec">Tiling — extra range for far-away phones (heavier)</div>
+        <div class="field toggle">
+          <input type="checkbox" name="tiling" {checked}>
+          <label>Enable tiling</label>
+        </div>
+        <div class="grid2">
+          <div class="field"><label>Tiles across</label><input type="number" name="tile_cols" min="1" max="4" value="{g['TILE_COLS']}"></div>
+          <div class="field"><label>Tiles down</label><input type="number" name="tile_rows" min="1" max="4" value="{g['TILE_ROWS']}"></div>
+          <div class="field"><label>Tile overlap</label><input type="number" name="tile_overlap" step="0.05" min="0" max="0.4" value="{g['TILE_OVERLAP']}"></div>
+          <div class="field"><label>Tile detail</label><input type="number" name="tile_imgsz" step="32" min="320" max="1280" value="{g['TILE_IMGSZ']}"></div>
+        </div>
+
+        <div class="sec">Model</div>
+        <div class="field">
+          <label>Model</label>
+          <div class="hint">yolo11n · yolo11s · yolo11m · yolo11l · yolo11x (bigger = smarter, slower), or a path to a fine-tuned .pt. Changing this reloads the model.</div>
+          <input type="text" name="model_name" value="{g['MODEL_NAME']}" style="width:340px">
+        </div>
+
+        <div class="save-row"><button type="submit">Save settings</button></div>
+      </form>
+    """
+    return (SETTINGS_SHELL.replace("__STYLE__", STYLE)
+            .replace("__USERNAME__", u["username"]).replace("__BODY__", body))
+
+
+def _round32(v):
+    return max(1, round(v / 32)) * 32
+
+
+@app.post("/settings")
+def settings_save(
+    confidence: float = Form(0.45),
+    required_hits: int = Form(3),
+    alert_cooldown: int = Form(3),
+    img_size: int = Form(960),
+    tiling: str = Form(None),
+    tile_cols: int = Form(2),
+    tile_rows: int = Form(2),
+    tile_overlap: float = Form(0.15),
+    tile_imgsz: int = Form(768),
+    model_name: str = Form("yolo11m.pt"),
+):
+    old_model = MODEL_NAME
+    save_settings({
+        "CONFIDENCE": min(max(confidence, 0.05), 0.95),
+        "REQUIRED_HITS": max(1, min(required_hits, 10)),
+        "ALERT_COOLDOWN": max(1, min(alert_cooldown, 60)),
+        "IMG_SIZE": min(max(_round32(img_size), 320), 1536),
+        "TILING": tiling is not None,
+        "TILE_COLS": max(1, min(tile_cols, 4)),
+        "TILE_ROWS": max(1, min(tile_rows, 4)),
+        "TILE_OVERLAP": min(max(tile_overlap, 0.0), 0.4),
+        "TILE_IMGSZ": min(max(_round32(tile_imgsz), 320), 1280),
+        "MODEL_NAME": model_name.strip() or old_model,
+    })
+    if MODEL_NAME != old_model:
+        try:
+            reload_model()
+        except Exception:
+            save_settings({"MODEL_NAME": old_model})       # bad model -> revert
+    return RedirectResponse("/settings?saved=1", status_code=303)
 
 
 # ---------------------------------------------------------------------------

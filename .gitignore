@@ -22,6 +22,9 @@ cameras.json
 # Per-install secret for signing login cookies (never commit)
 secret.key
 
+# Live settings saved from the in-app Settings page (per-install)
+settings.json
+
 # macOS junk
 .DS_Store
 
