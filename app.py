@@ -1060,7 +1060,7 @@ DASHBOARD_HTML = """<!doctype html>
   <header>
     __LOGO__
     <span class="logo">Vig<span>i</span>l</span>
-    <nav class="nav"><a href="/" class="active">Live Monitor</a><a href="/evidence">Evidence Log</a>__ADMIN_NAV__</nav>
+    <nav class="nav"><a href="/" class="active">Live Monitor</a><a href="/evidence">Evidence Log</a><a href="/display">Display</a>__ADMIN_NAV__</nav>
     <button class="cam-btn" id="cam-btn">+ Add camera</button>
     <span class="userchip">👤 __USERNAME__</span>
     <a class="logout" href="/logout">Log out</a>
@@ -1286,7 +1286,7 @@ EVIDENCE_HTML = """<!doctype html>
   <header>
     __LOGO__
     <span class="logo">Vig<span>i</span>l</span>
-    <nav class="nav"><a href="/">Live Monitor</a><a href="/evidence" class="active">Evidence Log</a>__ADMIN_NAV__</nav>
+    <nav class="nav"><a href="/">Live Monitor</a><a href="/evidence" class="active">Evidence Log</a><a href="/display">Display</a>__ADMIN_NAV__</nav>
     <span class="userchip">👤 __USERNAME__</span>
     <a class="logout" href="/logout">Log out</a>
     <span class="clock" id="clock"></span>
@@ -1363,7 +1363,7 @@ USERS_HTML = """<!doctype html>
 <body>
   <header>
     __LOGO__<span class="logo">Vig<span>i</span>l</span>
-    <nav class="nav"><a href="/">Live Monitor</a><a href="/evidence">Evidence Log</a><a href="/users" class="active">Users</a><a href="/settings">Settings</a></nav>
+    <nav class="nav"><a href="/">Live Monitor</a><a href="/evidence">Evidence Log</a><a href="/display">Display</a><a href="/users" class="active">Users</a><a href="/settings">Settings</a></nav>
     <span class="userchip">👤 __USERNAME__</span>
     <a class="logout" href="/logout">Log out</a>
   </header>
@@ -1574,7 +1574,7 @@ SETTINGS_SHELL = """<!doctype html>
 <body>
   <header>
     __LOGO__<span class="logo">Vig<span>i</span>l</span>
-    <nav class="nav"><a href="/">Live Monitor</a><a href="/evidence">Evidence Log</a><a href="/users">Users</a><a href="/settings" class="active">Settings</a></nav>
+    <nav class="nav"><a href="/">Live Monitor</a><a href="/evidence">Evidence Log</a><a href="/display">Display</a><a href="/users">Users</a><a href="/settings" class="active">Settings</a></nav>
     <span class="userchip">👤 __USERNAME__</span>
     <a class="logout" href="/logout">Log out</a>
   </header>
@@ -1727,6 +1727,138 @@ def telegram_test():
 
 
 # ---------------------------------------------------------------------------
+# ---- Display / Live Monitoring wall (for showing on a screen) -------------
+DISPLAY_HTML = """<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vigil — Live Monitoring</title>__STYLE__
+<style>
+  body { overflow:hidden; }
+  .disp-head { display:flex; align-items:center; gap:16px; padding:12px 22px;
+    background:#0b0e12; border-bottom:1px solid #232a34; }
+  .disp-title { font-size:12px; letter-spacing:2.5px; text-transform:uppercase; color:#9aa4b2; }
+  .disp-online { margin-left:auto; font-size:13px; color:#9aa4b2; }
+  .disp-online b { color:#4ade80; font-size:15px; }
+  .disp-clock { font-size:13px; color:#9aa4b2; font-variant-numeric:tabular-nums; }
+  .disp-btn { background:#1c222b; color:#c4ccd8; border:1px solid #2b3340; padding:7px 13px;
+    border-radius:8px; font-size:13px; text-decoration:none; cursor:pointer; }
+  .disp-btn:hover { color:#fff; border-color:#3a4557; }
+  .wall { flex:1; display:grid; gap:8px; padding:9px; background:#000; min-height:0; }
+  .tile { position:relative; background:#0a0d11; border-radius:10px; overflow:hidden;
+    display:flex; align-items:center; justify-content:center; border:1px solid #1a2028; }
+  .tile img { width:100%; height:100%; object-fit:contain; }
+  .tile .label { position:absolute; left:10px; bottom:10px; display:flex; align-items:center; gap:8px;
+    background:rgba(8,11,15,.75); padding:6px 12px; border-radius:20px; font-size:13px; font-weight:600; }
+  .tile .sdot { width:8px; height:8px; border-radius:50%; flex-shrink:0; }
+  .tile .sdot.online { background:#4ade80; box-shadow:0 0 8px #4ade80; }
+  .tile .sdot.offline { background:#7a8595; }
+  .wall-empty { grid-column:1/-1; align-self:center; justify-self:center; color:#5b6675; text-align:center; }
+  .flash { position:fixed; inset:0; pointer-events:none; z-index:90; box-shadow: inset 0 0 0 0 rgba(239,68,68,0);
+    transition: box-shadow .25s; }
+  .flash.on { box-shadow: inset 0 0 140px 10px rgba(239,68,68,.5); }
+  .pop { position:fixed; top:78px; left:50%; transform:translate(-50%,-160%);
+    display:flex; align-items:center; gap:16px; background:#1b1512; border:1px solid #ef4444;
+    box-shadow:0 16px 50px rgba(239,68,68,.4); border-radius:16px; padding:14px 22px 14px 14px;
+    z-index:100; opacity:0; visibility:hidden; max-width:92vw;
+    transition: transform .4s cubic-bezier(.2,.9,.3,1.25), opacity .3s, visibility .3s; }
+  .pop.show { transform:translate(-50%,0); opacity:1; visibility:visible; }
+  .pop img { width:66px; height:84px; object-fit:cover; border-radius:9px; background:#000; flex-shrink:0; }
+  .pop .big { font-size:18px; font-weight:800; color:#fff; letter-spacing:.3px; }
+  .pop .meta { font-size:13.5px; color:#f2b6b6; margin-top:4px; }
+</style></head>
+<body>
+  <div class="disp-head">
+    <span class="brand">__LOGO__<span class="logo">Vig<span>i</span>l</span></span>
+    <span class="disp-title">Live Monitoring</span>
+    <span class="disp-online" id="online">–</span>
+    <span class="disp-clock" id="clock"></span>
+    <button class="disp-btn" onclick="fs()">⤢ Fullscreen</button>
+    <a class="disp-btn" href="/">Exit</a>
+  </div>
+  <div class="wall" id="wall"></div>
+  <div class="flash" id="flash"></div>
+  <div class="pop" id="pop">
+    <img id="pop-img" alt="">
+    <div><div class="big" id="pop-title">Phone detected</div><div class="meta" id="pop-meta"></div></div>
+  </div>
+  <script>
+    const $ = id => document.getElementById(id);
+    function fs(){ if (document.fullscreenElement) document.exitFullscreen();
+      else document.documentElement.requestFullscreen().catch(()=>{}); }
+    setInterval(()=>{ $('clock').textContent = new Date().toLocaleTimeString(); }, 1000);
+
+    async function loadWall() {
+      let cams = [];
+      try { cams = await (await fetch('/cameras')).json(); } catch(e){ return; }
+      const wall = $('wall');
+      if (!cams.length) { wall.innerHTML = '<div class="wall-empty">No cameras configured yet.</div>'; return; }
+      const cols = Math.ceil(Math.sqrt(cams.length));
+      const rows = Math.ceil(cams.length / cols);
+      wall.style.gridTemplateColumns = 'repeat(' + cols + ', 1fr)';
+      wall.style.gridTemplateRows = 'repeat(' + rows + ', 1fr)';
+      wall.innerHTML = cams.map(c => {
+        const place = (c.location && c.location.trim()) ? c.location : c.label;
+        return '<div class="tile"><img class="wsnap" data-cam="' + c.id + '">' +
+               '<span class="label"><span class="sdot offline" data-cam="' + c.id + '"></span>' + place + '</span></div>';
+      }).join('');
+    }
+    function refreshSnaps() {
+      document.querySelectorAll('img.wsnap').forEach(img => {
+        fetch('/snapshot/' + img.dataset.cam + '?t=' + Date.now())
+          .then(r => r.ok ? r.blob() : null).then(b => {
+            if (!b) return; const u = URL.createObjectURL(b); const p = img.dataset.url;
+            img.src = u; img.dataset.url = u; if (p) URL.revokeObjectURL(p);
+          }).catch(()=>{});
+      });
+    }
+    async function refreshStatus() {
+      let st = {}; try { st = await (await fetch('/camera_status')).json(); } catch(e){ return; }
+      let on = 0, tot = 0;
+      document.querySelectorAll('.sdot').forEach(d => {
+        tot++; const online = st[d.dataset.cam] === 'online'; if (online) on++;
+        d.classList.toggle('online', online); d.classList.toggle('offline', !online);
+      });
+      $('online').innerHTML = '<b>' + on + '</b> / ' + tot + ' cameras online';
+    }
+
+    let lastId = 0, first = true, popTimer = null;
+    function beep(){ try { const c = new (window.AudioContext||window.webkitAudioContext)();
+      const o = c.createOscillator(), g = c.createGain(); o.connect(g); g.connect(c.destination);
+      o.type='sine'; o.frequency.value=880; g.gain.value=.12; o.start(); o.stop(c.currentTime+.25);
+      } catch(e){} }
+    function showPop(a) {
+      $('pop-img').src = a.image;
+      $('pop-title').textContent = '📱 Phone detected · ' + Math.round(a.confidence*100) + '%';
+      $('pop-meta').textContent = '📍 ' + a.camera + '     ·     ' + a.time;
+      $('pop').classList.add('show'); $('flash').classList.add('on'); beep();
+      setTimeout(()=>$('flash').classList.remove('on'), 800);
+      clearTimeout(popTimer);
+      popTimer = setTimeout(()=>$('pop').classList.remove('show'), 6500);
+    }
+    async function pollAlerts() {
+      let data = []; try { data = await (await fetch('/alerts')).json(); } catch(e){ return; }
+      if (data.length) {
+        const newest = data[0];
+        if (!first && newest.id > lastId && newest.status === 'pending') showPop(newest);
+        lastId = Math.max(lastId, newest.id);
+      }
+      first = false;
+    }
+
+    loadWall().then(refreshStatus);
+    setInterval(refreshSnaps, 250);
+    setInterval(refreshStatus, 1500);
+    setInterval(pollAlerts, 1500);
+    pollAlerts();
+  </script>
+</body></html>"""
+
+
+@app.get("/display", response_class=HTMLResponse)
+def display_page():
+    return DISPLAY_HTML.replace("__STYLE__", STYLE).replace("__LOGO__", LOGO_MARK)
+
+
 # DEMO MODE — seed example alerts (only if empty).  VIGIL_DEMO=1
 # ---------------------------------------------------------------------------
 def _seed_demo_alerts():
