@@ -15,3 +15,6 @@ evidence.db
 
 # Which camera was last selected (local setting, not code)
 camera_config.json
+
+# macOS junk
+.DS_Store
