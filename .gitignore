@@ -19,6 +19,9 @@ evidence.db
 camera_config.json
 cameras.json
 
+# Per-install secret for signing login cookies (never commit)
+secret.key
+
 # macOS junk
 .DS_Store
 

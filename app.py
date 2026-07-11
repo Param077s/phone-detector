@@ -26,6 +26,9 @@ os.environ.setdefault("OPENCV_FFMPEG_LOGLEVEL", "-8")
 import time
 import json
 import uuid
+import hmac
+import hashlib
+import secrets
 import sqlite3
 import threading
 from datetime import datetime
@@ -33,8 +36,9 @@ from datetime import datetime
 import cv2
 import numpy as np
 from ultralytics import YOLO
-from fastapi import FastAPI, Response
-from fastapi.responses import StreamingResponse, HTMLResponse, FileResponse
+from fastapi import FastAPI, Response, Request, Form
+from fastapi.responses import (StreamingResponse, HTMLResponse, FileResponse,
+                               RedirectResponse, JSONResponse)
 
 try:
     cv2.setLogLevel(0)     # extra-quiet OpenCV (belt and braces with the env vars above)
@@ -174,6 +178,16 @@ def init_db():
                 status      TEXT
             )
         """)
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS users (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                username    TEXT UNIQUE,
+                pw_hash     TEXT,
+                salt        TEXT,
+                role        TEXT,
+                created_at  TEXT
+            )
+        """)
 
 
 def _store_alert(jpg_bytes, confidence, camera, status="pending", dt=None):
@@ -201,6 +215,94 @@ def _row_to_dict(r):
 
 
 init_db()
+
+
+# ---------------------------------------------------------------------------
+# ACCOUNTS & LOGIN
+# ---------------------------------------------------------------------------
+SECRET_FILE = "secret.key"
+
+
+def _load_secret():
+    try:
+        with open(SECRET_FILE) as f:
+            return f.read().strip()
+    except Exception:
+        s = secrets.token_hex(32)
+        try:
+            with open(SECRET_FILE, "w") as f:
+                f.write(s)
+        except Exception:
+            pass
+        return s
+
+
+SECRET = _load_secret()
+
+
+def _hash_pw(password, salt):
+    return hashlib.pbkdf2_hmac("sha256", password.encode(), bytes.fromhex(salt), 200_000).hex()
+
+
+def user_count():
+    with _db() as c:
+        return c.execute("SELECT COUNT(*) FROM users").fetchone()[0]
+
+
+def list_users():
+    with _db() as c:
+        rows = c.execute("SELECT username, role, created_at FROM users ORDER BY id").fetchall()
+    return [dict(r) for r in rows]
+
+
+def create_user(username, password, role="invigilator"):
+    username = username.strip()
+    if not username or not password:
+        return False, "Username and password are required."
+    if len(password) < 6:
+        return False, "Password must be at least 6 characters."
+    salt = secrets.token_hex(16)
+    try:
+        with _db() as c:
+            c.execute("INSERT INTO users (username, pw_hash, salt, role, created_at) VALUES (?,?,?,?,?)",
+                      (username, _hash_pw(password, salt), salt, role, datetime.now().isoformat()))
+        return True, None
+    except sqlite3.IntegrityError:
+        return False, "That username already exists."
+
+
+def delete_user(username):
+    with _db() as c:
+        c.execute("DELETE FROM users WHERE username = ?", (username,))
+
+
+def verify_user(username, password):
+    with _db() as c:
+        row = c.execute("SELECT * FROM users WHERE username = ?", (username.strip(),)).fetchone()
+    if row and _hash_pw(password, row["salt"]) == row["pw_hash"]:
+        return {"username": row["username"], "role": row["role"]}
+    return None
+
+
+def _sign(username):
+    sig = hmac.new(SECRET.encode(), username.encode(), hashlib.sha256).hexdigest()
+    return f"{username}|{sig}"
+
+
+def _verify_token(token):
+    if not token or "|" not in token:
+        return None
+    username, sig = token.rsplit("|", 1)
+    expected = hmac.new(SECRET.encode(), username.encode(), hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(sig, expected):
+        return None
+    with _db() as c:
+        row = c.execute("SELECT username, role FROM users WHERE username = ?", (username,)).fetchone()
+    return {"username": row["username"], "role": row["role"]} if row else None
+
+
+def current_user(request):
+    return _verify_token(request.cookies.get("vigil_session"))
 
 
 # ---------------------------------------------------------------------------
@@ -479,6 +581,41 @@ def generate_frames(camera_id):
 # ---------------------------------------------------------------------------
 app = FastAPI(title="Vigil")
 
+# Paths reachable without logging in
+_PUBLIC = {"/login", "/setup", "/logout"}
+# API paths that should return 401 (not redirect) when not authed
+_API_PREFIXES = ("/alerts", "/cameras", "/evidence/list", "/evidence/image", "/video_feed")
+
+
+@app.middleware("http")
+async def auth_gate(request: Request, call_next):
+    path = request.url.path
+
+    # First run: no accounts yet -> force the create-admin setup page
+    if user_count() == 0:
+        if path == "/setup":
+            return await call_next(request)
+        return RedirectResponse("/setup")
+
+    if path in _PUBLIC:
+        return await call_next(request)
+
+    user = current_user(request)
+    if not user:
+        if path.startswith(_API_PREFIXES):
+            return JSONResponse({"error": "unauthorized"}, status_code=401)
+        return RedirectResponse("/login")
+
+    # Only admins may change cameras or manage users
+    if request.method in ("POST", "PUT", "DELETE") and (path.startswith("/cameras") or path.startswith("/users")):
+        if user["role"] != "admin":
+            return JSONResponse({"error": "admin only"}, status_code=403)
+    if path.startswith("/users") and user["role"] != "admin":
+        return RedirectResponse("/")
+
+    request.state.user = user
+    return await call_next(request)
+
 
 @app.get("/video_feed/{camera_id}")
 def video_feed(camera_id: str):
@@ -582,13 +719,19 @@ STYLE = """
   @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
   .logo { font-weight: 700; font-size: 20px; letter-spacing: .5px; }
   .logo span { color: #4ade80; }
-  .nav { display:flex; gap:6px; margin-left: 10px; }
+  .nav { display:flex; gap:6px; margin-left: 10px; margin-right:auto; }
   .nav a { font-size:13px; color:#9aa4b2; text-decoration:none; padding:6px 12px; border-radius:8px; }
   .nav a.active { background:#232a34; color:#e6e9ef; }
-  .cam-btn { margin-left:auto; background:#4ade80; color:#0e1116; border:none;
+  .cam-btn { background:#4ade80; color:#0e1116; border:none;
     padding:8px 15px; border-radius:8px; font-size:13px; font-weight:600; cursor:pointer; }
   .clock { font-size: 13px; color: #9aa4b2; font-variant-numeric: tabular-nums; }
-  .clock.push { margin-left:auto; }
+  .clock.push { }
+  .userchip { font-size:13px; color:#9aa4b2; }
+  .logout { font-size:13px; color:#9aa4b2; text-decoration:none; padding:6px 12px;
+    border:1px solid #232a34; border-radius:8px; }
+  .logout:hover { color:#e6e9ef; }
+  .badge.admin { background:rgba(74,222,128,.15); color:#4ade80; }
+  .badge.invigilator { background:rgba(148,163,184,.15); color:#94a3b8; }
 
   main { flex: 1; display: flex; gap: 18px; padding: 18px; min-height: 0; }
   .cameras { flex:1; display:flex; min-height:0; }
@@ -702,8 +845,10 @@ DASHBOARD_HTML = """<!doctype html>
   <header>
     <span class="dot"></span>
     <span class="logo">Vig<span>i</span>l</span>
-    <nav class="nav"><a href="/" class="active">Live Monitor</a><a href="/evidence">Evidence Log</a></nav>
+    <nav class="nav"><a href="/" class="active">Live Monitor</a><a href="/evidence">Evidence Log</a>__ADMIN_NAV__</nav>
     <button class="cam-btn" id="cam-btn">+ Add camera</button>
+    <span class="userchip">👤 __USERNAME__</span>
+    <a class="logout" href="/logout">Log out</a>
     <span class="clock" id="clock"></span>
   </header>
   <main>
@@ -719,12 +864,15 @@ DASHBOARD_HTML = """<!doctype html>
     setInterval(() => { clock.textContent = new Date().toLocaleTimeString(); }, 1000);
 
     // ---- Camera grid ----
+    const IS_ADMIN = __IS_ADMIN__;
     function panelHTML(c) {
       const place = (c.location && c.location.trim()) ? c.location : c.label;
+      const controls = IS_ADMIN
+        ? `<button class="icon-btn" title="Edit camera" onclick="openEdit('${c.id}')">✎</button>
+           <button class="icon-btn remove" title="Remove camera" onclick="removeCam('${c.id}')">×</button>`
+        : '';
       return `<div class="panel">
-        <div class="panel-head">📹 ${place}<span class="live-tag">● LIVE</span>
-          <button class="icon-btn" title="Edit camera" onclick="openEdit('${c.id}')">✎</button>
-          <button class="icon-btn remove" title="Remove camera" onclick="removeCam('${c.id}')">×</button></div>
+        <div class="panel-head">📹 ${place}<span class="live-tag">● LIVE</span>${controls}</div>
         <div class="panel-body"><img src="/video_feed/${c.id}" alt="feed"></div>
       </div>`;
     }
@@ -785,7 +933,11 @@ DASHBOARD_HTML = """<!doctype html>
       await fetch('/cameras/' + id, { method:'DELETE' });
       loadCameras();
     }
-    document.getElementById('cam-btn').onclick = openAdd;
+    if (IS_ADMIN) {
+      document.getElementById('cam-btn').onclick = openAdd;
+    } else {
+      document.getElementById('cam-btn').style.display = 'none';
+    }
     loadCameras();
 
     // ---- Real-time notification when a NEW phone alert arrives ----
@@ -863,8 +1015,10 @@ EVIDENCE_HTML = """<!doctype html>
   <header>
     <span class="dot"></span>
     <span class="logo">Vig<span>i</span>l</span>
-    <nav class="nav"><a href="/">Live Monitor</a><a href="/evidence" class="active">Evidence Log</a></nav>
-    <span class="clock push" id="clock"></span>
+    <nav class="nav"><a href="/">Live Monitor</a><a href="/evidence" class="active">Evidence Log</a>__ADMIN_NAV__</nav>
+    <span class="userchip">👤 __USERNAME__</span>
+    <a class="logout" href="/logout">Log out</a>
+    <span class="clock" id="clock"></span>
   </header>
   <div class="evidence-wrap">
     <div class="filters">
@@ -917,16 +1071,206 @@ EVIDENCE_HTML = """<!doctype html>
 </body></html>"""
 
 
+# ---- Users admin page -----------------------------------------------------
+USERS_HTML = """<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vigil — Users</title>__STYLE__
+<style>
+  .users-wrap { flex:1; padding:18px; display:flex; gap:18px; align-items:flex-start; flex-wrap:wrap; }
+  .card { background:#151a21; border:1px solid #232a34; border-radius:14px; padding:20px; }
+  .card h2 { font-size:15px; margin-bottom:14px; }
+  .add { width:300px; }
+  .add label { display:block; font-size:12px; color:#9aa4b2; margin:0 0 5px 2px; }
+  .add input, .add select { width:100%; background:#0e1116; border:1px solid #2b3340; color:#e6e9ef;
+    padding:10px 12px; border-radius:8px; font-size:13px; margin-bottom:12px; }
+  .add button { width:100%; background:#4ade80; color:#0e1116; border:none; padding:11px;
+    border-radius:8px; font-weight:700; cursor:pointer; }
+  .list { flex:1; min-width:320px; }
+  .del { background:#2b3340; color:#f87171; border:none; padding:6px 12px; border-radius:6px; font-size:12px; cursor:pointer; }
+</style></head>
+<body>
+  <header>
+    <span class="dot"></span><span class="logo">Vig<span>i</span>l</span>
+    <nav class="nav"><a href="/">Live Monitor</a><a href="/evidence">Evidence Log</a><a href="/users" class="active">Users</a></nav>
+    <span class="userchip">👤 __USERNAME__</span>
+    <a class="logout" href="/logout">Log out</a>
+  </header>
+  <div class="users-wrap">
+    <div class="card add">
+      <h2>Add a user</h2>
+      <form method="post" action="/users">
+        <label>Username</label><input name="username" required>
+        <label>Password</label><input name="password" type="password" required>
+        <label>Role</label>
+        <select name="role">
+          <option value="invigilator">Invigilator — receives alerts</option>
+          <option value="admin">Admin — full access</option>
+        </select>
+        <button type="submit">Add user</button>
+      </form>
+    </div>
+    <div class="card list">
+      <h2>Users</h2>
+      <table>
+        <thead><tr><th>Username</th><th>Role</th><th></th></tr></thead>
+        <tbody>__ROWS__</tbody>
+      </table>
+    </div>
+  </div>
+</body></html>"""
+
+
+def _admin_nav(user):
+    return '<a href="/users">Users</a>' if user.get("role") == "admin" else ""
+
+
 @app.get("/", response_class=HTMLResponse)
-def dashboard():
+def dashboard(request: Request):
+    user = getattr(request.state, "user", None) or {"username": "", "role": "invigilator"}
     return (DASHBOARD_HTML
             .replace("__STYLE__", STYLE)
-            .replace("__CAMERA_MODAL__", CAMERA_MODAL))
+            .replace("__CAMERA_MODAL__", CAMERA_MODAL)
+            .replace("__USERNAME__", user["username"])
+            .replace("__ADMIN_NAV__", _admin_nav(user))
+            .replace("__IS_ADMIN__", "true" if user["role"] == "admin" else "false"))
 
 
 @app.get("/evidence", response_class=HTMLResponse)
-def evidence_page():
-    return EVIDENCE_HTML.replace("__STYLE__", STYLE)
+def evidence_page(request: Request):
+    user = getattr(request.state, "user", None) or {"username": "", "role": "invigilator"}
+    return (EVIDENCE_HTML.replace("__STYLE__", STYLE)
+            .replace("__USERNAME__", user["username"])
+            .replace("__ADMIN_NAV__", _admin_nav(user)))
+
+
+# ---- Login / Setup / Logout ----------------------------------------------
+AUTH_TEMPLATE = """<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vigil — __TITLE__</title>__STYLE__
+<style>
+  .auth-wrap { flex:1; display:flex; align-items:center; justify-content:center; }
+  .auth { background:#151a21; border:1px solid #232a34; border-radius:14px; padding:30px; width:360px; max-width:92vw; }
+  .auth h2 { font-size:19px; margin-bottom:6px; }
+  .auth p { font-size:13px; color:#9aa4b2; margin-bottom:18px; }
+  .auth label { display:block; font-size:12px; color:#9aa4b2; margin:0 0 5px 2px; }
+  .auth input { width:100%; background:#0e1116; border:1px solid #2b3340; color:#e6e9ef;
+    padding:11px 12px; border-radius:8px; font-size:14px; margin-bottom:14px; }
+  .auth button { width:100%; background:#4ade80; color:#0e1116; border:none; padding:12px;
+    border-radius:8px; font-size:14px; font-weight:700; cursor:pointer; }
+  .auth .err { background:rgba(239,68,68,.15); color:#f87171; font-size:13px;
+    padding:9px 12px; border-radius:8px; margin-bottom:14px; }
+</style></head>
+<body>
+  <header><span class="dot"></span><span class="logo">Vig<span>i</span>l</span></header>
+  <div class="auth-wrap">
+    <form class="auth" method="post" action="__ACTION__">
+      <h2>__HEADING__</h2>
+      <p>__HINT__</p>
+      __ERROR__
+      <label>Username</label>
+      <input name="username" autofocus autocomplete="username">
+      <label>Password</label>
+      <input name="password" type="password" autocomplete="current-password">
+      <button type="submit">__BUTTON__</button>
+    </form>
+  </div>
+</body></html>"""
+
+
+def _auth_page(title, heading, hint, action, button, error=""):
+    err = f'<div class="err">{error}</div>' if error else ""
+    return (AUTH_TEMPLATE.replace("__STYLE__", STYLE).replace("__TITLE__", title)
+            .replace("__HEADING__", heading).replace("__HINT__", hint)
+            .replace("__ACTION__", action).replace("__BUTTON__", button)
+            .replace("__ERROR__", err))
+
+
+_COOKIE_KW = dict(httponly=True, samesite="lax", max_age=60 * 60 * 24 * 30)
+
+
+@app.get("/setup", response_class=HTMLResponse)
+def setup_page():
+    if user_count() > 0:
+        return RedirectResponse("/login")
+    return _auth_page("Setup", "Create the admin account",
+                      "This first account manages cameras and other users.", "/setup", "Create admin")
+
+
+@app.post("/setup")
+def setup_submit(username: str = Form(...), password: str = Form(...)):
+    if user_count() > 0:
+        return RedirectResponse("/login", status_code=303)
+    ok, err = create_user(username, password, role="admin")
+    if not ok:
+        return HTMLResponse(_auth_page("Setup", "Create the admin account",
+                            "This first account manages cameras and other users.",
+                            "/setup", "Create admin", err), status_code=400)
+    resp = RedirectResponse("/", status_code=303)
+    resp.set_cookie("vigil_session", _sign(username.strip()), **_COOKIE_KW)
+    return resp
+
+
+@app.get("/login", response_class=HTMLResponse)
+def login_page():
+    if user_count() == 0:
+        return RedirectResponse("/setup")
+    return _auth_page("Login", "Sign in to Vigil", "Enter your credentials.", "/login", "Sign in")
+
+
+@app.post("/login")
+def login_submit(username: str = Form(...), password: str = Form(...)):
+    u = verify_user(username, password)
+    if not u:
+        return HTMLResponse(_auth_page("Login", "Sign in to Vigil", "Enter your credentials.",
+                            "/login", "Sign in", "Invalid username or password."), status_code=401)
+    resp = RedirectResponse("/", status_code=303)
+    resp.set_cookie("vigil_session", _sign(u["username"]), **_COOKIE_KW)
+    return resp
+
+
+@app.get("/logout")
+def logout():
+    resp = RedirectResponse("/login", status_code=303)
+    resp.delete_cookie("vigil_session")
+    return resp
+
+
+# ---- Users (admin only; gated in the middleware) --------------------------
+def _users_rows(current_username):
+    out = []
+    for u in list_users():
+        if u["username"] == current_username:
+            action = '<span style="color:#5b6675;font-size:12px">you</span>'
+        else:
+            action = ('<form method="post" action="/users/delete" style="margin:0">'
+                      f'<input type="hidden" name="username" value="{u["username"]}">'
+                      '<button class="del">Remove</button></form>')
+        out.append(f'<tr><td>{u["username"]}</td>'
+                   f'<td><span class="badge {u["role"]}">{u["role"]}</span></td>'
+                   f'<td>{action}</td></tr>')
+    return "".join(out)
+
+
+@app.get("/users", response_class=HTMLResponse)
+def users_page(request: Request):
+    user = getattr(request.state, "user", None) or {"username": "", "role": ""}
+    return (USERS_HTML.replace("__STYLE__", STYLE)
+            .replace("__USERNAME__", user["username"])
+            .replace("__ROWS__", _users_rows(user["username"])))
+
+
+@app.post("/users")
+def users_add(username: str = Form(...), password: str = Form(...), role: str = Form("invigilator")):
+    create_user(username, password, "admin" if role == "admin" else "invigilator")
+    return RedirectResponse("/users", status_code=303)
+
+
+@app.post("/users/delete")
+def users_delete(username: str = Form(...)):
+    delete_user(username)
+    return RedirectResponse("/users", status_code=303)
 
 
 # ---------------------------------------------------------------------------
