@@ -48,7 +48,8 @@ except Exception:
 # Accuracy ladder (bigger = smarter but slower). You have a GPU, so 'm' is a big
 # jump from 'n' with fine speed. Want the most powerful? use "yolo11x.pt".
 #   yolo11n  <  yolo11s  <  yolo11m  <  yolo11l  <  yolo11x
-MODEL_NAME     = "yolo11m.pt"
+MODEL_NAME     = "vigil-phone.pt"   # fine-tuned on OUR own phone / no-phone photos
+                                    # (falls back: use "yolo11m.pt" for the generic model)
 
 CONFIDENCE     = 0.65   # ignore weak guesses. Raise toward 0.75 if still false-alarming;
                         # lower toward 0.5 if it misses real phones.

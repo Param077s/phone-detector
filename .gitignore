@@ -3,8 +3,10 @@ venv/
 .venv/
 __pycache__/
 
-# The YOLO model file (it re-downloads automatically — no need to store in git)
+# The YOLO base models re-download automatically — no need to store them
 *.pt
+# ...except our fine-tuned model — share it with the team
+!vigil-phone.pt
 
 # The saved phone photos (these are generated, not code)
 alerts/
