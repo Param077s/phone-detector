@@ -5,11 +5,40 @@ confuses **lips, logos, hands, door handles** for phones. The permanent fix is
 **fine-tuning**: showing YOLO a few hundred photos from *your own setup*, with the
 phones marked — and crucially, letting it see faces/objects that are **not** phones.
 
-This is the single biggest accuracy jump you can make. Here's the whole workflow.
+This is the single biggest accuracy jump you can make.
 
 ---
 
-## Step 1 — Collect photos (5–10 min)
+## ⚡ Fastest path — NO manual labeling (recommended)
+
+`build_dataset.py` builds the whole dataset automatically. You just capture two
+short clips; the labels are generated for you.
+
+```bash
+source venv/bin/activate
+
+python build_dataset.py phone      # hold/move a phone in view;  Ctrl+C to stop (~100 shots)
+python build_dataset.py nophone    # show your FACE, mouth, hands, objects — NO phone;  Ctrl+C
+python build_dataset.py finish     # writes dataset/data.yaml
+
+python train.py dataset/data.yaml  # fine-tune (I can run this part for you)
+```
+
+Then set `MODEL_NAME` in `app.py` to the `best.pt` path it prints, and restart.
+
+- The **no-phone** clip is the magic: it teaches the model your face/mouth are NOT
+  phones, which is exactly what stops the false alarms you saw.
+- Point at your phone camera instead of the webcam with
+  `VIGIL_CAMERA="http://192.168.1.5:8080/video"` before the command.
+
+That's it. The manual-labeling route below still exists if you ever want maximum
+control, but the fast path above is enough to fix the false positives.
+
+---
+
+## Manual route (maximum control)
+
+### Step 1 — Collect photos (5–10 min)
 
 ```bash
 source venv/bin/activate
