@@ -23,21 +23,27 @@ if errorlevel 1 (
 )
 
 REM --- 2) First-time setup ---
-if not exist "venv\" (
+REM The ".vigil-installed" marker is written only after a SUCCESSFUL install,
+REM so an interrupted setup (window closed early) resumes cleanly next time
+REM instead of leaving a half-built venv that reinstalls or fails to run.
+if not exist ".vigil-installed" (
   echo   First-time setup. This downloads ~2 GB and takes 5-15 minutes.
-  echo   It happens ONCE. Please keep this window open.
+  echo   It happens ONCE. Keep this window open until you see "Setup complete".
   echo.
+  if exist "venv\" rmdir /s /q venv
   python -m venv venv
   venv\Scripts\python -m pip install --upgrade pip >nul 2>nul
   echo   Installing components...
   venv\Scripts\pip install -r requirements.txt
   if errorlevel 1 (
-    echo   Setup failed. Check your internet and try again.
+    echo   Setup didn't finish ^(connection interrupted?^). Just run Vigil again to resume.
+    if exist "venv\" rmdir /s /q venv
     pause
     exit /b 1
   )
   echo   Preparing the detector...
   venv\Scripts\python -c "from ultralytics import YOLO; YOLO('yolo11m.pt')" >nul 2>nul
+  echo done> ".vigil-installed"
   echo   Setup complete!
   echo.
 )

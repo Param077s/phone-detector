@@ -17,15 +17,19 @@ if ! command -v python3 >/dev/null 2>&1; then
   exit 1
 fi
 
-if [ ! -d "venv" ]; then
+# The ".vigil-installed" sentinel is written only after a SUCCESSFUL install,
+# so an interrupted setup resumes cleanly instead of half-working.
+if [ ! -f ".vigil-installed" ]; then
   echo "  First-time setup (downloads ~2 GB, 5–15 min, happens once)…"
   echo ""
+  rm -rf venv
   python3 -m venv venv || { echo "  Could not create the environment."; exit 1; }
   ./venv/bin/python -m pip install --upgrade pip >/dev/null 2>&1
   echo "  Installing components…"
-  ./venv/bin/pip install -r requirements.txt || { echo "  Setup failed — check internet."; exit 1; }
+  ./venv/bin/pip install -r requirements.txt || { echo "  Setup didn't finish — run Vigil again to resume."; rm -rf venv; exit 1; }
   echo "  Preparing the detector…"
   ./venv/bin/python -c "from ultralytics import YOLO; YOLO('yolo11m.pt')" >/dev/null 2>&1
+  touch ".vigil-installed"
   echo "  ✓ Setup complete!"
   echo ""
 fi
