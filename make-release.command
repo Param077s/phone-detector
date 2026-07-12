@@ -19,8 +19,8 @@ FILES=(
 for f in "${FILES[@]}"; do
   [ -e "$f" ] && cp "$f" "$OUT/"
 done
-# Include the fine-tuned model if present (optional; app defaults to yolo11m)
-[ -e vigil-phone.pt ] && cp vigil-phone.pt "$OUT/"
+# Ship the reliable general model (the fine-tuned vigil-phone.pt over-triggers)
+[ -e yolo11m.pt ] && cp yolo11m.pt "$OUT/"
 
 chmod +x "$OUT"/*.command "$OUT"/*.sh 2>/dev/null
 

@@ -20,7 +20,8 @@ mkdir -p "$RES" "$MACOS"
 # --- 1) App payload (what the app runs) ------------------------------------
 echo "Copying app files…"
 cp app.py requirements.txt "$RES/"
-[ -e vigil-phone.pt ] && cp vigil-phone.pt "$RES/"
+# ship the reliable general model (the fine-tuned vigil-phone.pt over-triggers)
+[ -e yolo11m.pt ] && cp yolo11m.pt "$RES/"
 
 # --- 2) The in-bundle launcher (opens Terminal so setup progress is visible)-
 cat > "$RES/launch.command" <<'LAUNCH'
@@ -75,7 +76,7 @@ if [ ! -f ".vigil-installed" ]; then
 fi
 
 # Model + code live in the app bundle; data (db, evidence, cameras) lives here.
-export MODEL_NAME="$RES/vigil-phone.pt"
+export MODEL_NAME="$RES/yolo11m.pt"
 export PYTHONPATH="$RES"
 
 echo "  Vigil is running at  http://localhost:$PORT"
