@@ -173,6 +173,29 @@
   footer .row a:hover { color:var(--txt); }
   footer .right { margin-left:auto; display:flex; gap:18px; }
 
+  /* rotating watch-word in the headline */
+  .rotbox { display:inline-block; position:relative; color:var(--grn); white-space:nowrap;
+    transition:width .32s var(--ease); text-align:left; vertical-align:bottom; }
+  .rotbox::after { content:''; position:absolute; left:2px; right:4px; bottom:6px; height:4px;
+    border-radius:3px; background:rgba(62,207,142,.35); }
+  #rotword { display:inline-block; }
+  #rotword.out { animation:rotOut .28s var(--ease) forwards; }
+  #rotword.in2 { animation:rotIn .34s var(--ease); }
+  @keyframes rotOut { to { opacity:0; transform:translateY(-16px); } }
+  @keyframes rotIn { from { opacity:0; transform:translateY(16px); } }
+
+  /* cursor spotlight + CCTV cameras that watch the cursor */
+  .spot { position:fixed; inset:0; pointer-events:none; z-index:0; }
+  .cctv { position:absolute; z-index:2; pointer-events:none; filter:drop-shadow(0 10px 24px rgba(0,0,0,.4)); }
+  .cctv-hero { top:-26px; right:5%; }
+  .cctv-privacy { top:-6px; right:10%; transform:scale(.82); }
+  .cctv-head { transform-origin:56px 21px; }
+  .cctv-lens { filter:drop-shadow(0 0 6px rgba(62,207,142,.9)); }
+  .cctv-rec { animation:pulse 1.3s infinite; }
+  .hero { position:relative; }
+  .privacy { position:relative; }
+  @media (max-width:920px) { .cctv { display:none; } }
+
   .reveal { opacity:0; transform:translateY(28px); transition:opacity .75s var(--ease), transform .75s var(--ease);
     transition-delay:var(--d,0s); }
   .reveal.in { opacity:1; transform:none; }
@@ -186,6 +209,7 @@
 </style></head>
 <body>
 <div class="orbs"><i></i><i></i><i></i></div>
+<div class="spot" id="spot"></div>
 
 <div class="site-head" id="site-head"><div class="row">
   <a class="brand" href="/"><svg class="logo-mark" width="21" height="21" viewBox="0 0 24 24" fill="none"><path d="M4 9V6a2 2 0 0 1 2-2h3M15 4h3a2 2 0 0 1 2 2v3M20 15v3a2 2 0 0 1-2 2h-3M9 20H6a2 2 0 0 1-2-2v-3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="12" cy="12" r="3" fill="#3ecf8e"/></svg><b>Vig<span>i</span>l</b></a>
@@ -198,12 +222,22 @@
 
 <main class="shell">
   <section class="hero">
+    <div class="cctv cctv-hero" aria-hidden="true"><svg width="112" height="86" viewBox="0 0 112 86" fill="none">
+    <rect x="47" y="0" width="18" height="7" rx="2.5" fill="#232a34"/>
+    <rect x="53" y="5" width="6" height="16" rx="3" fill="#232a34"/>
+    <g class="cctv-head">
+      <rect x="16" y="22" width="66" height="32" rx="10" fill="#1a212b" stroke="#2c3542" stroke-width="1.5"/>
+      <rect x="74" y="28" width="18" height="20" rx="6" fill="#12181f" stroke="#2c3542" stroke-width="1.5"/>
+      <circle class="cctv-lens" cx="83" cy="38" r="5.2" fill="#3ecf8e"/>
+      <circle class="cctv-rec" cx="25" cy="30" r="2.6" fill="#ef4444"/>
+      <rect x="24" y="40" width="26" height="4" rx="2" fill="#232a34"/>
+    </g></svg></div>
     <div>
       <span class="kicker reveal in"><span class="dot"></span> Private by design — runs entirely on your computer</span>
-      <h1 class="reveal in" style="--d:.06s">The moment a phone appears, <span class="grad">Vigil sees it.</span></h1>
-      <p class="sub reveal in" style="--d:.12s">Point any camera at the room. Vigil's AI watches every feed in
-        real time and raises an alert with photo evidence and the exact location — so your team can act in seconds,
-        not after the fact.</p>
+      <h1 class="reveal in" style="--d:.06s">The moment a <span class="rotbox"><span id="rotword">phone</span></span> appears, <span class="grad">Vigil sees it.</span></h1>
+      <p class="sub reveal in" style="--d:.12s">Vigil is a free app that turns the cameras you already have
+        into tireless AI watchers. Tell it what to look for — phones in an exam hall to start — and the second
+        it appears you get an alert with a photo and the exact spot. All on your computer. Nothing uploaded.</p>
       <div class="ctas reveal in" style="--d:.18s">
         <a class="btn btn-grn" href="#get">Download Vigil free ↓</a>
         <a class="btn btn-ghost" href="#setup">See the 2-minute setup</a>
@@ -237,7 +271,7 @@
     <h2 class="reveal" style="--d:.05s">Everything a control room needs.<br>Nothing it doesn't.</h2>
     <div class="feats">
       <div class="feat reveal"><span class="ico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg></span><h3>Real-time AI detection</h3>
-        <p>A fine-tuned vision model scans every frame of every camera and flags a phone within about a second — even small, half-hidden ones.</p></div>
+        <p>A vision model scans every frame of every camera and flags what you told it to watch — phones out of the box — within about a second, even small, half-hidden ones.</p></div>
       <div class="feat reveal" style="--d:.07s"><span class="ico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg></span><h3>Photo evidence, automatically</h3>
         <p>Every detection is saved with the photo, timestamp, camera and confidence. Confirm or dismiss each one to keep a clean, reviewable log.</p></div>
       <div class="feat reveal" style="--d:.14s"><span class="ico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7.5A1.5 1.5 0 0 1 4.5 6h9A1.5 1.5 0 0 1 15 7.5v9a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 3 16.5z"/><path d="m15 10.5 4.55-2.6A1 1 0 0 1 21 8.77v6.46a1 1 0 0 1-1.45.87L15 13.5z"/></svg></span><h3>Any camera works</h3>
@@ -331,12 +365,19 @@
         <p>Unzip and run <code>./Vigil-Linux.sh</code> in a terminal — it sets itself up on the first
         run and opens the dashboard when ready.</p></div>
     </div>
-    <p class="reveal" style="font-size:12.5px; color:#5b6675; margin-top:20px">
-      Prefer the code? <a href="https://github.com/Param077s/phone-detector" target="_blank" rel="noopener" style="color:#8b95a3; text-decoration:underline">View the source on GitHub</a>.
-    </p>
   </section>
 
   <section id="privacy" class="privacy">
+    <div class="cctv cctv-privacy" aria-hidden="true"><svg width="112" height="86" viewBox="0 0 112 86" fill="none">
+    <rect x="47" y="0" width="18" height="7" rx="2.5" fill="#232a34"/>
+    <rect x="53" y="5" width="6" height="16" rx="3" fill="#232a34"/>
+    <g class="cctv-head">
+      <rect x="16" y="22" width="66" height="32" rx="10" fill="#1a212b" stroke="#2c3542" stroke-width="1.5"/>
+      <rect x="74" y="28" width="18" height="20" rx="6" fill="#12181f" stroke="#2c3542" stroke-width="1.5"/>
+      <circle class="cctv-lens" cx="83" cy="38" r="5.2" fill="#3ecf8e"/>
+      <circle class="cctv-rec" cx="25" cy="30" r="2.6" fill="#ef4444"/>
+      <rect x="24" y="40" width="26" height="4" rx="2" fill="#232a34"/>
+    </g></svg></div>
     <span class="sec-kicker reveal">Privacy</span>
     <div class="big reveal" style="--d:.05s">Nothing leaves the room.<br>
       <span style="color:#8b95a3">Your cameras, your computer, your data.</span></div>
@@ -355,6 +396,11 @@
       <div class="qa reveal"><button>Does it need an internet connection?<i>+</i></button>
         <div class="a"><p>No. Detection, the dashboard and the evidence log all run locally. Internet is only used
         if you turn on Telegram phone alerts.</p></div></div>
+      <div class="qa reveal" style="--d:.05s"><button>Is it only for phones?<i>+</i></button>
+        <div class="a"><p>No — phones are just the first target. In <b>Settings → "Watch for"</b> pick or type
+        what matters: laptop, bag, book, bottle, person and more. Phone detection ships with a fine-tuned exam
+        model; other targets use the general model, and fully custom targets (caps, uniforms…) can be added
+        with training.</p></div></div>
       <div class="qa reveal" style="--d:.05s"><button>How many cameras can it watch?<i>+</i></button>
         <div class="a"><p>As many as your computer can decode — every configured camera is monitored all the time,
         whether or not it's on screen. Add webcams, phones and CCTV together.</p></div></div>
@@ -381,10 +427,9 @@
 
 <footer><div class="row">
   <a class="brand" href="/" style="font-size:15px"><svg class="logo-mark" width="21" height="21" viewBox="0 0 24 24" fill="none"><path d="M4 9V6a2 2 0 0 1 2-2h3M15 4h3a2 2 0 0 1 2 2v3M20 15v3a2 2 0 0 1-2 2h-3M9 20H6a2 2 0 0 1-2-2v-3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="12" cy="12" r="3" fill="#3ecf8e"/></svg><b>Vig<span>i</span>l</b></a>
-  <span>· Local AI phone detection</span>
+  <span>· Your cameras, watching what matters</span>
   <div class="right">
     <a href="#setup">Setup guide</a>
-    <a href="https://github.com/Param077s/phone-detector" target="_blank" rel="noopener">GitHub</a>
     <a href="#get">Download</a>
   </div>
 </div></footer>
@@ -425,5 +470,44 @@
   }
   setTimeout(strike, 1200);
   setInterval(strike, 3900);
+
+  // rotating watch-word — Vigil watches for more than phones
+  const WORDS = ['phone', 'laptop', 'bag', 'book', 'bottle'];
+  const rw = document.getElementById('rotword'), rb = rw.parentElement;
+  rb.style.width = rw.offsetWidth + 'px';
+  let wi = 0;
+  setInterval(() => {
+    wi = (wi + 1) % WORDS.length;
+    rw.classList.add('out');
+    setTimeout(() => {
+      rw.textContent = WORDS[wi];
+      rw.classList.remove('out'); rw.classList.add('in2');
+      rb.style.width = rw.scrollWidth + 'px';
+      setTimeout(() => rw.classList.remove('in2'), 360);
+    }, 270);
+  }, 2400);
+
+  // the CCTV cameras track your cursor (and the spotlight follows it)
+  if (matchMedia('(pointer:fine)').matches) {
+    const heads = [...document.querySelectorAll('.cctv-head')];
+    const spot = document.getElementById('spot');
+    let mx = innerWidth / 2, my = innerHeight / 3;
+    addEventListener('mousemove', e => {
+      mx = e.clientX; my = e.clientY;
+      spot.style.background = `radial-gradient(320px circle at ${mx}px ${my}px, rgba(62,207,142,.055), transparent 70%)`;
+    }, { passive: true });
+    const st = heads.map(h => ({ h, a: 10 }));
+    (function track() {
+      st.forEach(s => {
+        const r = s.h.getBoundingClientRect();
+        const cx = r.left + r.width / 2, cy = r.top + 8;
+        let t = Math.atan2(my - cy, mx - cx) * 180 / Math.PI;   // 0° = lens pointing right
+        t = Math.max(-30, Math.min(70, t)) * 0.55;              // clamp: it strains, never spins
+        s.a += (t - s.a) * 0.09;                                // heavy, motorised feel
+        s.h.style.transform = `rotate(${s.a.toFixed(2)}deg)`;
+      });
+      requestAnimationFrame(track);
+    })();
+  }
 </script>
 </body></html>

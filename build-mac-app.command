@@ -153,15 +153,70 @@ else
   echo "  (skipped custom icon — Pillow unavailable; app uses the default icon)"
 fi
 
-# --- 6) DMG with an Applications shortcut ----------------------------------
+# --- 6) DMG with a designed window (background art + drag arrow) ------------
+# Uses dmgbuild (writes the Finder layout directly — no Finder scripting,
+# which newer macOS blocks). Auto-installs into the venv if missing.
 echo "Building Vigil.dmg…"
-STAGE="$BUILD/dmg"
-mkdir -p "$STAGE"
-cp -R "$APP" "$STAGE/"
-ln -s /Applications "$STAGE/Applications"
+"$PYBIN" -c "import dmgbuild" 2>/dev/null || "$PYBIN" -m pip install -q dmgbuild
+
+# 6a) Draw the installer-window background (660x420 window points)
+"$PYBIN" - <<'PYBG'
+try:
+    from PIL import Image, ImageDraw, ImageFont
+except Exception:
+    raise SystemExit("no-pillow")
+W, H = 660, 420
+img = Image.new("RGB", (W, H), (12, 15, 20))
+d = ImageDraw.Draw(img)
+# soft vertical glow from the top
+for y in range(H):
+    t = max(0.0, 1.0 - y / 260)
+    d.line([(0, y), (W, y)], fill=(int(12 + 10*t), int(15 + 14*t), int(20 + 15*t)))
+def font(sz):
+    for name in ("/System/Library/Fonts/SFNS.ttf", "/System/Library/Fonts/Helvetica.ttc"):
+        try: return ImageFont.truetype(name, sz)
+        except Exception: pass
+    return ImageFont.load_default()
+# wordmark + green dot + tagline
+f1, f2 = font(30), font(15)
+d.text((W//2, 52), "Vigil", font=f1, fill=(232, 235, 241), anchor="mm")
+tw = d.textlength("Vigil", font=f1)
+d.ellipse([W//2 + tw/2 + 8, 48, W//2 + tw/2 + 18, 58], fill=(62, 207, 142))
+d.text((W//2, 84), "Drag Vigil into Applications to install", font=f2, fill=(138, 148, 166), anchor="mm")
+# dashed arrow between the two icon slots (icons at x=180 / x=480, y=225)
+ay = 222
+for x in range(258, 372, 16):
+    d.rounded_rectangle([x, ay-2, x+9, ay+2], radius=2, fill=(74, 86, 104))
+d.polygon([(390, ay), (374, ay-9), (374, ay+9)], fill=(62, 207, 142))
+# footer hint
+d.text((W//2, 388), "Then open Vigil from Applications — your browser opens automatically.",
+       font=font(12), fill=(91, 102, 117), anchor="mm")
+img.save("dist/mac/dmg-bg.png")
+print("bg ok")
+PYBG
+
+cat > "$BUILD/dmg_settings.py" <<'DMGPY'
+import os.path
+app = "dist/mac/Vigil.app"
+files = [app]
+symlinks = {"Applications": "/Applications"}
+badge_icon = os.path.join(app, "Contents/Resources/Vigil.icns")
+background = "dist/mac/dmg-bg.png"
+window_rect = ((240, 140), (660, 420))
+default_view = "icon-view"
+show_status_bar = False
+show_tab_view = False
+show_toolbar = False
+show_pathbar = False
+show_sidebar = False
+icon_size = 104
+text_size = 13
+icon_locations = {"Vigil.app": (180, 225), "Applications": (480, 225)}
+format = "UDZO"
+DMGPY
+
 rm -f "dist/Vigil.dmg"
-hdiutil create -volname "Vigil" -srcfolder "$STAGE" -ov -format UDZO "dist/Vigil.dmg" >/dev/null
-rm -rf "$STAGE"
+"$PYBIN" -m dmgbuild -s "$BUILD/dmg_settings.py" "Vigil" "dist/Vigil.dmg"
 
 echo ""
 echo "  ✓ Built dist/$APPNAME.app  and  dist/Vigil.dmg"

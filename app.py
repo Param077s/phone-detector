@@ -92,10 +92,15 @@ os.makedirs(EVIDENCE_DIR, exist_ok=True)
 TELEGRAM_TOKEN    = ""   # Telegram bot token (set from the Settings page)
 TELEGRAM_CHAT_IDS = ""   # comma-separated chat id(s) to send alerts to
 
+# What Vigil watches for. "phone" uses the fine-tuned exam model; any other
+# target (laptop, backpack, book, bottle, person, …) auto-switches to the
+# general 80-class model. Set from Settings → "Watch for".
+WATCH_TARGET = "phone"
+
 SETTINGS_FILE = "settings.json"
 TUNABLE = ["MODEL_NAME", "CONFIDENCE", "REQUIRED_HITS", "ALERT_COOLDOWN", "IMG_SIZE",
            "TILING", "TILE_COLS", "TILE_ROWS", "TILE_OVERLAP", "TILE_IMGSZ",
-           "TELEGRAM_TOKEN", "TELEGRAM_CHAT_IDS"]
+           "TELEGRAM_TOKEN", "TELEGRAM_CHAT_IDS", "WATCH_TARGET"]
 
 
 def _apply_saved_settings():
@@ -182,6 +187,60 @@ def reload_model():
             pass
 
 
+# --- Watch target: what Vigil is looking for --------------------------------
+TARGET_CLASS = PHONE_CLASS
+TARGET_NAME = "Phone"
+
+_PHONE_WORDS = ("phone", "cell phone", "mobile", "mobile phone", "smartphone", "cellphone")
+
+
+def _resolve_target_in(names, want):
+    tid = next((i for i, n in names.items() if str(n).lower() == want), None)
+    if tid is None:
+        tid = next((i for i, n in names.items() if want in str(n).lower()), None)
+    return tid
+
+
+def apply_watch_target():
+    """Resolve WATCH_TARGET to a class id in the current model — switching to
+    the right model if needed (phone → fine-tuned model when present; anything
+    else → the general 80-class model). Returns True if the target resolved."""
+    global TARGET_CLASS, TARGET_NAME
+    want = (WATCH_TARGET or "phone").strip().lower()
+    if want in _PHONE_WORDS:
+        want = "phone"
+    with model_lock:
+        names = dict(model.names)
+    tid = _resolve_target_in(names, "cell phone" if want == "phone" else want)
+    if tid is None and want == "phone":
+        tid = _resolve_target_in(names, "phone")
+    if tid is None:
+        # Current model doesn't know this target — swap to the one that does.
+        fallback = ("vigil-phone.pt" if want == "phone" and os.path.exists("vigil-phone.pt")
+                    else "yolo11m.pt")
+        if MODEL_NAME != fallback:
+            save_settings({"MODEL_NAME": fallback})
+            reload_model()
+            with model_lock:
+                names = dict(model.names)
+            tid = _resolve_target_in(names, "cell phone" if want == "phone" else want)
+            if tid is None and want == "phone":
+                tid = _resolve_target_in(names, "phone")
+    if tid is None:
+        return False
+    raw = str(names.get(tid, want))
+    TARGET_CLASS = tid
+    TARGET_NAME = "Phone" if raw.lower() in _PHONE_WORDS else raw.title()
+    return True
+
+
+try:
+    apply_watch_target()
+    print(f"Watching for: {TARGET_NAME} (class {TARGET_CLASS})")
+except Exception as _e:
+    print(f"Watch-target init failed ({_e}); defaulting to phone")
+
+
 # ---------------------------------------------------------------------------
 # CAMERAS (a list — each is {id, label, source})
 # ---------------------------------------------------------------------------
@@ -265,16 +324,21 @@ def init_db():
                 created_at  TEXT
             )
         """)
+        # v1.1: what the alert was for (older installs get the column added here)
+        try:
+            c.execute("ALTER TABLE alerts ADD COLUMN thing TEXT DEFAULT 'Phone'")
+        except sqlite3.OperationalError:
+            pass
 
 
-def _store_alert(jpg_bytes, confidence, camera, status="pending", dt=None):
+def _store_alert(jpg_bytes, confidence, camera, status="pending", dt=None, thing="Phone"):
     dt = dt or datetime.now()
     with _db() as c:
         cur = c.execute(
-            "INSERT INTO alerts (created_at, date, time, confidence, camera, image_file, status)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO alerts (created_at, date, time, confidence, camera, image_file, status, thing)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             (dt.isoformat(), dt.strftime("%Y-%m-%d"), dt.strftime("%H:%M:%S"),
-             round(confidence, 2), camera, "", status))
+             round(confidence, 2), camera, "", status, thing))
         alert_id = cur.lastrowid
         fname = os.path.join(EVIDENCE_DIR, f"alert_{alert_id}_{dt.strftime('%Y%m%d_%H%M%S')}.jpg")
         with open(fname, "wb") as f:
@@ -284,10 +348,15 @@ def _store_alert(jpg_bytes, confidence, camera, status="pending", dt=None):
 
 
 def _row_to_dict(r):
+    try:
+        thing = r["thing"] or "Phone"
+    except (IndexError, KeyError):
+        thing = "Phone"
     return {
         "id": r["id"], "time": r["time"], "date": r["date"],
         "confidence": r["confidence"], "camera": r["camera"],
         "status": r["status"], "image": f"/evidence/image/{r['id']}",
+        "thing": thing,
     }
 
 
@@ -438,8 +507,9 @@ def maybe_add_alert(crop, confidence, camera_label, camera_id):
             return
         _last_alert_time[camera_id] = now
         jpg = buf.tobytes()
-        _store_alert(jpg, confidence, camera_label, status="pending")
-        caption = (f"📱 Phone detected · {round(confidence * 100)}%\n"
+        thing = TARGET_NAME
+        _store_alert(jpg, confidence, camera_label, status="pending", thing=thing)
+        caption = (f"🚨 {thing} detected · {round(confidence * 100)}%\n"
                    f"📍 {camera_label}\n🕐 {datetime.now().strftime('%H:%M:%S')}")
         send_telegram_alert(jpg, caption)
 
@@ -541,7 +611,7 @@ def _nms(boxes, iou_thr=0.5):
 
 def _detect(image, imgsz):
     with model_lock:
-        res = model(image, classes=[PHONE_CLASS], conf=CONFIDENCE,
+        res = model(image, classes=[TARGET_CLASS], conf=CONFIDENCE,
                     imgsz=imgsz, device=DEVICE, verbose=False)
     return [(*map(int, b.xyxy[0]), float(b.conf[0])) for b in res[0].boxes]
 
@@ -693,7 +763,7 @@ class Producer:
                     frame = frame.copy()
                     for (x1, y1, x2, y2, conf) in boxes:
                         cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 220, 90), 2)
-                        cv2.putText(frame, f"PHONE {conf:.0%}", (x1, max(y1 - 10, 20)),
+                        cv2.putText(frame, f"{TARGET_NAME.upper()} {conf:.0%}", (x1, max(y1 - 10, 20)),
                                     cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 220, 90), 2)
                 ok, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, JPEG_QUALITY])
                 if ok:
@@ -739,7 +809,7 @@ class Producer:
                     frame = frame.copy()
                     for (x1, y1, x2, y2, conf) in boxes:
                         cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 220, 90), 2)
-                        cv2.putText(frame, f"PHONE {conf:.0%}", (x1, max(y1 - 10, 20)),
+                        cv2.putText(frame, f"{TARGET_NAME.upper()} {conf:.0%}", (x1, max(y1 - 10, 20)),
                                     cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 220, 90), 2)
 
             ok, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, JPEG_QUALITY])
@@ -1704,7 +1774,7 @@ DASHBOARD_HTML = """<!doctype html>
       } catch (e) {}
       try {                                    // desktop notification
         if ('Notification' in window && Notification.permission === 'granted') {
-          new Notification('📱 Phone detected · ' + Math.round(a.confidence * 100) + '%',
+          new Notification('🚨 ' + (a.thing || 'Phone') + ' detected · ' + Math.round(a.confidence * 100) + '%',
             { body: '📍 ' + a.camera + '  ·  ' + a.time });
         }
       } catch (e) {}
@@ -1739,7 +1809,7 @@ DASHBOARD_HTML = """<!doctype html>
         <div class="alert ${a.status}${!wasFirst && a.id > prevMax ? ' new' : ''}">
           <img src="${a.image}">
           <div class="alert-info">
-            <div class="alert-title">Phone detected · ${Math.round(a.confidence*100)}%</div>
+            <div class="alert-title">${a.thing || 'Phone'} detected · ${Math.round(a.confidence*100)}%</div>
             <div class="alert-cam">${I.pin}${a.camera}</div>
             <div class="alert-time">${a.time}</div>
             ${a.status === 'pending'
@@ -1836,7 +1906,7 @@ EVIDENCE_HTML = """<!doctype html>
     </div>
     <div class="table">
       <table>
-        <thead><tr><th>Photo</th><th>Date</th><th>Time</th><th>Location</th><th>Confidence</th><th>Status</th></tr></thead>
+        <thead><tr><th>Photo</th><th>Detected</th><th>Date</th><th>Time</th><th>Location</th><th>Confidence</th><th>Status</th></tr></thead>
         <tbody id="rows"></tbody>
       </table>
     </div>
@@ -1858,12 +1928,13 @@ EVIDENCE_HTML = """<!doctype html>
       try { rows = await (await fetch(url)).json(); } catch (e) { return; }
       const body = document.getElementById('rows');
       if (rows.length === 0) {
-        body.innerHTML = '<tr><td colspan="6" style="text-align:center;color:#5b6675;padding:40px">No matching records.</td></tr>';
+        body.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#5b6675;padding:40px">No matching records.</td></tr>';
         return;
       }
       body.innerHTML = rows.map(r => `
         <tr>
           <td><img src="${r.image}"></td>
+          <td>${r.thing || 'Phone'}</td>
           <td>${r.date}</td>
           <td>${r.time}</td>
           <td>${r.camera}</td>
@@ -2210,6 +2281,29 @@ LANDING_HTML = """<!doctype html>
   footer .row a:hover { color:var(--txt); }
   footer .right { margin-left:auto; display:flex; gap:18px; }
 
+  /* rotating watch-word in the headline */
+  .rotbox { display:inline-block; position:relative; color:var(--grn); white-space:nowrap;
+    transition:width .32s var(--ease); text-align:left; vertical-align:bottom; }
+  .rotbox::after { content:''; position:absolute; left:2px; right:4px; bottom:6px; height:4px;
+    border-radius:3px; background:rgba(62,207,142,.35); }
+  #rotword { display:inline-block; }
+  #rotword.out { animation:rotOut .28s var(--ease) forwards; }
+  #rotword.in2 { animation:rotIn .34s var(--ease); }
+  @keyframes rotOut { to { opacity:0; transform:translateY(-16px); } }
+  @keyframes rotIn { from { opacity:0; transform:translateY(16px); } }
+
+  /* cursor spotlight + CCTV cameras that watch the cursor */
+  .spot { position:fixed; inset:0; pointer-events:none; z-index:0; }
+  .cctv { position:absolute; z-index:2; pointer-events:none; filter:drop-shadow(0 10px 24px rgba(0,0,0,.4)); }
+  .cctv-hero { top:-26px; right:5%; }
+  .cctv-privacy { top:-6px; right:10%; transform:scale(.82); }
+  .cctv-head { transform-origin:56px 21px; }
+  .cctv-lens { filter:drop-shadow(0 0 6px rgba(62,207,142,.9)); }
+  .cctv-rec { animation:pulse 1.3s infinite; }
+  .hero { position:relative; }
+  .privacy { position:relative; }
+  @media (max-width:920px) { .cctv { display:none; } }
+
   .reveal { opacity:0; transform:translateY(28px); transition:opacity .75s var(--ease), transform .75s var(--ease);
     transition-delay:var(--d,0s); }
   .reveal.in { opacity:1; transform:none; }
@@ -2223,6 +2317,7 @@ LANDING_HTML = """<!doctype html>
 </style></head>
 <body>
 <div class="orbs"><i></i><i></i><i></i></div>
+<div class="spot" id="spot"></div>
 
 <div class="site-head" id="site-head"><div class="row">
   <a class="brand" href="/">__LOGO__<b>Vig<span>i</span>l</b></a>
@@ -2235,12 +2330,22 @@ LANDING_HTML = """<!doctype html>
 
 <main class="shell">
   <section class="hero">
+    <div class="cctv cctv-hero" aria-hidden="true"><svg width="112" height="86" viewBox="0 0 112 86" fill="none">
+    <rect x="47" y="0" width="18" height="7" rx="2.5" fill="#232a34"/>
+    <rect x="53" y="5" width="6" height="16" rx="3" fill="#232a34"/>
+    <g class="cctv-head">
+      <rect x="16" y="22" width="66" height="32" rx="10" fill="#1a212b" stroke="#2c3542" stroke-width="1.5"/>
+      <rect x="74" y="28" width="18" height="20" rx="6" fill="#12181f" stroke="#2c3542" stroke-width="1.5"/>
+      <circle class="cctv-lens" cx="83" cy="38" r="5.2" fill="#3ecf8e"/>
+      <circle class="cctv-rec" cx="25" cy="30" r="2.6" fill="#ef4444"/>
+      <rect x="24" y="40" width="26" height="4" rx="2" fill="#232a34"/>
+    </g></svg></div>
     <div>
       <span class="kicker reveal in"><span class="dot"></span> Private by design — runs entirely on your computer</span>
-      <h1 class="reveal in" style="--d:.06s">The moment a phone appears, <span class="grad">Vigil sees it.</span></h1>
-      <p class="sub reveal in" style="--d:.12s">Point any camera at the room. Vigil's AI watches every feed in
-        real time and raises an alert with photo evidence and the exact location — so your team can act in seconds,
-        not after the fact.</p>
+      <h1 class="reveal in" style="--d:.06s">The moment a <span class="rotbox"><span id="rotword">phone</span></span> appears, <span class="grad">Vigil sees it.</span></h1>
+      <p class="sub reveal in" style="--d:.12s">Vigil is a free app that turns the cameras you already have
+        into tireless AI watchers. Tell it what to look for — phones in an exam hall to start — and the second
+        it appears you get an alert with a photo and the exact spot. All on your computer. Nothing uploaded.</p>
       <div class="ctas reveal in" style="--d:.18s">
         <a class="btn btn-grn" href="/login">Open the dashboard →</a>
         <a class="btn btn-ghost" href="#setup">See the 2-minute setup</a>
@@ -2274,7 +2379,7 @@ LANDING_HTML = """<!doctype html>
     <h2 class="reveal" style="--d:.05s">Everything a control room needs.<br>Nothing it doesn't.</h2>
     <div class="feats">
       <div class="feat reveal"><span class="ico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg></span><h3>Real-time AI detection</h3>
-        <p>A fine-tuned vision model scans every frame of every camera and flags a phone within about a second — even small, half-hidden ones.</p></div>
+        <p>A vision model scans every frame of every camera and flags what you told it to watch — phones out of the box — within about a second, even small, half-hidden ones.</p></div>
       <div class="feat reveal" style="--d:.07s"><span class="ico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg></span><h3>Photo evidence, automatically</h3>
         <p>Every detection is saved with the photo, timestamp, camera and confidence. Confirm or dismiss each one to keep a clean, reviewable log.</p></div>
       <div class="feat reveal" style="--d:.14s"><span class="ico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7.5A1.5 1.5 0 0 1 4.5 6h9A1.5 1.5 0 0 1 15 7.5v9a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 3 16.5z"/><path d="m15 10.5 4.55-2.6A1 1 0 0 1 21 8.77v6.46a1 1 0 0 1-1.45.87L15 13.5z"/></svg></span><h3>Any camera works</h3>
@@ -2344,6 +2449,16 @@ LANDING_HTML = """<!doctype html>
   </section>
 
   <section id="privacy" class="privacy">
+    <div class="cctv cctv-privacy" aria-hidden="true"><svg width="112" height="86" viewBox="0 0 112 86" fill="none">
+    <rect x="47" y="0" width="18" height="7" rx="2.5" fill="#232a34"/>
+    <rect x="53" y="5" width="6" height="16" rx="3" fill="#232a34"/>
+    <g class="cctv-head">
+      <rect x="16" y="22" width="66" height="32" rx="10" fill="#1a212b" stroke="#2c3542" stroke-width="1.5"/>
+      <rect x="74" y="28" width="18" height="20" rx="6" fill="#12181f" stroke="#2c3542" stroke-width="1.5"/>
+      <circle class="cctv-lens" cx="83" cy="38" r="5.2" fill="#3ecf8e"/>
+      <circle class="cctv-rec" cx="25" cy="30" r="2.6" fill="#ef4444"/>
+      <rect x="24" y="40" width="26" height="4" rx="2" fill="#232a34"/>
+    </g></svg></div>
     <span class="sec-kicker reveal">Privacy</span>
     <div class="big reveal" style="--d:.05s">Nothing leaves the room.<br>
       <span style="color:#8b95a3">Your cameras, your computer, your data.</span></div>
@@ -2362,6 +2477,11 @@ LANDING_HTML = """<!doctype html>
       <div class="qa reveal"><button>Does it need an internet connection?<i>+</i></button>
         <div class="a"><p>No. Detection, the dashboard and the evidence log all run locally. Internet is only used
         if you turn on Telegram phone alerts.</p></div></div>
+      <div class="qa reveal" style="--d:.05s"><button>Is it only for phones?<i>+</i></button>
+        <div class="a"><p>No — phones are just the first target. In <b>Settings → "Watch for"</b> pick or type
+        what matters: laptop, bag, book, bottle, person and more. Phone detection ships with a fine-tuned exam
+        model; other targets use the general model, and fully custom targets (caps, uniforms…) can be added
+        with training.</p></div></div>
       <div class="qa reveal" style="--d:.05s"><button>How many cameras can it watch?<i>+</i></button>
         <div class="a"><p>As many as your computer can decode — every configured camera is monitored all the time,
         whether or not it's on screen. Add webcams, phones and CCTV together.</p></div></div>
@@ -2381,17 +2501,16 @@ LANDING_HTML = """<!doctype html>
     <p class="sec-sub reveal" style="--d:.1s; margin:0 auto">Sign in to your control room, or set Vigil up on the computer in the room you want to watch.</p>
     <div class="ctas reveal" style="--d:.15s">
       <a class="btn btn-grn" href="/login">Open the dashboard →</a>
-      <a class="btn btn-ghost" href="https://github.com/Param077s/phone-detector" target="_blank" rel="noopener">Get Vigil on GitHub</a>
+      <a class="btn btn-ghost" href="#how">See how it works</a>
     </div>
   </section>
 </main>
 
 <footer><div class="row">
   <a class="brand" href="/" style="font-size:15px">__LOGO__<b>Vig<span>i</span>l</b></a>
-  <span>· Local AI phone detection</span>
+  <span>· Your cameras, watching what matters</span>
   <div class="right">
     <a href="#setup">Setup guide</a>
-    <a href="https://github.com/Param077s/phone-detector" target="_blank" rel="noopener">GitHub</a>
     <a href="/login">Sign in</a>
   </div>
 </div></footer>
@@ -2432,6 +2551,45 @@ LANDING_HTML = """<!doctype html>
   }
   setTimeout(strike, 1200);
   setInterval(strike, 3900);
+
+  // rotating watch-word — Vigil watches for more than phones
+  const WORDS = ['phone', 'laptop', 'bag', 'book', 'bottle'];
+  const rw = document.getElementById('rotword'), rb = rw.parentElement;
+  rb.style.width = rw.offsetWidth + 'px';
+  let wi = 0;
+  setInterval(() => {
+    wi = (wi + 1) % WORDS.length;
+    rw.classList.add('out');
+    setTimeout(() => {
+      rw.textContent = WORDS[wi];
+      rw.classList.remove('out'); rw.classList.add('in2');
+      rb.style.width = rw.scrollWidth + 'px';
+      setTimeout(() => rw.classList.remove('in2'), 360);
+    }, 270);
+  }, 2400);
+
+  // the CCTV cameras track your cursor (and the spotlight follows it)
+  if (matchMedia('(pointer:fine)').matches) {
+    const heads = [...document.querySelectorAll('.cctv-head')];
+    const spot = document.getElementById('spot');
+    let mx = innerWidth / 2, my = innerHeight / 3;
+    addEventListener('mousemove', e => {
+      mx = e.clientX; my = e.clientY;
+      spot.style.background = `radial-gradient(320px circle at ${mx}px ${my}px, rgba(62,207,142,.055), transparent 70%)`;
+    }, { passive: true });
+    const st = heads.map(h => ({ h, a: 10 }));
+    (function track() {
+      st.forEach(s => {
+        const r = s.h.getBoundingClientRect();
+        const cx = r.left + r.width / 2, cy = r.top + 8;
+        let t = Math.atan2(my - cy, mx - cx) * 180 / Math.PI;   // 0° = lens pointing right
+        t = Math.max(-30, Math.min(70, t)) * 0.55;              // clamp: it strains, never spins
+        s.a += (t - s.a) * 0.09;                                // heavy, motorised feel
+        s.h.style.transform = `rotate(${s.a.toFixed(2)}deg)`;
+      });
+      requestAnimationFrame(track);
+    })();
+  }
 </script>
 </body></html>"""
 
@@ -2614,12 +2772,33 @@ def settings_page(request: Request, saved: str = "", test: str = ""):
         banner += '<div class="saved" style="background:rgba(239,68,68,.15);color:#f87171">✗ Test failed — check the token and chat ID.</div>'
     elif test == "noconfig":
         banner += '<div class="saved" style="background:rgba(234,179,8,.15);color:#eab308">Add a bot token and chat ID, click Save, then test.</div>'
+    if request.query_params.get("watch") == "unknown":
+        banner += ('<div class="saved" style="background:rgba(234,179,8,.15);color:#eab308">'
+                   "That target isn't something the current models recognise — kept the previous one. "
+                   'Custom targets (caps, uniforms, faces…) can be added with fine-tuning.</div>')
     checked = "checked" if g["TILING"] else ""
     body = f"""
       <h2>Detection settings</h2>
       <div class="sub">Accuracy vs. speed. Changes apply live — no restart needed.</div>
       {banner}
       <form method="post" action="/settings">
+        <div class="sec" style="margin-top:0">What Vigil watches for</div>
+        <div class="field">
+          <label>Watch for</label>
+          <div class="hint">Pick a preset or type anything the general model knows (80 everyday objects —
+          laptop, backpack, book, bottle, umbrella, person…). <b>Phone</b> uses Vigil's fine-tuned exam
+          model; other targets switch to the general model automatically. Applies live to every camera.</div>
+          <input list="watch-options" name="watch_target" value="{g['WATCH_TARGET']}" style="width:340px" placeholder="phone">
+          <datalist id="watch-options">
+            <option value="phone"></option><option value="laptop"></option>
+            <option value="backpack"></option><option value="handbag"></option>
+            <option value="book"></option><option value="bottle"></option>
+            <option value="umbrella"></option><option value="person"></option>
+            <option value="knife"></option><option value="scissors"></option>
+          </datalist>
+        </div>
+
+        <div class="sec">Detection tuning</div>
         <div class="field">
           <label>Confidence threshold</label>
           <div class="hint">Lower catches faint/distant phones but false-alarms more. 0.05–0.95.</div>
@@ -2706,8 +2885,10 @@ def settings_save(
     model_name: str = Form("yolo11m.pt"),
     telegram_token: str = Form(""),
     telegram_chat_ids: str = Form(""),
+    watch_target: str = Form("phone"),
 ):
     old_model = MODEL_NAME
+    old_watch = WATCH_TARGET
     save_settings({
         "CONFIDENCE": min(max(confidence, 0.05), 0.95),
         "REQUIRED_HITS": max(1, min(required_hits, 10)),
@@ -2721,13 +2902,23 @@ def settings_save(
         "MODEL_NAME": model_name.strip() or old_model,
         "TELEGRAM_TOKEN": telegram_token.strip(),
         "TELEGRAM_CHAT_IDS": telegram_chat_ids.strip(),
+        "WATCH_TARGET": (watch_target.strip().lower() or "phone"),
     })
     if MODEL_NAME != old_model:
         try:
             reload_model()
         except Exception:
             save_settings({"MODEL_NAME": old_model})       # bad model -> revert
-    return RedirectResponse("/settings?saved=1", status_code=303)
+    watch_flag = ""
+    try:
+        if not apply_watch_target():                       # unknown target -> revert
+            save_settings({"WATCH_TARGET": old_watch})
+            apply_watch_target()
+            watch_flag = "&watch=unknown"
+    except Exception:
+        save_settings({"WATCH_TARGET": old_watch})
+        watch_flag = "&watch=unknown"
+    return RedirectResponse(f"/settings?saved=1{watch_flag}", status_code=303)
 
 
 @app.post("/settings/telegram-test")
@@ -2848,7 +3039,7 @@ DISPLAY_HTML = """<!doctype html>
       } catch(e){} }
     function showPop(a) {
       $('pop-img').src = a.image;
-      $('pop-title').textContent = '📱 Phone detected · ' + Math.round(a.confidence*100) + '%';
+      $('pop-title').textContent = '🚨 ' + (a.thing || 'Phone') + ' detected · ' + Math.round(a.confidence*100) + '%';
       $('pop-meta').textContent = '📍 ' + a.camera + '     ·     ' + a.time;
       $('pop').classList.add('show'); $('flash').classList.add('on'); beep();
       setTimeout(()=>$('flash').classList.remove('on'), 800);

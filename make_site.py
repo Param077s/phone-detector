@@ -41,7 +41,7 @@ page = page.replace('<a href="#privacy">Privacy</a><a href="#faq">FAQ</a>',
                     '<a href="#get">Download</a><a href="#privacy">Privacy</a><a href="#faq">FAQ</a>')
 page = page.replace('<a class="btn btn-grn" href="/login">Open the dashboard →</a>',
                     '<a class="btn btn-grn" href="#get">Download Vigil free ↓</a>')
-page = page.replace('<a class="btn btn-ghost" href="https://github.com/Param077s/phone-detector" target="_blank" rel="noopener">Get Vigil on GitHub</a>',
+page = page.replace('<a class="btn btn-ghost" href="#how">See how it works</a>',
                     '<a class="btn btn-ghost" href="#get">See how it installs</a>')
 page = page.replace('Sign in to your control room, or set Vigil up on the computer in the room you want to watch.',
                     'Download it onto the computer in the room you want to watch — free, no account, nothing leaves the machine.')
@@ -78,9 +78,6 @@ GET = f'''
         <p>Unzip and run <code>./Vigil-Linux.sh</code> in a terminal — it sets itself up on the first
         run and opens the dashboard when ready.</p></div>
     </div>
-    <p class="reveal" style="font-size:12.5px; color:#5b6675; margin-top:20px">
-      Prefer the code? <a href="{REPO}" target="_blank" rel="noopener" style="color:#8b95a3; text-decoration:underline">View the source on GitHub</a>.
-    </p>
   </section>
 '''
 page = page.replace('  <section id="privacy" class="privacy">', GET + '\n  <section id="privacy" class="privacy">')
