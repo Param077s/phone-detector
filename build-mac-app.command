@@ -48,22 +48,27 @@ fi
 mkdir -p "$DATA"
 cd "$DATA" || exit 1
 
-if [ ! -d "venv" ]; then
+# Only treat setup as done when the sentinel exists — so an interrupted
+# install (window closed early) cleanly RESUMES instead of half-working.
+if [ ! -f ".vigil-installed" ]; then
   echo "  First-time setup — installs Vigil's AI components."
   echo "  ⚠  Downloads ~2 GB the first time (5–15 min). This happens ONCE."
-  echo "     Leave this window open and grab a coffee. ☕"
+  echo "     Keep this window open until you see 'Setup complete'. ☕"
   echo "  ------------------------------------------------------------"
   echo ""
+  rm -rf venv                                   # clear any half-finished attempt
   python3 -m venv venv || { echo "  Could not create the environment."; read -r -p "  Press Enter…"; exit 1; }
   ./venv/bin/python -m pip install --upgrade pip >/dev/null 2>&1
   echo "  Installing components (progress below)…"
   echo ""
   if ! ./venv/bin/pip install -r "$RES/requirements.txt"; then
     echo ""
-    echo "  Setup failed while installing. Check your internet and reopen Vigil."
+    echo "  Setup didn't finish (connection interrupted?). Just open Vigil again to resume."
+    rm -rf venv                                 # next open starts clean
     read -r -p "  Press Enter…"
     exit 1
   fi
+  touch ".vigil-installed"                      # mark complete ONLY after success
   echo ""
   echo "  ✓ Setup complete!"
   echo ""
