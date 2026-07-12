@@ -36,17 +36,18 @@ ZIP = "https://github.com/Param077s/vigil/releases/latest/download/Vigil.zip"
 
 page = page.replace("__LOGO__", LOGO)
 page = page.replace('href="/favicon.svg"', 'href="favicon.svg"')
-page = page.replace('<a class="btn btn-grn" href="/login">Open dashboard</a>',
-                    '<a class="btn btn-grn" href="#get">Download free</a>')
-page = page.replace('<a href="#privacy">Privacy</a><a href="#faq">FAQ</a>',
-                    '<a href="#get">Download</a><a href="#privacy">Privacy</a><a href="#faq">FAQ</a>')
-page = page.replace('<a class="btn btn-grn" href="/login">Open the dashboard →</a>',
-                    '<a class="btn btn-grn" href="#get">Download Vigil free ↓</a>')
-page = page.replace('<a class="btn btn-ghost" href="#how">See how it works</a>',
-                    '<a class="btn btn-ghost" href="#get">See how it installs</a>')
+page = page.replace('<a class="btn btn-grn" href="/login">OPEN DASHBOARD</a>',
+                    '<a class="btn btn-grn" href="#get">DOWNLOAD FREE</a>')
+page = page.replace('<a href="#privacy">PRIVACY</a><a href="#faq">FAQ</a>',
+                    '<a href="#get">DOWNLOAD</a><a href="#privacy">PRIVACY</a><a href="#faq">FAQ</a>')
+page = page.replace('<a class="btn btn-grn" href="/login">OPEN THE DASHBOARD</a>',
+                    '<a class="btn btn-grn" href="#get">DOWNLOAD VIGIL FREE</a>')
 page = page.replace('Sign in to your control room, or set Vigil up on the computer in the room you want to watch.',
                     'Download it onto the computer in the room you want to watch — free, no account, nothing leaves the machine.')
-page = page.replace('<a href="/login">Sign in</a>', '<a href="#get">Download</a>')
+page = page.replace('<a href="/login">SIGN IN</a>', '<a href="#get">DOWNLOAD</a>')
+# renumber sections after the injected ACCESS section
+page = page.replace('04 / PRIVACY DOCTRINE', '05 / PRIVACY DOCTRINE')
+page = page.replace('05 / QUESTIONS', '06 / QUESTIONS')
 page = page.replace('<link rel="icon" href="favicon.svg">',
                     f'<link rel="canonical" href="{SITE}">\n<link rel="icon" href="favicon.svg">\n'
                     '<script type="application/ld+json">{"@context":"https://schema.org","@type":"SoftwareApplication",'
@@ -56,32 +57,31 @@ page = page.replace('<link rel="icon" href="favicon.svg">',
 
 GET = f'''
   <section id="get">
-    <span class="sec-kicker reveal">Download</span>
-    <h2 class="reveal" style="--d:.05s">Get Vigil on your computer.</h2>
-    <p class="sec-sub reveal" style="--d:.08s">Free, no account. On Mac it installs like any app —
-      drag it into Applications and open it. The first launch sets up its AI components once
-      (~2&nbsp;GB); every launch after that is instant.</p>
-    <div class="ctas reveal" style="--d:.1s; margin-top:26px; display:flex; gap:12px; flex-wrap:wrap">
-      <a class="btn btn-grn" href="{DMG}">{APPLE} Download for Mac</a>
-      <a class="btn btn-ghost" href="{ZIP}">{WIN} Windows &amp; Linux (.zip)</a>
+    <div class="sec-head reveal"><span class="sec-no">04 / ACCESS</span></div>
+    <h2 class="reveal" style="--d:.05s">Get Vigil on<br>your computer.</h2>
+    <p class="sec-sub reveal" style="--d:.08s">Free, no account. On Mac it installs like any app — drag it
+      into Applications and open it. The first launch sets up its AI components once (~2&nbsp;GB); every
+      launch after that is instant.</p>
+    <div class="ctas reveal" style="--d:.1s; margin-top:30px; display:flex; gap:12px; flex-wrap:wrap">
+      <a class="btn btn-grn" href="{DMG}">{APPLE} DOWNLOAD FOR MAC</a>
+      <a class="btn btn-ghost" href="{ZIP}">{WIN} WINDOWS &amp; LINUX (.ZIP)</a>
     </div>
-    <div class="setups" style="margin-top:30px">
+    <div class="setups">
       <div class="setup-c reveal"><span class="ico">{APPLE}</span><h3>Mac — drag &amp; drop</h3>
-        <p>Open the downloaded <code>Vigil.dmg</code> and drag <b>Vigil</b> into your
-        <b>Applications</b> folder — just like any Mac app. Double-click to open. First time only:
-        right-click → <b>Open</b> → <b>Open</b> (macOS checks new apps once). Your browser opens to
-        Vigil — create an admin account and you're watching.</p></div>
+        <p>Open <code>Vigil.dmg</code> and drag <b>Vigil</b> into <b>Applications</b>. Double-click to open.
+        First time only: right-click → <b>Open</b> → <b>Open</b>. Your browser opens to Vigil — create the
+        admin account and you're watching.</p></div>
       <div class="setup-c reveal" style="--d:.08s"><span class="ico">{WIN}</span><h3>Windows</h3>
-        <p>Unzip the download and double-click <code>Vigil-Windows.bat</code>. If SmartScreen warns,
-        choose <b>More info → Run anyway</b>. If it asks for Python, install it with
-        <b>"Add Python to PATH"</b> ticked, then run it again.</p></div>
+        <p>Unzip and double-click <code>Vigil-Windows.bat</code>. If SmartScreen warns, choose
+        <b>More info → Run anyway</b>. If asked, install Python with <b>"Add Python to PATH"</b> ticked,
+        then run it again.</p></div>
       <div class="setup-c reveal" style="--d:.16s"><span class="ico">{TUX}</span><h3>Linux</h3>
-        <p>Unzip and run <code>./Vigil-Linux.sh</code> in a terminal — it sets itself up on the first
-        run and opens the dashboard when ready.</p></div>
+        <p>Unzip and run <code>./Vigil-Linux.sh</code> — it sets itself up on the first run and opens the
+        dashboard when ready.</p></div>
     </div>
   </section>
 '''
-page = page.replace('  <section id="privacy" class="privacy">', GET + '\n  <section id="privacy" class="privacy">')
+page = page.replace('  <section id="privacy" class="doctrine">', GET + '\n  <section id="privacy" class="doctrine">')
 
 os.makedirs("docs", exist_ok=True)
 open("docs/index.html", "w").write(page)

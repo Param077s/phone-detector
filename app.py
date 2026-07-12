@@ -2111,411 +2111,451 @@ LANDING_HTML = """<!doctype html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Vigil — Local AI phone detection for exams & secure spaces</title>
 <meta name="description" content="Vigil watches your camera feeds with on-device AI and raises an alert with photo evidence the moment a phone appears. Runs 100% on your computer — webcams, old phones, or CCTV. Set up in 2 minutes.">
-<meta property="og:title" content="Vigil — the moment a phone appears, you'll know">
-<meta property="og:description" content="Local AI phone detection with photo evidence. Any camera. Nothing uploaded. Set up in 2 minutes.">
-<meta name="theme-color" content="#0a0d12">
+<meta property="og:title" content="Vigil — the room is watching">
+<meta property="og:description" content="On-premise vision intelligence. A phone appears — flagged, photographed, logged in under a second. Nothing leaves the building.">
+<meta name="theme-color" content="#07090c">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <link rel="icon" href="/favicon.svg">
 <style>
-  :root { --ease: cubic-bezier(.22,.9,.3,1); --spring: cubic-bezier(.34,1.56,.64,1);
-    --bg:#0a0d12; --panel:#12171f; --line:rgba(255,255,255,.07); --txt:#e8ebf1; --mut:#9aa4b2; --grn:#3ecf8e;
+  :root { --ease:cubic-bezier(.22,.9,.3,1);
+    --bg:#07090c; --panel:#0c1015; --line:rgba(255,255,255,.07); --line2:rgba(255,255,255,.12);
+    --txt:#e8ebf1; --mut:#8b95a3; --dim:#525c6b; --grn:#3ecf8e; --red:#ef4444;
     --mono:'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
-    --shadow-card:0 24px 60px -24px rgba(0,0,0,.55);
-    --shadow-deep:0 60px 120px -20px rgba(0,0,0,.7), 0 30px 60px -30px rgba(0,0,0,.55), inset 0 1px 0 rgba(255,255,255,.08); }
+    --disp:'Space Grotesk','Inter',sans-serif; }
   * { box-sizing:border-box; margin:0; padding:0; }
-  html, body { background:var(--bg); color:var(--txt);
-    font-family:'Inter', -apple-system, Segoe UI, Roboto, sans-serif; -webkit-font-smoothing:antialiased; }
-  h1, h2, h3, .brand b { font-family:'Space Grotesk', 'Inter', sans-serif; }
-  ::selection { background:rgba(62,207,142,.3); }
+  html,body { background:var(--bg); color:var(--txt);
+    font-family:'Inter',-apple-system,Segoe UI,Roboto,sans-serif; -webkit-font-smoothing:antialiased; }
+  ::selection { background:rgba(62,207,142,.28); }
   a { color:inherit; text-decoration:none; }
+  h1,h2,h3 { font-family:var(--disp); }
 
-  .orbs { position:fixed; inset:0; overflow:hidden; pointer-events:none; z-index:0; }
-  .orbs i { position:absolute; border-radius:50%; filter:blur(90px); opacity:.5; }
-  .orbs i:nth-child(1) { width:560px; height:560px; background:radial-gradient(circle,#123524,transparent 65%);
-    top:-180px; right:-120px; animation:drift 16s ease-in-out infinite alternate; }
-  .orbs i:nth-child(2) { width:460px; height:460px; background:radial-gradient(circle,#0e2233,transparent 65%);
-    top:44%; left:-190px; animation:drift 20s ease-in-out infinite alternate-reverse; }
-  .orbs i:nth-child(3) { width:420px; height:420px; background:radial-gradient(circle,#132a1c,transparent 65%);
-    bottom:-160px; right:22%; animation:drift 24s ease-in-out infinite alternate; }
-  @keyframes drift { to { transform:translate(46px,30px) scale(1.08); } }
+  /* blueprint grid + grain over the whole page */
+  .gridbg { position:fixed; inset:0; z-index:0; pointer-events:none;
+    background-image:linear-gradient(var(--line) 1px, transparent 1px),
+                     linear-gradient(90deg, var(--line) 1px, transparent 1px);
+    background-size:72px 72px; opacity:.16;
+    mask-image:radial-gradient(1200px 800px at 50% 0%, #000 30%, transparent 100%); }
+  .grainbg { position:fixed; inset:0; z-index:0; pointer-events:none; opacity:.04; mix-blend-mode:overlay;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"); }
 
-  .shell { position:relative; z-index:1; max-width:1040px; margin:0 auto; padding:0 26px; }
-  .site-head { position:sticky; top:0; z-index:10; backdrop-filter:blur(14px); -webkit-backdrop-filter:blur(14px);
-    background:rgba(10,13,18,.66); border-bottom:1px solid transparent; transition:border-color .3s, background .3s; }
-  .site-head.scrolled { border-color:var(--line); background:rgba(10,13,18,.86); }
-  .site-head .row { display:flex; align-items:center; gap:26px; height:62px; max-width:1040px; margin:0 auto; padding:0 26px; }
-  .brand { display:flex; align-items:center; gap:9px; font-weight:800; font-size:19px; }
-  .brand svg { color:#7a8595; }
+  .shell { position:relative; z-index:1; max-width:1120px; margin:0 auto; padding:0 28px; }
+
+  /* ---- system bar ---- */
+  .sysbar { position:relative; z-index:5; border-bottom:1px solid var(--line);
+    font-family:var(--mono); font-size:10.5px; letter-spacing:.8px; color:var(--dim); }
+  .sysbar .row { max-width:1120px; margin:0 auto; padding:9px 28px; display:flex; gap:26px; }
+  .sysbar b { color:var(--grn); font-weight:500; }
+  .sysbar .ok::before { content:'●'; color:var(--grn); margin-right:6px; font-size:8px; }
+  .sysbar .right { margin-left:auto; display:flex; gap:26px; }
+  @media (max-width:920px){ .sysbar .hidem { display:none; } }
+
+  /* ---- nav ---- */
+  .site-head { position:sticky; top:0; z-index:10; backdrop-filter:blur(16px); -webkit-backdrop-filter:blur(16px);
+    background:rgba(7,9,12,.72); border-bottom:1px solid transparent; transition:border-color .4s, background .4s; }
+  .site-head.scrolled { border-color:var(--line); background:rgba(7,9,12,.9); }
+  .site-head .row { display:flex; align-items:center; gap:30px; height:64px; max-width:1120px; margin:0 auto; padding:0 28px; }
+  .brand { display:flex; align-items:center; gap:10px; font-weight:700; font-size:19px; font-family:var(--disp); }
+  .brand svg { color:#6b7687; }
   .brand b span { color:var(--grn); }
-  .site-nav { display:flex; gap:2px; margin-left:auto; }
-  .site-nav a { font-size:13.5px; color:var(--mut); padding:8px 13px; border-radius:8px;
-    transition:color .2s var(--ease), background .2s var(--ease); }
-  .site-nav a:hover { color:var(--txt); background:#161d27; }
-  .btn { display:inline-flex; align-items:center; gap:8px; border-radius:999px; font-weight:700;
-    font-size:14px; padding:13px 26px; cursor:pointer; border:none;
-    transition:transform .2s var(--spring), box-shadow .25s var(--ease), background .2s; }
-  .btn:active { transform:scale(.97); }
-  .btn-grn { background:var(--grn); color:#0a0d12; box-shadow:0 4px 24px rgba(62,207,142,.25); }
+  .site-nav { display:flex; gap:4px; margin-left:auto; }
+  .site-nav a { font-family:var(--mono); font-size:10.5px; letter-spacing:1.4px; color:var(--mut);
+    padding:8px 12px; transition:color .3s; }
+  .site-nav a:hover { color:var(--txt); }
+  .btn { display:inline-flex; align-items:center; justify-content:center; gap:9px; border-radius:6px;
+    font-family:var(--mono); font-size:11.5px; font-weight:600; letter-spacing:1.2px;
+    padding:13px 24px; cursor:pointer; border:none; transition:box-shadow .45s var(--ease), background .3s, border-color .3s; }
+  .btn-grn { background:var(--grn); color:#07090c; box-shadow:0 4px 24px rgba(62,207,142,.22); }
   .btn-grn:hover { box-shadow:0 10px 44px rgba(62,207,142,.4); }
-  .btn-ghost { background:#161d27; color:var(--txt); border:1px solid var(--line); }
-  .btn-ghost:hover { border-color:rgba(255,255,255,.16); background:#1a222e; }
-  .site-head .btn { padding:9px 18px; font-size:13px; }
+  .btn-ghost { background:transparent; color:var(--txt); border:1px solid var(--line2); }
+  .btn-ghost:hover { border-color:rgba(255,255,255,.28); background:rgba(255,255,255,.03); }
+  .site-head .btn { padding:9px 18px; font-size:10.5px; }
 
-  .hero { display:grid; grid-template-columns: 1fr 1fr; gap:54px; align-items:center; padding:84px 0 70px; }
-  .kicker { display:inline-flex; align-items:center; gap:8px; font-size:11.5px; font-weight:600; font-family:var(--mono);
-    color:var(--grn); background:rgba(62,207,142,.1); border:1px solid rgba(62,207,142,.22);
-    padding:6px 14px; border-radius:20px; margin-bottom:22px; }
-  .kicker .dot { width:7px; height:7px; border-radius:50%; background:var(--grn);
-    box-shadow:0 0 9px var(--grn); animation:pulse 1.6s infinite; }
-  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.3} }
-  h1 { font-size:clamp(34px,4.6vw,56px); line-height:1.06; letter-spacing:-0.03em; font-weight:700; }
-  h1 .grad { background:linear-gradient(100deg,#8ce8bd,#3ecf8e 55%,#2fb98a);
-    -webkit-background-clip:text; background-clip:text; color:transparent; }
-  .hero p.sub { font-size:16.5px; color:var(--mut); line-height:1.65; margin:20px 0 30px; max-width:480px; }
-  .hero .ctas { display:flex; gap:12px; flex-wrap:wrap; }
-  .hero .facts { display:flex; gap:12px; margin-top:34px; font-size:12.5px; color:var(--mut); flex-wrap:wrap; }
-  .hero .facts div { background:rgba(255,255,255,.035); border:1px solid var(--line);
-    border-radius:14px; padding:11px 18px; backdrop-filter:blur(8px); transition:border-color .5s var(--ease); }
-  .hero .facts div:hover { border-color:rgba(62,207,142,.3); }
-  .hero .facts b { display:block; color:var(--txt); font-size:16.5px; font-weight:800; margin-bottom:2px; }
+  /* ---- hero ---- */
+  .hero { position:relative; padding:96px 0 84px; display:grid; grid-template-columns:1.04fr 1fr; gap:60px; align-items:center; }
+  .hero-glow { position:absolute; right:-8%; top:0; width:660px; height:660px; pointer-events:none; z-index:0;
+    background:radial-gradient(circle, rgba(62,207,142,.09) 0%, rgba(62,207,142,.03) 40%, transparent 68%);
+    filter:blur(12px); }
+  .hero > *:not(.hero-glow):not(.cctv) { position:relative; z-index:1; }
+  .kicker { font-family:var(--mono); font-size:10.5px; letter-spacing:2.4px; color:var(--grn); display:block; margin-bottom:26px; }
+  .kicker::before { content:'// '; color:var(--dim); }
+  h1 { font-size:clamp(40px,5.4vw,68px); line-height:1.02; letter-spacing:-0.03em; font-weight:700; }
+  .hero p.sub { font-size:16px; color:var(--mut); line-height:1.7; margin:26px 0 34px; max-width:470px; }
+  .hero p.sub b { color:var(--txt); font-weight:600; }
+  .ctas { display:flex; gap:12px; flex-wrap:wrap; }
+  .telemetry { display:flex; gap:0; margin-top:44px; border:1px solid var(--line); border-radius:8px;
+    overflow:hidden; width:fit-content; }
+  .telemetry div { font-family:var(--mono); font-size:10px; letter-spacing:1px; color:var(--dim);
+    padding:12px 18px; border-right:1px solid var(--line); }
+  .telemetry div:last-child { border-right:none; }
+  .telemetry b { display:block; color:var(--txt); font-size:14px; letter-spacing:0; margin-bottom:3px; font-weight:600; }
+  .telemetry .lat b { color:var(--grn); }
 
-  /* animated product mock */
-  .mock { background:rgba(15,20,27,.72); backdrop-filter:blur(18px); -webkit-backdrop-filter:blur(18px);
-    border:1px solid rgba(255,255,255,.09); border-radius:18px; overflow:hidden;
-    box-shadow:var(--shadow-deep); will-change:transform; }
+  /* evidence frame around the monitor mock */
+  .evidence { position:relative; padding:20px; }
+  .evidence::before, .evidence::after, .evidence .ck::before, .evidence .ck::after { content:'';
+    position:absolute; width:22px; height:22px; border:1.5px solid var(--line2); }
+  .evidence::before { top:0; left:0; border-right:none; border-bottom:none; }
+  .evidence::after  { top:0; right:0; border-left:none; border-bottom:none; }
+  .evidence .ck::before { bottom:0; left:0; border-right:none; border-top:none; }
+  .evidence .ck::after  { bottom:0; right:0; border-left:none; border-top:none; }
+  .ev-meta { position:absolute; top:-9px; left:34px; background:var(--bg); padding:0 10px;
+    font-family:var(--mono); font-size:9.5px; letter-spacing:1.6px; color:var(--dim); }
+  .ev-time { position:absolute; bottom:-8px; right:34px; background:var(--bg); padding:0 10px;
+    font-family:var(--mono); font-size:9.5px; letter-spacing:1.2px; color:var(--dim); }
+  .ev-time b { color:var(--grn); font-weight:500; }
+
+  .mock { background:rgba(13,17,23,.82); backdrop-filter:blur(16px); -webkit-backdrop-filter:blur(16px);
+    border:1px solid rgba(255,255,255,.08); border-radius:12px; overflow:hidden;
+    box-shadow:0 60px 120px -20px rgba(0,0,0,.7), 0 30px 60px -30px rgba(0,0,0,.55), inset 0 1px 0 rgba(255,255,255,.07);
+    will-change:transform; }
   .mock-bar { display:flex; align-items:center; gap:7px; padding:11px 14px; border-bottom:1px solid var(--line); }
-  .mock-bar i { width:10px; height:10px; border-radius:50%; background:#242e3b; }
-  .mock-bar span { font-size:10px; color:#5b6675; margin-left:8px; font-weight:500; font-family:var(--mono); letter-spacing:.6px; text-transform:uppercase; }
-  .mock-bar em { margin-left:auto; font-style:normal; font-size:10px; font-weight:800; color:var(--grn);
-    letter-spacing:.8px; animation:pulse 1.6s infinite; }
-  .mock-body { display:grid; grid-template-columns:1fr 148px; gap:10px; padding:12px; }
+  .mock-bar i { width:9px; height:9px; border-radius:50%; background:#1e2631; }
+  .mock-bar span { font-family:var(--mono); font-size:9.5px; letter-spacing:1.4px; color:var(--dim); margin-left:8px; }
+  .mock-bar em { margin-left:auto; font-style:normal; font-family:var(--mono); font-size:9px; font-weight:600;
+    color:var(--grn); letter-spacing:1px; animation:pulse 1.6s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.3} }
+  .mock-body { display:grid; grid-template-columns:1fr 150px; gap:10px; padding:12px; }
   .mock-grid { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
-  .tile { background:#11161e; border:1px solid #1e2632; border-radius:10px; overflow:hidden;
-    transition:border-color .3s, box-shadow .3s; }
-  .tile .t-head { display:flex; align-items:center; font-size:8.5px; color:#8b95a3; font-weight:500;
-    font-family:var(--mono); letter-spacing:.4px; padding:6px 9px; border-bottom:1px solid #1e2632; }
-  .tile .t-head b { margin-left:auto; color:var(--grn); font-size:8px; letter-spacing:.6px; }
-  .t-view { position:relative; height:88px; overflow:hidden;
-    background:linear-gradient(160deg,#151c26 0%,#0e131b 70%); }
-  .t-view .desk { position:absolute; bottom:10px; width:34%; height:26px; border-radius:6px 6px 0 0;
-    background:#1b2330; }
-  .t-view .desk::after { content:''; position:absolute; top:-16px; left:50%; transform:translateX(-50%);
-    width:16px; height:16px; border-radius:50%; background:#232e3e; }
-  .t-view .d1 { left:8%; } .t-view .d2 { right:8%; }
-  .scan { position:absolute; left:0; right:0; height:34px; top:-40px;
-    background:linear-gradient(180deg,transparent,rgba(62,207,142,.08) 65%,rgba(62,207,142,.3));
-    animation:scan 3.2s linear infinite; }
+  .tile { background:#0a0e13; border:1px solid #161d26; border-radius:8px; overflow:hidden;
+    transition:border-color .4s, box-shadow .4s; }
+  .tile .t-head { display:flex; align-items:center; font-family:var(--mono); font-size:8px; letter-spacing:.6px;
+    color:#77828f; padding:6px 9px; border-bottom:1px solid #141a22; }
+  .tile .t-head b { margin-left:auto; color:var(--grn); font-size:7.5px; letter-spacing:1px; }
+  .t-view { position:relative; height:86px; overflow:hidden; background:linear-gradient(165deg,#10161e 0%,#0a0e13 70%); }
+  .t-view .desk { position:absolute; bottom:10px; width:34%; height:25px; border-radius:6px 6px 0 0; background:#151c26; }
+  .t-view .desk::after { content:''; position:absolute; top:-15px; left:50%; transform:translateX(-50%);
+    width:15px; height:15px; border-radius:50%; background:#1c2530; }
+  .t-view .d1 { left:9%; } .t-view .d2 { right:9%; }
+  .scan { position:absolute; left:0; right:0; height:30px; top:-36px;
+    background:linear-gradient(180deg,transparent,rgba(62,207,142,.07) 65%,rgba(62,207,142,.26));
+    animation:scan 3.6s linear infinite; }
   @keyframes scan { to { top:110%; } }
-  .bbox { position:absolute; top:18px; left:14%; width:34px; height:44px; border:2px solid #ef4444;
-    border-radius:4px; opacity:0; transform:scale(.7); box-shadow:0 0 18px rgba(239,68,68,.5); }
-  .bbox::after { content:'PHONE 93%'; position:absolute; top:-15px; left:-2px; font-size:7.5px;
-    font-weight:800; color:#fff; background:#ef4444; padding:1.5px 5px; border-radius:3px; white-space:nowrap; }
-  .tile.hit { border-color:rgba(239,68,68,.65); box-shadow:0 0 0 1px rgba(239,68,68,.35), 0 0 30px rgba(239,68,68,.18); }
-  .tile.hit .bbox { opacity:1; transform:scale(1); transition:all .3s var(--spring); }
-  .mock-side { background:#11161e; border:1px solid #1e2632; border-radius:10px; padding:9px; overflow:hidden; }
-  .ms-head { font-size:8.5px; font-weight:600; color:#8b95a3; letter-spacing:1.2px; margin-bottom:8px; font-family:var(--mono); }
-  .ms-card { display:flex; gap:7px; background:#161d28; border:1px solid rgba(234,179,8,.3);
-    border-radius:7px; padding:6px; margin-bottom:7px; animation:msIn .5s var(--spring); }
-  @keyframes msIn { from { opacity:0; transform:translateX(26px) scale(.94); } }
-  .ms-card .ph { width:20px; height:27px; border-radius:3px; background:linear-gradient(150deg,#2a3547,#151b25); flex-shrink:0; }
-  .ms-card div b { display:block; font-size:8.5px; color:var(--txt); }
-  .ms-card div span { font-size:7.5px; color:#8b95a3; }
+  .bbox { position:absolute; top:16px; left:15%; width:32px; height:44px; border:1.5px solid var(--red);
+    border-radius:3px; opacity:0; transform:scale(.75); box-shadow:0 0 16px rgba(239,68,68,.45); }
+  .bbox::after { content:'PHONE 0.93'; position:absolute; top:-14px; left:-2px; font-family:var(--mono);
+    font-size:6.5px; font-weight:600; letter-spacing:.4px; color:#fff; background:var(--red); padding:1.5px 4px; border-radius:2px; white-space:nowrap; }
+  .tile.hit { border-color:rgba(239,68,68,.6); box-shadow:0 0 0 1px rgba(239,68,68,.32), 0 0 26px rgba(239,68,68,.14); }
+  .tile.hit .bbox { opacity:1; transform:scale(1); transition:all .3s var(--ease); }
+  .mock-side { background:#0a0e13; border:1px solid #161d26; border-radius:8px; padding:9px; overflow:hidden; }
+  .ms-head { font-family:var(--mono); font-size:8px; letter-spacing:1.6px; color:#77828f; margin-bottom:8px; }
+  .ms-card { display:flex; gap:7px; background:#0f151d; border:1px solid rgba(239,68,68,.28);
+    border-radius:6px; padding:6px; margin-bottom:7px; animation:msIn .5s var(--ease); }
+  @keyframes msIn { from { opacity:0; transform:translateX(22px); } }
+  .ms-card .ph { width:20px; height:26px; border-radius:3px; background:linear-gradient(150deg,#26303f,#12181f); flex-shrink:0; }
+  .ms-card div b { display:block; font-family:var(--mono); font-size:7.5px; color:var(--txt); letter-spacing:.3px; }
+  .ms-card div span { font-family:var(--mono); font-size:6.5px; color:#77828f; }
 
-  section { padding:104px 0; }
-  .sec-kicker { font-size:11px; font-weight:600; letter-spacing:2.2px; color:var(--grn); text-transform:uppercase; font-family:var(--mono); }
-  h2 { font-size:clamp(26px,3.2vw,40px); letter-spacing:-0.02em; font-weight:700; margin:10px 0 14px; }
-  .sec-sub { color:var(--mut); font-size:15.5px; line-height:1.65; max-width:560px; }
-
-  .feats { display:grid; grid-template-columns:repeat(3,1fr); gap:14px; margin-top:40px; }
-  .feat { background:var(--panel); border:1px solid var(--line); border-radius:16px; padding:26px;
-    transition:border-color .5s var(--ease), box-shadow .5s var(--ease); }
-  .feat:hover { border-color:rgba(62,207,142,.28); box-shadow:var(--shadow-card); }
-  .feat .ico { width:40px; height:40px; border-radius:11px; background:#1a212b; color:var(--grn);
-    display:flex; align-items:center; justify-content:center; }
-  .feat h3 { font-size:15.5px; margin:12px 0 7px; }
-  .feat p { font-size:13.5px; color:var(--mut); line-height:1.6; }
-
-  .steps { display:grid; grid-template-columns:repeat(3,1fr); gap:14px; margin-top:40px; counter-reset:step; }
-  .step-c { position:relative; background:var(--panel); border:1px solid var(--line); border-radius:16px; padding:26px;
-    transition:border-color .5s var(--ease), box-shadow .5s var(--ease); }
-  .step-c:hover { border-color:rgba(255,255,255,.14); box-shadow:var(--shadow-card); }
-  .step-c::before { counter-increment:step; content:counter(step);
-    display:inline-flex; align-items:center; justify-content:center; width:30px; height:30px;
-    border-radius:9px; background:rgba(62,207,142,.12); color:var(--grn); font-weight:800; font-size:14px; }
-  .step-c h3 { font-size:15.5px; margin:13px 0 7px; }
-  .step-c p { font-size:13.5px; color:var(--mut); line-height:1.6; }
-
-  .setups { display:grid; grid-template-columns:repeat(3,1fr); gap:14px; margin-top:40px; }
-  .setup-c { background:var(--panel); border:1px solid var(--line); border-radius:16px; padding:26px;
-    transition:border-color .5s var(--ease), box-shadow .5s var(--ease); }
-  .setup-c:hover { border-color:rgba(62,207,142,.28); box-shadow:var(--shadow-card); }
-  .setup-c .ico { width:40px; height:40px; border-radius:11px; background:#1a212b; color:var(--grn);
-    display:flex; align-items:center; justify-content:center; }
-  .note .nico { color:var(--grn); flex-shrink:0; margin-top:1px; }
-  .setup-c h3 { font-size:15.5px; margin:12px 0 7px; }
-  .setup-c p { font-size:13.5px; color:var(--mut); line-height:1.65; }
-  .setup-c code { background:#0a0e14; border:1px solid var(--line); padding:2px 7px; border-radius:5px;
-    color:var(--grn); font-size:12px; }
-  .note { display:flex; gap:12px; align-items:flex-start; margin-top:22px; background:rgba(62,207,142,.06);
-    border:1px solid rgba(62,207,142,.2); border-radius:12px; padding:16px 18px; font-size:13.5px;
-    color:var(--mut); line-height:1.6; }
-  .note b { color:var(--txt); }
-
-  .privacy { text-align:center; }
-  .privacy .big { font-size:clamp(24px,3vw,34px); font-weight:800; letter-spacing:-.7px;
-    max-width:640px; margin:12px auto 0; }
-  .priv-pts { display:flex; justify-content:center; gap:34px; margin-top:34px; flex-wrap:wrap; }
-  .priv-pts div { font-size:13.5px; color:var(--mut); display:flex; align-items:center; gap:9px; }
-  .priv-pts b { color:var(--grn); font-size:16px; }
-
-  .faq { max-width:680px; margin:40px auto 0; }
-  .qa { border:1px solid var(--line); border-radius:12px; background:var(--panel); margin-bottom:10px; overflow:hidden; }
-  .qa button { width:100%; display:flex; align-items:center; text-align:left; background:none; border:none;
-    color:var(--txt); font-size:14.5px; font-weight:600; padding:17px 20px; cursor:pointer; font-family:inherit; }
-  .qa button i { margin-left:auto; font-style:normal; color:var(--grn); font-size:18px;
-    transition:transform .3s var(--ease); }
-  .qa.open button i { transform:rotate(45deg); }
-  .qa .a { max-height:0; overflow:hidden; transition:max-height .38s var(--ease); }
-  .qa .a p { padding:0 20px 17px; font-size:13.5px; color:var(--mut); line-height:1.65; }
-
-  .final { text-align:center; padding:90px 0 100px; }
-  .final h2 { margin-bottom:10px; }
-  .final .ctas { display:flex; gap:12px; justify-content:center; margin-top:30px; }
-  footer { border-top:1px solid var(--line); padding:26px 0; }
-  footer .row { display:flex; align-items:center; gap:12px; max-width:1040px; margin:0 auto; padding:0 26px;
-    font-size:13px; color:var(--mut); }
-  footer .row a:hover { color:var(--txt); }
-  footer .right { margin-left:auto; display:flex; gap:18px; }
-
-  /* CCTV cameras that watch the cursor */
+  /* CCTV */
   .cctv { position:absolute; z-index:2; pointer-events:none; filter:drop-shadow(0 10px 24px rgba(0,0,0,.4)); }
-  .cctv-hero { top:-26px; right:5%; }
-  .cctv-privacy { top:-6px; right:10%; transform:scale(.82); }
+  .cctv-hero { top:-30px; right:4%; }
   .cctv-head { transform-origin:56px 21px; }
   .cctv-lens { filter:drop-shadow(0 0 6px rgba(62,207,142,.9)); }
   .cctv-rec { animation:pulse 1.3s infinite; }
-  .hero { position:relative; }
-  .hero-glow { position:absolute; right:-6%; top:8%; width:640px; height:640px; pointer-events:none;
-    background:radial-gradient(circle, rgba(62,207,142,.10) 0%, rgba(62,207,142,.035) 38%, transparent 68%);
-    filter:blur(10px); animation:breathe 9s ease-in-out infinite; z-index:0; }
-  .hero-grain { position:absolute; inset:-20% -10%; pointer-events:none; z-index:0; opacity:.05; mix-blend-mode:overlay;
-    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"); }
-  @keyframes breathe { 50% { transform:scale(1.12); opacity:.8; } }
-  .hero > div:not(.hero-glow):not(.hero-grain):not(.cctv), .hero > .mock { position:relative; z-index:1; }
-  .privacy { position:relative; }
-  @media (max-width:920px) { .cctv { display:none; } }
+  @media (max-width:920px){ .cctv { display:none; } }
 
-  .reveal { opacity:0; transform:translateY(22px); transition:opacity .9s var(--ease), transform .9s var(--ease);
+  /* ---- sections: numbered spec-sheet ---- */
+  section { padding:110px 0; position:relative; }
+  .sec-head { display:flex; align-items:baseline; gap:18px; border-bottom:1px solid var(--line);
+    padding-bottom:18px; margin-bottom:8px; }
+  .sec-no { font-family:var(--mono); font-size:11px; letter-spacing:2px; color:var(--grn); }
+  h2 { font-size:clamp(28px,3.4vw,44px); letter-spacing:-0.02em; font-weight:700; }
+  .sec-sub { color:var(--mut); font-size:15px; line-height:1.7; max-width:560px; margin-top:22px; }
+
+  /* capability ledger rows */
+  .ledger { margin-top:26px; }
+  .cap-row { display:grid; grid-template-columns:64px 250px 1fr; gap:26px; align-items:baseline;
+    padding:26px 10px; border-bottom:1px solid var(--line); position:relative; transition:background .4s; }
+  .cap-row::before { content:''; position:absolute; left:0; top:0; bottom:0; width:2px; background:var(--grn);
+    transform:scaleY(0); transition:transform .4s var(--ease); transform-origin:top; }
+  .cap-row:hover { background:rgba(255,255,255,.015); }
+  .cap-row:hover::before { transform:scaleY(1); }
+  .cap-row .no { font-family:var(--mono); font-size:11px; color:var(--dim); letter-spacing:1px; }
+  .cap-row h3 { font-size:18px; font-weight:600; letter-spacing:-.01em; }
+  .cap-row p { font-size:14px; color:var(--mut); line-height:1.65; }
+  @media (max-width:920px){ .cap-row { grid-template-columns:1fr; gap:8px; } }
+
+  /* detection timeline */
+  .timeline { display:grid; grid-template-columns:repeat(4,1fr); gap:0; margin-top:64px; position:relative; }
+  .timeline::before { content:''; position:absolute; top:5px; left:2%; right:2%; height:1px; background:var(--line2); }
+  .t-node { position:relative; padding:34px 26px 0 0; }
+  .t-node::before { content:''; position:absolute; top:0; left:0; width:11px; height:11px; border-radius:50%;
+    background:var(--bg); border:2px solid var(--dim); transition:border-color .5s, box-shadow .5s; }
+  .t-node .ts { font-family:var(--mono); font-size:11px; letter-spacing:1px; color:var(--grn); display:block; margin-bottom:10px; }
+  .t-node h3 { font-size:15.5px; font-weight:600; margin-bottom:8px; letter-spacing:.2px; }
+  .t-node p { font-size:13px; color:var(--mut); line-height:1.6; }
+  .t-node.alarm .ts { color:var(--red); }
+  .timeline.in .t-node::before { border-color:var(--grn); box-shadow:0 0 12px rgba(62,207,142,.5); }
+  .timeline.in .t-node.alarm::before { border-color:var(--red); box-shadow:0 0 12px rgba(239,68,68,.5); }
+  .timeline.in .t-node:nth-child(1)::before { transition-delay:.1s; } .timeline.in .t-node:nth-child(1) { transition-delay:.1s; }
+  .timeline.in .t-node:nth-child(2)::before { transition-delay:.5s; }
+  .timeline.in .t-node:nth-child(3)::before { transition-delay:.9s; }
+  .timeline.in .t-node:nth-child(4)::before { transition-delay:1.3s; }
+  @media (max-width:920px){ .timeline { grid-template-columns:1fr; gap:30px; } .timeline::before { display:none; } }
+
+  /* deployment spec sheet */
+  .spec { display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-top:40px; }
+  .spec-col { border:1px solid var(--line); border-radius:12px; background:var(--panel); padding:30px;
+    transition:border-color .5s var(--ease), box-shadow .5s var(--ease); }
+  .spec-col:hover { border-color:var(--line2); box-shadow:0 24px 60px -24px rgba(0,0,0,.55); }
+  .spec-col .sc-head { font-family:var(--mono); font-size:10px; letter-spacing:2px; color:var(--grn); margin-bottom:22px; }
+  .spec-row { display:flex; gap:14px; padding:13px 0; border-bottom:1px solid var(--line); font-size:14px; }
+  .spec-row:last-child { border-bottom:none; }
+  .spec-row .k { font-family:var(--mono); font-size:10.5px; letter-spacing:1px; color:var(--dim); min-width:36px; padding-top:2px; }
+  .spec-row div b { color:var(--txt); font-weight:600; display:block; margin-bottom:2px; }
+  .spec-row div span { color:var(--mut); font-size:13px; line-height:1.55; }
+  @media (max-width:920px){ .spec { grid-template-columns:1fr; } }
+  .note { display:flex; gap:12px; align-items:flex-start; margin-top:22px; background:rgba(62,207,142,.05);
+    border:1px solid rgba(62,207,142,.18); border-radius:10px; padding:16px 18px; font-size:13.5px;
+    color:var(--mut); line-height:1.6; }
+  .note b { color:var(--txt); }
+  .note .nico { color:var(--grn); flex-shrink:0; margin-top:1px; }
+
+  /* privacy doctrine */
+  .doctrine h2 { font-size:clamp(30px,4vw,52px); max-width:720px; }
+  .doctrine h2 em { font-style:normal; color:var(--grn); }
+  .ledge { margin-top:52px; border-top:1px solid var(--line); }
+  .ledge div { display:grid; grid-template-columns:280px 1fr; gap:20px; padding:16px 8px;
+    border-bottom:1px solid var(--line); font-family:var(--mono); font-size:11.5px; letter-spacing:1.4px; }
+  .ledge .k { color:var(--dim); }
+  .ledge .v { color:var(--grn); }
+  @media (max-width:920px){ .ledge div { grid-template-columns:1fr; gap:4px; } }
+
+  /* faq */
+  .faq { max-width:760px; margin-top:26px; }
+  .qa { border-bottom:1px solid var(--line); }
+  .qa button { width:100%; display:flex; align-items:center; gap:18px; text-align:left; background:none; border:none;
+    color:var(--txt); font-size:15.5px; font-weight:600; font-family:'Inter',sans-serif; padding:22px 4px; cursor:pointer; }
+  .qa button .qno { font-family:var(--mono); font-size:10.5px; color:var(--dim); letter-spacing:1px; }
+  .qa button i { margin-left:auto; font-style:normal; color:var(--grn); font-size:18px; transition:transform .4s var(--ease); }
+  .qa.open button i { transform:rotate(45deg); }
+  .qa .a { max-height:0; overflow:hidden; transition:max-height .45s var(--ease); }
+  .qa .a p { padding:0 4px 22px 44px; font-size:14px; color:var(--mut); line-height:1.7; }
+
+  /* setups / download cards (shared) */
+  .setups { display:grid; grid-template-columns:repeat(3,1fr); gap:14px; margin-top:36px; }
+  .setup-c { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:26px;
+    transition:border-color .5s var(--ease), box-shadow .5s var(--ease); }
+  .setup-c:hover { border-color:rgba(62,207,142,.26); box-shadow:0 24px 60px -24px rgba(0,0,0,.55); }
+  .setup-c .ico { width:38px; height:38px; border-radius:9px; background:#131a23; color:var(--grn);
+    display:flex; align-items:center; justify-content:center; }
+  .setup-c h3 { font-size:15.5px; margin:14px 0 8px; font-weight:600; }
+  .setup-c p { font-size:13.5px; color:var(--mut); line-height:1.7; }
+  .setup-c code { background:#0a0e13; border:1px solid var(--line); padding:2px 7px; border-radius:5px;
+    color:var(--grn); font-family:var(--mono); font-size:11.5px; }
+  @media (max-width:920px){ .setups { grid-template-columns:1fr; } }
+
+  /* final */
+  .final { text-align:center; padding:130px 0 120px; }
+  .final h2 { font-size:clamp(32px,4.4vw,56px); }
+  .final .sec-sub { margin:20px auto 0; }
+  .final .ctas { justify-content:center; margin-top:36px; }
+  footer { border-top:1px solid var(--line); position:relative; z-index:1; }
+  footer .frow { display:flex; align-items:center; gap:14px; max-width:1120px; margin:0 auto; padding:26px 28px;
+    font-family:var(--mono); font-size:10.5px; letter-spacing:1px; color:var(--dim); }
+  footer .frow a:hover { color:var(--txt); }
+  footer .right { margin-left:auto; display:flex; gap:22px; }
+
+  .reveal { opacity:0; transform:translateY(20px); transition:opacity .9s var(--ease), transform .9s var(--ease);
     transition-delay:var(--d,0s); }
   .reveal.in { opacity:1; transform:none; }
-
-  @media (max-width: 920px) {
-    .hero { grid-template-columns:1fr; padding-top:52px; gap:40px; }
-    .feats, .steps, .setups { grid-template-columns:1fr; }
+  @media (max-width:920px){
+    .hero { grid-template-columns:1fr; padding-top:56px; gap:44px; }
     .site-nav { display:none; }
-    .hero p.sub { max-width:none; }
+    .telemetry { flex-wrap:wrap; } .telemetry div { border-top:1px solid var(--line); }
   }
 </style></head>
 <body>
-<div class="orbs"><i></i><i></i><i></i></div>
+<div class="gridbg" aria-hidden="true"></div>
+<div class="grainbg" aria-hidden="true"></div>
+
+<div class="sysbar"><div class="row">
+  <span><b>VIGIL</b> v1.0</span>
+  <span class="ok">SYSTEM OPERATIONAL</span>
+  <span class="hidem">MODE: <b>100% ON-PREMISE</b></span>
+  <div class="right">
+    <span class="hidem">LOCAL TIME <b id="sysclock">--:--:--</b></span>
+    <span>UPLINK: NONE REQUIRED</span>
+  </div>
+</div></div>
 
 <div class="site-head" id="site-head"><div class="row">
   <a class="brand" href="/">__LOGO__<b>Vig<span>i</span>l</b></a>
   <nav class="site-nav">
-    <a href="#features">Features</a><a href="#how">How it works</a>
-    <a href="#setup">Setup</a><a href="#pilot">For universities</a><a href="#privacy">Privacy</a><a href="#faq">FAQ</a>
+    <a href="#capabilities">CAPABILITIES</a><a href="#detection">DETECTION</a>
+    <a href="#deployment">DEPLOYMENT</a><a href="#privacy">PRIVACY</a><a href="#faq">FAQ</a>
   </nav>
-  <a class="btn btn-grn" href="/login">Open dashboard</a>
+  <a class="btn btn-grn" href="/login">OPEN DASHBOARD</a>
 </div></div>
 
 <main class="shell">
   <section class="hero">
     <div class="hero-glow" aria-hidden="true"></div>
-    <div class="hero-grain" aria-hidden="true"></div>
     <div class="cctv cctv-hero" aria-hidden="true"><svg width="112" height="86" viewBox="0 0 112 86" fill="none">
-    <rect x="47" y="0" width="18" height="7" rx="2.5" fill="#232a34"/>
-    <rect x="53" y="5" width="6" height="16" rx="3" fill="#232a34"/>
-    <g class="cctv-head">
-      <rect x="16" y="22" width="66" height="32" rx="10" fill="#1a212b" stroke="#2c3542" stroke-width="1.5"/>
-      <rect x="74" y="28" width="18" height="20" rx="6" fill="#12181f" stroke="#2c3542" stroke-width="1.5"/>
-      <circle class="cctv-lens" cx="83" cy="38" r="5.2" fill="#3ecf8e"/>
-      <circle class="cctv-rec" cx="25" cy="30" r="2.6" fill="#ef4444"/>
-      <rect x="24" y="40" width="26" height="4" rx="2" fill="#232a34"/>
-    </g></svg></div>
+      <rect x="47" y="0" width="18" height="7" rx="2.5" fill="#1c2430"/>
+      <rect x="53" y="5" width="6" height="16" rx="3" fill="#1c2430"/>
+      <g class="cctv-head">
+        <rect x="16" y="22" width="66" height="32" rx="10" fill="#141a22" stroke="#242e3a" stroke-width="1.5"/>
+        <rect x="74" y="28" width="18" height="20" rx="6" fill="#0d1218" stroke="#242e3a" stroke-width="1.5"/>
+        <circle class="cctv-lens" cx="83" cy="38" r="5.2" fill="#3ecf8e"/>
+        <circle class="cctv-rec" cx="25" cy="30" r="2.6" fill="#ef4444"/>
+        <rect x="24" y="40" width="26" height="4" rx="2" fill="#1c2430"/>
+      </g></svg></div>
     <div>
-      <span class="kicker reveal in"><span class="dot"></span> Private by design — runs entirely on your computer</span>
-      <h1 class="reveal in" style="--d:.06s">The moment a phone appears, <span class="grad">Vigil sees it.</span></h1>
-      <p class="sub reveal in" style="--d:.12s">Vigil is a free app that turns the cameras you already have
-        into tireless AI watchers. Tell it what to look for — phones in an exam hall to start — and the second
-        it appears you get an alert with a photo and the exact spot. All on your computer. Nothing uploaded.</p>
+      <span class="kicker reveal in">ON-PREMISE VISION INTELLIGENCE</span>
+      <h1 class="reveal in" style="--d:.06s">The room<br>is watching.</h1>
+      <p class="sub reveal in" style="--d:.12s">Vigil turns the cameras you already own into unblinking AI
+        observers. A phone appears — it's <b>flagged, photographed and logged in under a second</b>.
+        Runs entirely on one machine. Nothing leaves the building.</p>
       <div class="ctas reveal in" style="--d:.18s">
-        <a class="btn btn-grn" href="/login">Open the dashboard →</a>
-        <a class="btn btn-ghost" href="#setup">See the 2-minute setup</a>
+        <a class="btn btn-grn" href="/login">OPEN THE DASHBOARD</a>
+        <a class="btn btn-ghost" href="#deployment">RUN A PILOT</a>
       </div>
-      <div class="facts reveal in" style="--d:.24s">
-        <div><b>Real-time</b>alerts in ~1s</div>
-        <div><b>100% local</b>zero uploads</div>
-        <div><b>Any camera</b>webcam · phone · CCTV</div>
+      <div class="telemetry reveal in" style="--d:.24s">
+        <div class="lat"><b>~0.9s</b>DETECT → ALERT</div>
+        <div><b>0</b>UPLOADS</div>
+        <div><b>∞</b>CAMERAS</div>
+        <div><b>LOCAL</b>EVIDENCE</div>
       </div>
     </div>
-    <div class="mock reveal in" style="--d:.2s">
-      <div class="mock-bar"><i></i><i></i><i></i><span>Vigil — Live Monitor</span><em>● LIVE</em></div>
-      <div class="mock-body">
-        <div class="mock-grid">
-          <div class="tile"><div class="t-head">Row 1 · Front<b>LIVE</b></div>
-            <div class="t-view"><span class="desk d1"></span><span class="desk d2"></span><div class="bbox"></div><div class="scan"></div></div></div>
-          <div class="tile"><div class="t-head">Row 3 · Left<b>LIVE</b></div>
-            <div class="t-view"><span class="desk d1"></span><span class="desk d2"></span><div class="bbox"></div><div class="scan" style="animation-delay:-1.2s"></div></div></div>
-          <div class="tile"><div class="t-head">Row 5 · Back<b>LIVE</b></div>
-            <div class="t-view"><span class="desk d1"></span><span class="desk d2"></span><div class="bbox"></div><div class="scan" style="animation-delay:-2.1s"></div></div></div>
-          <div class="tile"><div class="t-head">Corridor · A<b>LIVE</b></div>
-            <div class="t-view"><span class="desk d1"></span><span class="desk d2"></span><div class="bbox"></div><div class="scan" style="animation-delay:-.6s"></div></div></div>
+    <div class="evidence reveal in" style="--d:.2s"><span class="ck"></span>
+      <span class="ev-meta">LIVE FEED — EXAM HALL B</span>
+      <span class="ev-time"><b id="evclock">--:--:--</b> · CAM 03</span>
+      <div class="mock">
+        <div class="mock-bar"><i></i><i></i><i></i><span>VIGIL — LIVE MONITOR</span><em>● REC</em></div>
+        <div class="mock-body">
+          <div class="mock-grid">
+            <div class="tile"><div class="t-head">ROW 1 · FRONT<b>LIVE</b></div>
+              <div class="t-view"><span class="desk d1"></span><span class="desk d2"></span><div class="bbox"></div><div class="scan"></div></div></div>
+            <div class="tile"><div class="t-head">ROW 3 · LEFT<b>LIVE</b></div>
+              <div class="t-view"><span class="desk d1"></span><span class="desk d2"></span><div class="bbox"></div><div class="scan" style="animation-delay:-1.2s"></div></div></div>
+            <div class="tile"><div class="t-head">ROW 5 · BACK<b>LIVE</b></div>
+              <div class="t-view"><span class="desk d1"></span><span class="desk d2"></span><div class="bbox"></div><div class="scan" style="animation-delay:-2.1s"></div></div></div>
+            <div class="tile"><div class="t-head">CORRIDOR · A<b>LIVE</b></div>
+              <div class="t-view"><span class="desk d1"></span><span class="desk d2"></span><div class="bbox"></div><div class="scan" style="animation-delay:-.6s"></div></div></div>
+          </div>
+          <div class="mock-side"><div class="ms-head">ALERTS</div><div id="ms-list"></div></div>
         </div>
-        <div class="mock-side"><div class="ms-head">ALERTS</div><div id="ms-list"></div></div>
       </div>
     </div>
   </section>
 
-  <section id="features">
-    <span class="sec-kicker reveal">Features</span>
-    <h2 class="reveal" style="--d:.05s">Everything a control room needs.<br>Nothing it doesn't.</h2>
-    <div class="feats">
-      <div class="feat reveal"><span class="ico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg></span><h3>Real-time AI detection</h3>
-        <p>A vision model scans every frame of every camera and flags what you told it to watch — phones out of the box — within about a second, even small, half-hidden ones.</p></div>
-      <div class="feat reveal" style="--d:.07s"><span class="ico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg></span><h3>Photo evidence, automatically</h3>
-        <p>Every detection is saved with the photo, timestamp, camera and confidence. Confirm or dismiss each one to keep a clean, reviewable log.</p></div>
-      <div class="feat reveal" style="--d:.14s"><span class="ico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7.5A1.5 1.5 0 0 1 4.5 6h9A1.5 1.5 0 0 1 15 7.5v9a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 3 16.5z"/><path d="m15 10.5 4.55-2.6A1 1 0 0 1 21 8.77v6.46a1 1 0 0 1-1.45.87L15 13.5z"/></svg></span><h3>Any camera works</h3>
-        <p>Your laptop’s webcam, any phone’s browser via a link — no app to install — or real <code style="font-size:12px">rtsp://</code> CCTV. Mix and match as many as you like.</p></div>
-      <div class="feat reveal"><span class="ico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="14" x="2" y="3" rx="2"/><line x1="8" x2="16" y1="21" y2="21"/><line x1="12" x2="12" y1="17" y2="21"/></svg></span><h3>Display wall</h3>
-        <p>A fullscreen monitoring wall built for a big screen — with an unmissable on-screen alarm, flash and beep when something is found.</p></div>
-      <div class="feat reveal" style="--d:.07s"><span class="ico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg></span><h3>Alerts on your phone</h3>
-        <p>Optional Telegram alerts send the photo and location straight to invigilators walking the room.</p></div>
-      <div class="feat reveal" style="--d:.14s"><span class="ico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></span><h3>Roles for your team</h3>
-        <p>Admins manage cameras and settings; invigilators watch feeds and handle alerts. Everyone sees exactly what they need.</p></div>
+  <section id="capabilities">
+    <div class="sec-head reveal"><span class="sec-no">01 / CAPABILITIES</span></div>
+    <h2 class="reveal" style="--d:.05s">Built like infrastructure.<br>Not an app with a gimmick.</h2>
+    <div class="ledger">
+      <div class="cap-row reveal"><span class="no">01</span><h3>Real-time detection</h3>
+        <p>A fine-tuned neural model scans every frame of every feed — full frame plus zoomed tiles for
+        distant, half-hidden phones. A raised phone is flagged in about a second.</p></div>
+      <div class="cap-row reveal"><span class="no">02</span><h3>Evidence chain</h3>
+        <p>Every detection is stored with the photo, camera, location tag, timestamp, confidence and the
+        reviewer's verdict. A searchable record your institution can stand behind.</p></div>
+      <div class="cap-row reveal"><span class="no">03</span><h3>Any camera</h3>
+        <p>RTSP CCTV, webcams, or any phone's browser via a link — no app to install. Unlimited feeds
+        monitored simultaneously on one machine.</p></div>
+      <div class="cap-row reveal"><span class="no">04</span><h3>Display wall</h3>
+        <p>A fullscreen monitoring wall built for the invigilation desk — with an unmissable on-screen
+        alarm, flash and tone when something is found.</p></div>
+      <div class="cap-row reveal"><span class="no">05</span><h3>Instant relay</h3>
+        <p>Optional Telegram dispatch sends the photo and location straight to staff phones — the tap on
+        the shoulder for invigilators walking the aisles.</p></div>
+      <div class="cap-row reveal"><span class="no">06</span><h3>Human in command</h3>
+        <p>Admin and invigilator roles. Every alert requires a human confirm or dismiss — the AI flags,
+        your people decide. Watch targets are configurable beyond phones.</p></div>
     </div>
   </section>
 
-  <section id="how">
-    <span class="sec-kicker reveal">How it works</span>
-    <h2 class="reveal" style="--d:.05s">Watching in three steps.</h2>
-    <div class="steps">
-      <div class="step-c reveal"><h3>Add a camera</h3>
-        <p>Press “+ Add camera”, give it a name and the location it watches. A built-in guide walks first-timers through every option.</p></div>
-      <div class="step-c reveal" style="--d:.08s"><h3>Aim it & test</h3>
-        <p>Point it where people sit, then hold a phone up in front of it. Within a second a red alert with a photo appears — that's Vigil working.</p></div>
-      <div class="step-c reveal" style="--d:.16s"><h3>Let it watch</h3>
-        <p>Vigil monitors every feed all the time, viewed or not. Rearrange your camera wall by simply dragging the panels.</p></div>
+  <section id="detection">
+    <div class="sec-head reveal"><span class="sec-no">02 / DETECTION SEQUENCE</span></div>
+    <h2 class="reveal" style="--d:.05s">From glance to evidence<br>in under a second.</h2>
+    <div class="timeline reveal" id="tl">
+      <div class="t-node"><span class="ts">T+0.00s</span><h3>Frame captured</h3>
+        <p>Every camera is sampled continuously — watched or not.</p></div>
+      <div class="t-node"><span class="ts">T+0.40s</span><h3>Neural pass</h3>
+        <p>Full frame and overlapping zoom tiles scanned by the fine-tuned model.</p></div>
+      <div class="t-node alarm"><span class="ts">T+0.90s</span><h3>Alert raised</h3>
+        <p>Photo, location, confidence logged. Dashboard, wall and phones notified.</p></div>
+      <div class="t-node"><span class="ts">HUMAN</span><h3>Confirm or dismiss</h3>
+        <p>An invigilator rules on the alert. The verdict joins the evidence chain.</p></div>
     </div>
   </section>
 
-  <section id="setup">
-    <span class="sec-kicker reveal">Setup</span>
-    <h2 class="reveal" style="--d:.05s">Any camera you already own.<br>Ready in about 2 minutes.</h2>
-    <div class="setups">
-      <div class="setup-c reveal"><span class="ico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 16V7a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v9m16 0H4m16 0 1.28 2.55a1 1 0 0 1-.9 1.45H3.62a1 1 0 0 1-.9-1.45L4 16"/></svg></span><h3>This computer's webcam</h3>
-        <p>The simplest start — one click, no URL needed. Perfect for trying Vigil out on your desk right now.</p></div>
-      <div class="setup-c reveal" style="--d:.08s"><span class="ico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="20" x="5" y="2" rx="2"/><path d="M12 18h.01"/></svg></span><h3>Any phone — just a link</h3>
-        <p>Add a camera, choose <b>“A device’s camera”</b>, and open the link it gives you on the
-        phone. Allow the camera — that’s it. No app to install.</p></div>
-      <div class="setup-c reveal" style="--d:.16s"><span class="ico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7.5A1.5 1.5 0 0 1 4.5 6h9A1.5 1.5 0 0 1 15 7.5v9a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 3 16.5z"/><path d="m15 10.5 4.55-2.6A1 1 0 0 1 21 8.77v6.46a1 1 0 0 1-1.45.87L15 13.5z"/></svg></span><h3>CCTV / IP cameras</h3>
-        <p>Paste the camera's <code>rtsp://…</code> stream URL and it joins the wall like any other feed.</p></div>
-    </div>
-    <div class="note reveal"><span class="nico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg></span> <span><b>Where do the photos go?</b> Every detection photo is stored on the computer
-      running Vigil — in its local <b>evidence folder</b> and Evidence Log. Nothing is uploaded to any server,
-      and only alerts you enable (like Telegram) ever leave the machine.</span></div>
-  </section>
-
-  <section id="pilot">
-    <span class="sec-kicker reveal">For universities & institutions</span>
-    <h2 class="reveal" style="--d:.05s">Run a pilot yourselves.<br>One computer, up to 10 cameras.</h2>
-    <p class="sec-sub reveal" style="--d:.08s">No procurement, no integration project, no vendor on site.
-      Your exam team can have Vigil watching a real hall in under an hour — and everything it records
-      stays on your own machine.</p>
-    <div class="steps" style="margin-top:36px">
-      <div class="step-c reveal"><h3>Install on one computer</h3>
-        <p>Any modern Mac or Windows PC in the exam hall or control room. Download, double-click,
-        create the admin login. That machine holds all footage and evidence — nothing leaves it.</p></div>
-      <div class="step-c reveal" style="--d:.08s"><h3>Point it at your cameras</h3>
-        <p>Paste <code style="font-size:12px">rtsp://</code> links from your existing CCTV/NVR, use spare phones
-        or laptops as cameras via a link, and tag each one with its location — “Hall B · Row 5”.
-        Up to 10 cameras is a comfortable pilot on one machine.</p></div>
-      <div class="step-c reveal" style="--d:.16s"><h3>Run a mock exam & review</h3>
-        <p>Invigilators watch the Live Monitor or the fullscreen Display wall; each detection needs a human
-        <b>Confirm</b> — AI flags, people decide. Afterwards, the Evidence Log shows every incident with
-        photo, time, camera and reviewer decision.</p></div>
+  <section id="deployment">
+    <div class="sec-head reveal"><span class="sec-no">03 / DEPLOYMENT</span></div>
+    <h2 class="reveal" style="--d:.05s">One machine. One hour.<br>No IT project.</h2>
+    <p class="sec-sub reveal" style="--d:.08s">Built for institutions to trial on their own — no vendor
+      on site, no procurement cycle, no integration work. Your exam team can have a real hall under
+      watch before lunch.</p>
+    <div class="spec">
+      <div class="spec-col reveal"><div class="sc-head">SITE REQUIREMENTS</div>
+        <div class="spec-row"><span class="k">R1</span><div><b>One computer</b><span>Any modern Mac or Windows PC in the hall or control room.</span></div></div>
+        <div class="spec-row"><span class="k">R2</span><div><b>Your existing cameras</b><span>RTSP from the NVR, webcams, or spare phones via a link.</span></div></div>
+        <div class="spec-row"><span class="k">R3</span><div><b>No cloud account</b><span>Runs offline. Internet only needed for optional phone alerts.</span></div></div>
+        <div class="spec-row"><span class="k">R4</span><div><b>~30 minutes</b><span>From download to a live wall of feeds.</span></div></div>
+      </div>
+      <div class="spec-col reveal" style="--d:.08s"><div class="sc-head">PILOT PROTOCOL — 10 CAMERAS</div>
+        <div class="spec-row"><span class="k">P1</span><div><b>Install</b><span>One download, one double-click, create the admin login.</span></div></div>
+        <div class="spec-row"><span class="k">P2</span><div><b>Connect cameras</b><span>Up to 10 feeds is a comfortable single-machine pilot. Tag each location.</span></div></div>
+        <div class="spec-row"><span class="k">P3</span><div><b>Run a mock exam</b><span>Invigilators confirm or dismiss each alert as it lands.</span></div></div>
+        <div class="spec-row"><span class="k">P4</span><div><b>Review the evidence</b><span>Catches, false alarms per exam, response time — then decide.</span></div></div>
+      </div>
     </div>
     <div class="note reveal"><span class="nico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg></span>
-      <span><b>What to check at the end of the pilot:</b> detections caught vs. missed, false alarms per
-      exam, and whether invigilators found alerts faster than walking the aisles. If the numbers convince
-      you, scale up — Vigil has no per-camera fee.</span></div>
+      <span><b>What convinces committees:</b> detections caught vs. missed, false alarms per exam, and whether
+      alerts reached invigilators faster than walking the aisles. Vigil logs all three for you.</span></div>
   </section>
 
-  <section id="privacy" class="privacy">
-    <div class="cctv cctv-privacy" aria-hidden="true"><svg width="112" height="86" viewBox="0 0 112 86" fill="none">
-    <rect x="47" y="0" width="18" height="7" rx="2.5" fill="#232a34"/>
-    <rect x="53" y="5" width="6" height="16" rx="3" fill="#232a34"/>
-    <g class="cctv-head">
-      <rect x="16" y="22" width="66" height="32" rx="10" fill="#1a212b" stroke="#2c3542" stroke-width="1.5"/>
-      <rect x="74" y="28" width="18" height="20" rx="6" fill="#12181f" stroke="#2c3542" stroke-width="1.5"/>
-      <circle class="cctv-lens" cx="83" cy="38" r="5.2" fill="#3ecf8e"/>
-      <circle class="cctv-rec" cx="25" cy="30" r="2.6" fill="#ef4444"/>
-      <rect x="24" y="40" width="26" height="4" rx="2" fill="#232a34"/>
-    </g></svg></div>
-    <span class="sec-kicker reveal">Privacy</span>
-    <div class="big reveal" style="--d:.05s">Nothing leaves the room.<br>
-      <span style="color:#8b95a3">Your cameras, your computer, your data.</span></div>
-    <div class="priv-pts reveal" style="--d:.12s">
-      <div><b>✓</b> AI runs on your machine</div>
-      <div><b>✓</b> Photos stored locally</div>
-      <div><b>✓</b> Works without internet</div>
-      <div><b>✓</b> You own the evidence</div>
+  <section id="privacy" class="doctrine">
+    <div class="sec-head reveal"><span class="sec-no">04 / PRIVACY DOCTRINE</span></div>
+    <h2 class="reveal" style="--d:.05s">Footage never leaves<br>the building. <em>Ever.</em></h2>
+    <div class="ledge reveal" style="--d:.1s">
+      <div><span class="k">PROCESSING</span><span class="v">ON DEVICE — LOCAL GPU/CPU</span></div>
+      <div><span class="k">STORAGE</span><span class="v">LOCAL DISK ONLY</span></div>
+      <div><span class="k">INTERNET</span><span class="v">NOT REQUIRED</span></div>
+      <div><span class="k">EVIDENCE OWNERSHIP</span><span class="v">YOURS — FULL STOP</span></div>
     </div>
   </section>
 
   <section id="faq">
-    <span class="sec-kicker reveal">FAQ</span>
+    <div class="sec-head reveal"><span class="sec-no">05 / QUESTIONS</span></div>
     <h2 class="reveal" style="--d:.05s">Quick answers.</h2>
     <div class="faq">
-      <div class="qa reveal"><button>Does it need an internet connection?<i>+</i></button>
+      <div class="qa reveal"><button><span class="qno">Q1</span>Does it need an internet connection?<i>+</i></button>
         <div class="a"><p>No. Detection, the dashboard and the evidence log all run locally. Internet is only used
         if you turn on Telegram phone alerts.</p></div></div>
-      <div class="qa reveal" style="--d:.05s"><button>Is it only for phones?<i>+</i></button>
-        <div class="a"><p>No — phones are just the first target. In <b>Settings → "Watch for"</b> pick or type
-        what matters: laptop, bag, book, bottle, person and more. Phone detection ships with a fine-tuned exam
-        model; other targets use the general model, and fully custom targets (caps, uniforms…) can be added
-        with training.</p></div></div>
-      <div class="qa reveal" style="--d:.05s"><button>How many cameras can it watch?<i>+</i></button>
+      <div class="qa reveal"><button><span class="qno">Q2</span>Is it only for phones?<i>+</i></button>
+        <div class="a"><p>No — phones are the first target. In Settings → "Watch for", pick or type what matters:
+        laptop, bag, book, bottle, person and more. Fully custom targets can be added with training.</p></div></div>
+      <div class="qa reveal"><button><span class="qno">Q3</span>How many cameras can it watch?<i>+</i></button>
         <div class="a"><p>As many as your computer can decode — every configured camera is monitored all the time,
-        whether or not it's on screen. Add webcams, phones and CCTV together.</p></div></div>
-      <div class="qa reveal" style="--d:.1s"><button>Where is the evidence stored?<i>+</i></button>
-        <div class="a"><p>In a local evidence folder and database on the machine running Vigil. Each alert keeps the
-        photo, time, camera, location and confidence, plus its confirmed/dismissed status.</p></div></div>
-      <div class="qa reveal" style="--d:.15s"><button>What happens when a phone is detected?<i>+</i></button>
-        <div class="a"><p>The dashboard beeps and shows a red alert with the photo and location; the Display wall
-        flashes an on-screen alarm; and if enabled, Telegram sends the photo to your team's phones — all within
-        about a second.</p></div></div>
+        whether or not it's on screen. Ten feeds is a comfortable single-machine pilot.</p></div></div>
+      <div class="qa reveal"><button><span class="qno">Q4</span>Where is the evidence stored?<i>+</i></button>
+        <div class="a"><p>In a local folder and database on the machine running Vigil — photo, time, camera,
+        location, confidence and the reviewer's verdict for every alert.</p></div></div>
+      <div class="qa reveal"><button><span class="qno">Q5</span>What happens at the moment of detection?<i>+</i></button>
+        <div class="a"><p>The dashboard beeps and shows the photo and location; the Display wall flashes an alarm;
+        and if enabled, Telegram sends the photo to staff phones — all within about a second.</p></div></div>
     </div>
   </section>
 
   <section class="final">
-    <span class="kicker reveal"><span class="dot"></span> Free to run on your own machine</span>
-    <h2 class="reveal" style="--d:.05s">Put a vigilant eye on every room.</h2>
-    <p class="sec-sub reveal" style="--d:.1s; margin:0 auto">Sign in to your control room, or set Vigil up on the computer in the room you want to watch.</p>
+    <span class="kicker reveal">DEPLOY VIGIL</span>
+    <h2 class="reveal" style="--d:.05s">Put a vigilant eye<br>on every room.</h2>
+    <p class="sec-sub reveal" style="--d:.1s">Sign in to your control room, or set Vigil up on the computer in the room you want to watch.</p>
     <div class="ctas reveal" style="--d:.15s">
-      <a class="btn btn-grn" href="/login">Open the dashboard →</a>
-      <a class="btn btn-ghost" href="#how">See how it works</a>
+      <a class="btn btn-grn" href="/login">OPEN THE DASHBOARD</a>
+      <a class="btn btn-ghost" href="#deployment">READ THE PILOT PROTOCOL</a>
     </div>
   </section>
 </main>
 
-<footer><div class="row">
-  <a class="brand" href="/" style="font-size:15px">__LOGO__<b>Vig<span>i</span>l</b></a>
-  <span>· Your cameras, watching what matters</span>
+<footer><div class="frow">
+  <a class="brand" href="/" style="font-size:14px">__LOGO__<b>Vig<span>i</span>l</b></a>
+  <span>/ ON-PREMISE VISION INTELLIGENCE</span>
   <div class="right">
-    <a href="#setup">Setup guide</a>
-    <a href="/login">Sign in</a>
+    <a href="#deployment">PILOT</a>
+    <a href="/login">SIGN IN</a>
   </div>
 </div></footer>
 
@@ -2523,12 +2563,20 @@ LANDING_HTML = """<!doctype html>
   // reveal on scroll
   const io = new IntersectionObserver(es => es.forEach(e => {
     if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); }
-  }), { threshold:.14 });
-  document.querySelectorAll('.reveal:not(.in)').forEach(el => io.observe(el));
+  }), { threshold:.12 });
+  document.querySelectorAll('.reveal:not(.in), .timeline').forEach(el => io.observe(el));
 
-  // header border on scroll
+  // header hairline on scroll
   const head = document.getElementById('site-head');
   addEventListener('scroll', () => head.classList.toggle('scrolled', scrollY > 8), { passive:true });
+
+  // live clocks (system bar + evidence frame)
+  function tick() {
+    const t = new Date().toLocaleTimeString('en-GB');
+    const a = document.getElementById('sysclock'), b = document.getElementById('evclock');
+    if (a) a.textContent = t; if (b) b.textContent = t;
+  }
+  tick(); setInterval(tick, 1000);
 
   // FAQ accordion
   document.querySelectorAll('.qa button').forEach(b => b.onclick = () => {
@@ -2537,10 +2585,10 @@ LANDING_HTML = """<!doctype html>
     if (!open) { qa.classList.add('open'); a.style.maxHeight = a.scrollHeight + 'px'; }
   });
 
-  // hero mock: staged detections
+  // staged detections on the monitor
   const tiles = [...document.querySelectorAll('.tile')];
   const msList = document.getElementById('ms-list');
-  const spots = ['Row 1 · Front','Row 3 · Left','Row 5 · Back','Corridor · A'];
+  const spots = ['ROW 1 · FRONT','ROW 3 · LEFT','ROW 5 · BACK','CORRIDOR · A'];
   let ti = 1;
   function strike() {
     const i = ti % tiles.length; ti += 2 + (ti % 3);
@@ -2548,38 +2596,34 @@ LANDING_HTML = """<!doctype html>
     t.classList.add('hit');
     const card = document.createElement('div');
     card.className = 'ms-card';
-    card.innerHTML = `<span class="ph"></span><div><b>Phone · ${88 + (i * 3) % 10}%</b><span>📍 ${spots[i]}</span></div>`;
+    card.innerHTML = `<span class="ph"></span><div><b>PHONE · 0.${88 + (i * 3) % 10}</b><span>${spots[i]}</span></div>`;
     msList.prepend(card);
     while (msList.children.length > 3) msList.lastChild.remove();
-    setTimeout(() => t.classList.remove('hit'), 2300);
+    setTimeout(() => t.classList.remove('hit'), 2400);
   }
-  setTimeout(strike, 1200);
-  setInterval(strike, 3900);
+  setTimeout(strike, 1400);
+  setInterval(strike, 4200);
 
-  // the hero window tilts gently toward your cursor (wegic-style parallax)
+  // gentle parallax tilt on the evidence frame
   if (matchMedia('(pointer:fine)').matches) {
     const mock = document.querySelector('.mock');
     let tx = 0, ty = 0, cxr = 0, cyr = 0, tiltOn = false;
-    setTimeout(() => { mock.style.transition = 'none'; tiltOn = true; }, 1400);  // wait out the reveal
+    setTimeout(() => { mock.style.transition = 'none'; tiltOn = true; }, 1400);
     addEventListener('mousemove', e => {
       const r = mock.getBoundingClientRect();
       const inRange = Math.abs(e.clientX - (r.left + r.width/2)) < r.width * 1.1 &&
                       Math.abs(e.clientY - (r.top + r.height/2)) < r.height * 1.4;
-      tx = inRange ? ((e.clientX - (r.left + r.width/2)) / r.width) * -3.5 : 0;
-      ty = inRange ? ((e.clientY - (r.top + r.height/2)) / r.height) * 2.5 : 0;
+      tx = inRange ? ((e.clientX - (r.left + r.width/2)) / r.width) * -3 : 0;
+      ty = inRange ? ((e.clientY - (r.top + r.height/2)) / r.height) * 2 : 0;
     }, { passive: true });
     (function tilt() {
       if (tiltOn) {
-        cyr += (tx - cyr) * 0.07;
-        cxr += (ty - cxr) * 0.07;
+        cyr += (tx - cyr) * 0.07; cxr += (ty - cxr) * 0.07;
         mock.style.transform = `perspective(1300px) rotateY(${(-cyr).toFixed(2)}deg) rotateX(${cxr.toFixed(2)}deg)`;
       }
       requestAnimationFrame(tilt);
     })();
-  }
-
-  // the CCTV cameras track your cursor (and the spotlight follows it)
-  if (matchMedia('(pointer:fine)').matches) {
+    // the CCTV camera tracks the cursor
     const heads = [...document.querySelectorAll('.cctv-head')];
     let mx = innerWidth / 2, my = innerHeight / 3;
     addEventListener('mousemove', e => { mx = e.clientX; my = e.clientY; }, { passive: true });
@@ -2588,9 +2632,9 @@ LANDING_HTML = """<!doctype html>
       st.forEach(s => {
         const r = s.h.getBoundingClientRect();
         const cx = r.left + r.width / 2, cy = r.top + 8;
-        let t = Math.atan2(my - cy, mx - cx) * 180 / Math.PI;   // 0° = lens pointing right
-        t = Math.max(-30, Math.min(70, t)) * 0.55;              // clamp: it strains, never spins
-        s.a += (t - s.a) * 0.09;                                // heavy, motorised feel
+        let t = Math.atan2(my - cy, mx - cx) * 180 / Math.PI;
+        t = Math.max(-30, Math.min(70, t)) * 0.55;
+        s.a += (t - s.a) * 0.09;
         s.h.style.transform = `rotate(${s.a.toFixed(2)}deg)`;
       });
       requestAnimationFrame(track);
