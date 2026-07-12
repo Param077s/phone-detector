@@ -188,10 +188,8 @@ ay = 222
 for x in range(262, 372, 16):
     d.rounded_rectangle([x, ay-2, x+9, ay+2], radius=2, fill=(74, 86, 104))
 d.polygon([(392, ay), (376, ay-9), (376, ay+9)], fill=(62, 207, 142))
-# name plates behind the Finder labels — mid-tone so the label text reads in
-# BOTH light mode (black text) and dark mode (white text)
-for cx, w in ((180, 96), (480, 148)):
-    d.rounded_rectangle([cx-w//2, 286, cx+w//2, 312], radius=13, fill=(86, 96, 112))
+# No plates behind the labels — the dark background makes Finder render the
+# icon-label text WHITE automatically. (A light plate would flip it to black.)
 # footer hint
 d.text((W//2, 388), "Then open Vigil from Applications — your browser opens automatically.",
        font=font(12), fill=(91, 102, 117), anchor="mm")
