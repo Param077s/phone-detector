@@ -157,7 +157,7 @@ address) under their own policies.</p>
 <p>You are the data controller for footage and evidence captured by your installation. Follow your local
 laws on CCTV use, signage and consent, and your institution's policies.</p>
 <h2>Contact</h2>
-<p>Questions? Open an issue on our <a href="https://github.com/Param077s/vigil">GitHub repository</a>.</p>
+<p>Questions? Ask us from the <a href="index.html#faq">Vigil website</a>.</p>
 """
 
 TERMS_BODY = """
@@ -188,7 +188,7 @@ or consequential damages — including decisions made from alerts, lost data, or
 <p>We may update these terms and the software. Material changes will be reflected on this page with a new
 "last updated" date.</p>
 <h2>Contact</h2>
-<p>Questions? Open an issue on our <a href="https://github.com/Param077s/vigil">GitHub repository</a>.</p>
+<p>Questions? Ask us from the <a href="index.html#faq">Vigil website</a>.</p>
 """
 
 open("docs/privacy.html","w").write(legal_page("Privacy Policy", PRIVACY_BODY))

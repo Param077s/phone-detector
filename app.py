@@ -2624,29 +2624,36 @@ LANDING_HTML = """<!doctype html>
       requestAnimationFrame(tilt);
     })();
     // the detection-section camera CHASES the cursor: enters -> flies to it,
-    // hovers just beside it; leaves -> glides home to its post.
+    // hovers just beside it; leaves -> glides home. Anchored in DOCUMENT
+    // coordinates so scrolling never breaks the targeting.
     const det = document.getElementById('detection'), cam = document.getElementById('detcam');
     if (det && cam) {
       const camHead = cam.querySelector('.cctv-head');
-      let base = null, tx = 0, ty = 0, x = 0, y = 0, aim = 12, aimT = 12;
-      const measure = () => { const t = cam.style.transform; cam.style.transform = 'none';
-        base = cam.getBoundingClientRect(); cam.style.transform = t; };
-      addEventListener('resize', () => { base = null; });
+      let bl = 0, bt = 0, bw = 0, bh = 0, ready = false;
+      let tx = 0, ty = 0, x = 0, y = 0, aim = 12, aimT = 12;
+      function anchor() {
+        const t = cam.style.transform; cam.style.transform = 'none';
+        const r = cam.getBoundingClientRect();
+        bl = r.left + scrollX; bt = r.top + scrollY; bw = r.width; bh = r.height;
+        cam.style.transform = t; ready = true;
+      }
+      requestAnimationFrame(() => requestAnimationFrame(anchor));
+      addEventListener('resize', () => { ready = false; });
       det.addEventListener('mousemove', e => {
-        if (!base) measure();
+        if (!ready) anchor();
         const dr = det.getBoundingClientRect();
-        // park the lens just above-left of the cursor
-        let nx = e.clientX - (base.left + 96), ny = e.clientY - (base.top + 66);
-        nx = Math.max(dr.left - base.left + 8, Math.min(nx, dr.right - base.right - 8));
-        ny = Math.max(dr.top - base.top + 8,  Math.min(ny, dr.bottom - base.bottom - 8));
+        const bL = bl - scrollX, bT = bt - scrollY;          // home, in current viewport coords
+        let nx = e.clientX - (bL + bw - 22), ny = e.clientY - (bT + 44);  // lens parks left of cursor
+        nx = Math.max(dr.left - bL + 8, Math.min(nx, dr.right - bL - bw - 8));
+        ny = Math.max(dr.top - bT + 8,  Math.min(ny, dr.bottom - bT - bh - 8));
         tx = nx; ty = ny;
-        const cx = base.left + nx + 56, cy = base.top + ny + 21;
+        const cx = bL + nx + 56, cy = bT + ny + 21;
         aimT = Math.max(-32, Math.min(70, Math.atan2(e.clientY - cy, e.clientX - cx) * 180 / Math.PI)) * 0.6;
       }, { passive: true });
       det.addEventListener('mouseleave', () => { tx = 0; ty = 0; aimT = 12; });
       (function chase() {
-        x += (tx - x) * 0.055; y += (ty - y) * 0.055;          // heavy drone glide
-        aim += (aimT - aim) * 0.08;
+        x += (tx - x) * 0.085; y += (ty - y) * 0.085;        // eager but weighted pursuit
+        aim += (aimT - aim) * 0.1;
         cam.style.transform = `translate(${x.toFixed(1)}px, ${y.toFixed(1)}px)`;
         camHead.style.transform = `rotate(${aim.toFixed(2)}deg)`;
         requestAnimationFrame(chase);
