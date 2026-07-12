@@ -185,9 +185,13 @@ d.ellipse([W//2 + tw/2 + 8, 48, W//2 + tw/2 + 18, 58], fill=(62, 207, 142))
 d.text((W//2, 84), "Drag Vigil into Applications to install", font=f2, fill=(138, 148, 166), anchor="mm")
 # dashed arrow between the two icon slots (icons at x=180 / x=480, y=225)
 ay = 222
-for x in range(258, 372, 16):
+for x in range(262, 372, 16):
     d.rounded_rectangle([x, ay-2, x+9, ay+2], radius=2, fill=(74, 86, 104))
-d.polygon([(390, ay), (374, ay-9), (374, ay+9)], fill=(62, 207, 142))
+d.polygon([(392, ay), (376, ay-9), (376, ay+9)], fill=(62, 207, 142))
+# name plates behind the Finder labels — mid-tone so the label text reads in
+# BOTH light mode (black text) and dark mode (white text)
+for cx, w in ((180, 96), (480, 148)):
+    d.rounded_rectangle([cx-w//2, 286, cx+w//2, 312], radius=13, fill=(86, 96, 112))
 # footer hint
 d.text((W//2, 388), "Then open Vigil from Applications — your browser opens automatically.",
        font=font(12), fill=(91, 102, 117), anchor="mm")
@@ -209,8 +213,8 @@ show_tab_view = False
 show_toolbar = False
 show_pathbar = False
 show_sidebar = False
-icon_size = 104
-text_size = 13
+icon_size = 110
+text_size = 16
 icon_locations = {"Vigil.app": (180, 225), "Applications": (480, 225)}
 format = "UDZO"
 DMGPY

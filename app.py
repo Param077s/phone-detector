@@ -2148,8 +2148,8 @@ LANDING_HTML = """<!doctype html>
   .site-nav a { font-size:13.5px; color:var(--mut); padding:8px 13px; border-radius:8px;
     transition:color .2s var(--ease), background .2s var(--ease); }
   .site-nav a:hover { color:var(--txt); background:#161d27; }
-  .btn { display:inline-flex; align-items:center; gap:8px; border-radius:10px; font-weight:700;
-    font-size:14px; padding:12px 22px; cursor:pointer; border:none;
+  .btn { display:inline-flex; align-items:center; gap:8px; border-radius:999px; font-weight:700;
+    font-size:14px; padding:13px 26px; cursor:pointer; border:none;
     transition:transform .2s var(--spring), box-shadow .25s var(--ease), background .2s; }
   .btn:active { transform:scale(.97); }
   .btn-grn { background:var(--grn); color:#0a0d12; box-shadow:0 4px 24px rgba(62,207,142,.28); }
@@ -2170,12 +2170,17 @@ LANDING_HTML = """<!doctype html>
     -webkit-background-clip:text; background-clip:text; color:transparent; }
   .hero p.sub { font-size:16.5px; color:var(--mut); line-height:1.65; margin:20px 0 30px; max-width:480px; }
   .hero .ctas { display:flex; gap:12px; flex-wrap:wrap; }
-  .hero .facts { display:flex; gap:26px; margin-top:34px; font-size:13px; color:var(--mut); }
-  .hero .facts b { display:block; color:var(--txt); font-size:17px; font-weight:800; margin-bottom:2px; }
+  .hero .facts { display:flex; gap:12px; margin-top:34px; font-size:12.5px; color:var(--mut); flex-wrap:wrap; }
+  .hero .facts div { background:rgba(255,255,255,.04); border:1px solid rgba(255,255,255,.08);
+    border-radius:16px; padding:11px 18px; backdrop-filter:blur(8px); transition:transform .25s var(--ease), border-color .25s; }
+  .hero .facts div:hover { transform:translateY(-3px); border-color:rgba(62,207,142,.35); }
+  .hero .facts b { display:block; color:var(--txt); font-size:16.5px; font-weight:800; margin-bottom:2px; }
 
   /* animated product mock */
-  .mock { background:#0d1219; border:1px solid var(--line); border-radius:16px; overflow:hidden;
-    box-shadow:0 40px 90px rgba(0,0,0,.55); }
+  .mock { background:rgba(15,20,27,.72); backdrop-filter:blur(18px); -webkit-backdrop-filter:blur(18px);
+    border:1px solid rgba(255,255,255,.09); border-radius:18px; overflow:hidden;
+    box-shadow:0 40px 90px rgba(0,0,0,.55), inset 0 1px 0 rgba(255,255,255,.08);
+    will-change:transform; }
   .mock-bar { display:flex; align-items:center; gap:7px; padding:11px 14px; border-bottom:1px solid var(--line); }
   .mock-bar i { width:10px; height:10px; border-radius:50%; background:#242e3b; }
   .mock-bar span { font-size:11.5px; color:#5b6675; margin-left:8px; font-weight:600; }
@@ -2213,6 +2218,16 @@ LANDING_HTML = """<!doctype html>
   .ms-card .ph { width:20px; height:27px; border-radius:3px; background:linear-gradient(150deg,#2a3547,#151b25); flex-shrink:0; }
   .ms-card div b { display:block; font-size:8.5px; color:var(--txt); }
   .ms-card div span { font-size:7.5px; color:#8b95a3; }
+
+  .marquee { overflow:hidden; border-top:1px solid var(--line); border-bottom:1px solid var(--line);
+    padding:22px 0; margin-top:8px; position:relative; }
+  .mq-track { display:flex; gap:0; width:max-content; animation:mq 36s linear infinite; }
+  .marquee:hover .mq-track { animation-play-state:paused; }
+  .mq-track span { font-size:40px; font-weight:900; letter-spacing:1px; white-space:nowrap;
+    color:transparent; -webkit-text-stroke:1.2px #2f3945; padding-right:26px; }
+  .mq-track span i { font-style:normal; color:var(--grn); -webkit-text-stroke:0; font-size:22px;
+    vertical-align:middle; padding:0 18px 6px 0; display:inline-block; }
+  @keyframes mq { to { transform:translateX(-50%); } }
 
   section { padding:76px 0; }
   .sec-kicker { font-size:12px; font-weight:800; letter-spacing:1.6px; color:var(--grn); text-transform:uppercase; }
@@ -2301,6 +2316,11 @@ LANDING_HTML = """<!doctype html>
   .cctv-lens { filter:drop-shadow(0 0 6px rgba(62,207,142,.9)); }
   .cctv-rec { animation:pulse 1.3s infinite; }
   .hero { position:relative; }
+  .hero-glow { position:absolute; right:-6%; top:8%; width:640px; height:640px; pointer-events:none;
+    background:radial-gradient(circle, rgba(62,207,142,.16) 0%, rgba(62,207,142,.05) 38%, transparent 68%);
+    filter:blur(10px); animation:breathe 7s ease-in-out infinite; z-index:0; }
+  @keyframes breathe { 50% { transform:scale(1.12); opacity:.8; } }
+  .hero > div:not(.hero-glow):not(.cctv), .hero > .mock { position:relative; z-index:1; }
   .privacy { position:relative; }
   @media (max-width:920px) { .cctv { display:none; } }
 
@@ -2330,6 +2350,7 @@ LANDING_HTML = """<!doctype html>
 
 <main class="shell">
   <section class="hero">
+    <div class="hero-glow" aria-hidden="true"></div>
     <div class="cctv cctv-hero" aria-hidden="true"><svg width="112" height="86" viewBox="0 0 112 86" fill="none">
     <rect x="47" y="0" width="18" height="7" rx="2.5" fill="#232a34"/>
     <rect x="53" y="5" width="6" height="16" rx="3" fill="#232a34"/>
@@ -2373,6 +2394,8 @@ LANDING_HTML = """<!doctype html>
       </div>
     </div>
   </section>
+
+  <div class="marquee" aria-hidden="true"><div class="mq-track"><span>PHONE<i>●</i>LAPTOP<i>●</i>BAG<i>●</i>BOOK<i>●</i>BOTTLE<i>●</i>PERSON<i>●</i>KNIFE<i>●</i>ALWAYS WATCHING<i>●</i></span><span>PHONE<i>●</i>LAPTOP<i>●</i>BAG<i>●</i>BOOK<i>●</i>BOTTLE<i>●</i>PERSON<i>●</i>KNIFE<i>●</i>ALWAYS WATCHING<i>●</i></span></div></div>
 
   <section id="features">
     <span class="sec-kicker reveal">Features</span>
@@ -2567,6 +2590,28 @@ LANDING_HTML = """<!doctype html>
       setTimeout(() => rw.classList.remove('in2'), 360);
     }, 270);
   }, 2400);
+
+  // the hero window tilts gently toward your cursor (wegic-style parallax)
+  if (matchMedia('(pointer:fine)').matches) {
+    const mock = document.querySelector('.mock');
+    let tx = 0, ty = 0, cxr = 0, cyr = 0, tiltOn = false;
+    setTimeout(() => { mock.style.transition = 'none'; tiltOn = true; }, 1400);  // wait out the reveal
+    addEventListener('mousemove', e => {
+      const r = mock.getBoundingClientRect();
+      const inRange = Math.abs(e.clientX - (r.left + r.width/2)) < r.width * 1.1 &&
+                      Math.abs(e.clientY - (r.top + r.height/2)) < r.height * 1.4;
+      tx = inRange ? ((e.clientX - (r.left + r.width/2)) / r.width) * -7 : 0;
+      ty = inRange ? ((e.clientY - (r.top + r.height/2)) / r.height) * 5 : 0;
+    }, { passive: true });
+    (function tilt() {
+      if (tiltOn) {
+        cyr += (tx - cyr) * 0.07;
+        cxr += (ty - cxr) * 0.07;
+        mock.style.transform = `perspective(1300px) rotateY(${(-cyr).toFixed(2)}deg) rotateX(${cxr.toFixed(2)}deg)`;
+      }
+      requestAnimationFrame(tilt);
+    })();
+  }
 
   // the CCTV cameras track your cursor (and the spotlight follows it)
   if (matchMedia('(pointer:fine)').matches) {
