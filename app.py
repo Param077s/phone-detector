@@ -2324,6 +2324,73 @@ LANDING_HTML = """<!doctype html>
   .privacy { position:relative; }
   @media (max-width:920px) { .cctv { display:none; } }
 
+  /* ---- Pinned scroll-story hero (wegic-style) ---- */
+  .story { position:relative; height:340vh; }
+  .story-stage { position:sticky; top:0; height:100vh; display:flex; align-items:center;
+    overflow:hidden; }
+  .story-inner { position:relative; z-index:2; max-width:1120px; margin:0 auto; padding:0 26px;
+    width:100%; display:grid; grid-template-columns:1.02fr 1fr; gap:54px; align-items:center; }
+  .story-glow { position:absolute; right:-4%; top:6%; width:680px; height:680px; z-index:0;
+    pointer-events:none; filter:blur(12px); animation:breathe 7s ease-in-out infinite;
+    background:radial-gradient(circle, rgba(62,207,142,.16) 0%, rgba(62,207,142,.05) 40%, transparent 68%);
+    transition:background .7s var(--ease); }
+  .grain { position:absolute; inset:0; z-index:1; pointer-events:none; opacity:.045; mix-blend-mode:overlay;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"); }
+  .story-copy h1 { margin-bottom:0; }
+  .story-caption { position:relative; min-height:74px; margin:18px 0 26px; }
+  .cap { position:absolute; inset:0; font-size:16.5px; color:var(--mut); line-height:1.6; max-width:440px;
+    opacity:0; transform:translateY(12px); transition:opacity .45s var(--ease), transform .45s var(--ease); }
+  .story-stage[data-phase="0"] .c0, .story-stage[data-phase="1"] .c1,
+  .story-stage[data-phase="2"] .c2, .story-stage[data-phase="3"] .c3 { opacity:1; transform:none; }
+  .story-steps { display:flex; align-items:center; gap:8px; margin-top:30px; }
+  .story-steps i { width:26px; height:4px; border-radius:3px; background:#232a34; transition:background .35s var(--ease); }
+  .story-steps i.on { background:var(--grn); }
+  .scrollcue { font-size:11.5px; color:#5b6675; letter-spacing:.4px; margin-left:10px;
+    animation:cuebob 1.8s ease-in-out infinite; }
+  .story-stage[data-phase="0"] .scrollcue { opacity:1; }
+  .story-stage:not([data-phase="0"]) .scrollcue { opacity:0; transition:opacity .3s; }
+  @keyframes cuebob { 50% { transform:translateY(3px); opacity:.5; } }
+  /* the ambient light turns alarm-red at the moment of detection */
+  .story-stage[data-phase="2"] .story-glow, .story-stage[data-phase="3"] .story-glow {
+    background:radial-gradient(circle, rgba(239,68,68,.15) 0%, rgba(239,68,68,.05) 40%, transparent 68%); }
+  /* target tile: phone rises, box snaps on, tile goes red */
+  .tile.target { transition:border-color .4s var(--ease), box-shadow .4s var(--ease); }
+  .up-phone { position:absolute; left:26%; bottom:16px; width:10px; height:18px; border-radius:2.5px;
+    background:linear-gradient(160deg,#4a5769,#2b3442); opacity:0; transform:translateY(22px);
+    transition:opacity .5s var(--ease), transform .55s var(--spring); z-index:2; }
+  .target .bbox { left:19%; top:26px; width:30px; height:46px; }
+  .story-stage[data-phase="1"] .target .up-phone, .story-stage[data-phase="2"] .target .up-phone,
+  .story-stage[data-phase="3"] .target .up-phone { opacity:1; transform:translateY(-16px); }
+  .story-stage[data-phase="2"] .target .bbox, .story-stage[data-phase="3"] .target .bbox {
+    opacity:1; transform:scale(1); }
+  .story-stage[data-phase="2"] .target, .story-stage[data-phase="3"] .target {
+    border-color:rgba(239,68,68,.65); box-shadow:0 0 0 1px rgba(239,68,68,.4), 0 0 34px rgba(239,68,68,.2); }
+  .ms-reveal { opacity:0; transform:translateX(26px) scale(.96); transition:opacity .5s var(--ease), transform .5s var(--spring); }
+  .story-stage[data-phase="3"] .ms-reveal { opacity:1; transform:none; }
+  @media (max-width:920px) {
+    .story { height:auto; }
+    .story-stage { position:static; height:auto; padding:64px 0 20px; }
+    .story-inner { grid-template-columns:1fr; gap:38px; }
+    .story-caption { min-height:0; }
+    .cap { position:static; opacity:1 !important; transform:none !important; }
+    .cap:not(.c2) { display:none; }
+    .story-steps, .scrollcue { display:none; }
+    .target .up-phone { opacity:1; transform:translateY(-16px); }
+    .target .bbox { opacity:1; transform:scale(1); }
+    .tile.target { border-color:rgba(239,68,68,.65); box-shadow:0 0 0 1px rgba(239,68,68,.4); }
+    .ms-reveal { opacity:1; transform:none; }
+  }
+
+  /* ---- Other interactions ---- */
+  .scrollbar { position:fixed; top:0; left:0; height:3px; width:0; z-index:100; background:var(--grn);
+    box-shadow:0 0 10px var(--grn); transition:width .08s linear; }
+  .feat, .setup-c, .step-c, .qa { --mx:50%; --my:50%; }
+  .feat::before, .setup-c::before, .step-c::before, .qa::before { content:''; position:absolute; inset:0;
+    border-radius:inherit; pointer-events:none; opacity:0; transition:opacity .3s var(--ease);
+    background:radial-gradient(230px circle at var(--mx) var(--my), rgba(62,207,142,.10), transparent 62%); }
+  .feat:hover::before, .setup-c:hover::before, .step-c:hover::before, .qa:hover::before { opacity:1; }
+  .qa { position:relative; }
+
   .reveal { opacity:0; transform:translateY(28px); transition:opacity .75s var(--ease), transform .75s var(--ease);
     transition-delay:var(--d,0s); }
   .reveal.in { opacity:1; transform:none; }
@@ -2338,6 +2405,7 @@ LANDING_HTML = """<!doctype html>
 <body>
 <div class="orbs"><i></i><i></i><i></i></div>
 <div class="spot" id="spot"></div>
+<div class="scrollbar" id="sbar"></div>
 
 <div class="site-head" id="site-head"><div class="row">
   <a class="brand" href="/">__LOGO__<b>Vig<span>i</span>l</b></a>
@@ -2349,48 +2417,52 @@ LANDING_HTML = """<!doctype html>
 </div></div>
 
 <main class="shell">
-  <section class="hero">
-    <div class="hero-glow" aria-hidden="true"></div>
-    <div class="cctv cctv-hero" aria-hidden="true"><svg width="112" height="86" viewBox="0 0 112 86" fill="none">
-    <rect x="47" y="0" width="18" height="7" rx="2.5" fill="#232a34"/>
-    <rect x="53" y="5" width="6" height="16" rx="3" fill="#232a34"/>
-    <g class="cctv-head">
-      <rect x="16" y="22" width="66" height="32" rx="10" fill="#1a212b" stroke="#2c3542" stroke-width="1.5"/>
-      <rect x="74" y="28" width="18" height="20" rx="6" fill="#12181f" stroke="#2c3542" stroke-width="1.5"/>
-      <circle class="cctv-lens" cx="83" cy="38" r="5.2" fill="#3ecf8e"/>
-      <circle class="cctv-rec" cx="25" cy="30" r="2.6" fill="#ef4444"/>
-      <rect x="24" y="40" width="26" height="4" rx="2" fill="#232a34"/>
-    </g></svg></div>
-    <div>
-      <span class="kicker reveal in"><span class="dot"></span> Private by design — runs entirely on your computer</span>
-      <h1 class="reveal in" style="--d:.06s">The moment a <span class="rotbox"><span id="rotword">phone</span></span> appears, <span class="grad">Vigil sees it.</span></h1>
-      <p class="sub reveal in" style="--d:.12s">Vigil is a free app that turns the cameras you already have
-        into tireless AI watchers. Tell it what to look for — phones in an exam hall to start — and the second
-        it appears you get an alert with a photo and the exact spot. All on your computer. Nothing uploaded.</p>
-      <div class="ctas reveal in" style="--d:.18s">
-        <a class="btn btn-grn" href="/login">Open the dashboard →</a>
-        <a class="btn btn-ghost" href="#setup">See the 2-minute setup</a>
-      </div>
-      <div class="facts reveal in" style="--d:.24s">
-        <div><b>Real-time</b>alerts in ~1s</div>
-        <div><b>100% local</b>zero uploads</div>
-        <div><b>Any camera</b>webcam · phone · CCTV</div>
-      </div>
-    </div>
-    <div class="mock reveal in" style="--d:.2s">
-      <div class="mock-bar"><i></i><i></i><i></i><span>Vigil — Live Monitor</span><em>● LIVE</em></div>
-      <div class="mock-body">
-        <div class="mock-grid">
-          <div class="tile"><div class="t-head">Row 1 · Front<b>LIVE</b></div>
-            <div class="t-view"><span class="desk d1"></span><span class="desk d2"></span><div class="bbox"></div><div class="scan"></div></div></div>
-          <div class="tile"><div class="t-head">Row 3 · Left<b>LIVE</b></div>
-            <div class="t-view"><span class="desk d1"></span><span class="desk d2"></span><div class="bbox"></div><div class="scan" style="animation-delay:-1.2s"></div></div></div>
-          <div class="tile"><div class="t-head">Row 5 · Back<b>LIVE</b></div>
-            <div class="t-view"><span class="desk d1"></span><span class="desk d2"></span><div class="bbox"></div><div class="scan" style="animation-delay:-2.1s"></div></div></div>
-          <div class="tile"><div class="t-head">Corridor · A<b>LIVE</b></div>
-            <div class="t-view"><span class="desk d1"></span><span class="desk d2"></span><div class="bbox"></div><div class="scan" style="animation-delay:-.6s"></div></div></div>
+  <section class="story" id="story">
+    <div class="story-stage" id="stage" data-phase="0">
+      <div class="story-glow" aria-hidden="true"></div>
+      <div class="grain" aria-hidden="true"></div>
+      <div class="cctv cctv-hero" aria-hidden="true"><svg width="112" height="86" viewBox="0 0 112 86" fill="none">
+      <rect x="47" y="0" width="18" height="7" rx="2.5" fill="#232a34"/>
+      <rect x="53" y="5" width="6" height="16" rx="3" fill="#232a34"/>
+      <g class="cctv-head">
+        <rect x="16" y="22" width="66" height="32" rx="10" fill="#1a212b" stroke="#2c3542" stroke-width="1.5"/>
+        <rect x="74" y="28" width="18" height="20" rx="6" fill="#12181f" stroke="#2c3542" stroke-width="1.5"/>
+        <circle class="cctv-lens" cx="83" cy="38" r="5.2" fill="#3ecf8e"/>
+        <circle class="cctv-rec" cx="25" cy="30" r="2.6" fill="#ef4444"/>
+        <rect x="24" y="40" width="26" height="4" rx="2" fill="#232a34"/>
+      </g></svg></div>
+      <div class="story-inner">
+        <div class="story-copy">
+          <span class="kicker"><span class="dot"></span> Private by design — runs entirely on your computer</span>
+          <h1>The moment a phone appears,<br><span class="grad">Vigil sees it.</span></h1>
+          <div class="story-caption">
+            <p class="cap c0">Point any camera at the room — a webcam, an old phone, or your CCTV.</p>
+            <p class="cap c1">Someone quietly raises a phone.</p>
+            <p class="cap c2">Vigil spots it in about a second — and draws the box.</p>
+            <p class="cap c3">Photo, location and time — logged. Your team acts in seconds.</p>
+          </div>
+          <div class="ctas">
+            <a class="btn btn-grn" href="/login">Open the dashboard →</a>
+            <a class="btn btn-ghost" href="#setup">See the 2-minute setup</a>
+          </div>
+          <div class="story-steps"><i></i><i></i><i></i><i></i><span class="scrollcue">scroll to watch ↓</span></div>
         </div>
-        <div class="mock-side"><div class="ms-head">ALERTS</div><div id="ms-list"></div></div>
+        <div class="story-mock mock">
+          <div class="mock-bar"><i></i><i></i><i></i><span>Vigil — Live Monitor</span><em>● LIVE</em></div>
+          <div class="mock-body">
+            <div class="mock-grid">
+              <div class="tile"><div class="t-head">Row 1 · Front<b>LIVE</b></div><div class="t-view"><span class="desk d1"></span><span class="desk d2"></span><div class="scan"></div></div></div>
+              <div class="tile"><div class="t-head">Row 3 · Left<b>LIVE</b></div><div class="t-view"><span class="desk d1"></span><span class="desk d2"></span><div class="scan" style="animation-delay:-1.2s"></div></div></div>
+              <div class="tile target"><div class="t-head">Row 5 · Back<b>LIVE</b></div>
+                <div class="t-view"><span class="desk d1"></span><span class="desk d2"></span>
+                  <span class="up-phone"></span><div class="bbox"></div><div class="scan" style="animation-delay:-2.1s"></div></div></div>
+              <div class="tile"><div class="t-head">Corridor · A<b>LIVE</b></div><div class="t-view"><span class="desk d1"></span><span class="desk d2"></span><div class="scan" style="animation-delay:-.6s"></div></div></div>
+            </div>
+            <div class="mock-side"><div class="ms-head">ALERTS</div>
+              <div class="ms-card ms-reveal"><span class="ph"></span><div><b>Phone · 93%</b><span>📍 Row 5 · Back</span></div></div>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   </section>
@@ -2556,61 +2628,47 @@ LANDING_HTML = """<!doctype html>
     if (!open) { qa.classList.add('open'); a.style.maxHeight = a.scrollHeight + 'px'; }
   });
 
-  // hero mock: staged detections
-  const tiles = [...document.querySelectorAll('.tile')];
-  const msList = document.getElementById('ms-list');
-  const spots = ['Row 1 · Front','Row 3 · Left','Row 5 · Back','Corridor · A'];
-  let ti = 1;
-  function strike() {
-    const i = ti % tiles.length; ti += 2 + (ti % 3);
-    const t = tiles[i];
-    t.classList.add('hit');
-    const card = document.createElement('div');
-    card.className = 'ms-card';
-    card.innerHTML = `<span class="ph"></span><div><b>Phone · ${88 + (i * 3) % 10}%</b><span>📍 ${spots[i]}</span></div>`;
-    msList.prepend(card);
-    while (msList.children.length > 3) msList.lastChild.remove();
-    setTimeout(() => t.classList.remove('hit'), 2300);
+  // ---- Pinned scroll-story: scrolling plays out a detection ----
+  const story = document.getElementById('story');
+  const stage = document.getElementById('stage');
+  const dots = [...stage.querySelectorAll('.story-steps i')];
+  const sbar = document.getElementById('sbar');
+  let curPhase = -1;
+  function onScroll() {
+    const docH = document.documentElement.scrollHeight - innerHeight;
+    if (sbar) sbar.style.width = (docH > 0 ? (scrollY / docH) * 100 : 0) + '%';
+    const total = story.offsetHeight - innerHeight;
+    const p = total > 0 ? Math.min(1, Math.max(0, -story.getBoundingClientRect().top / total)) : 0;
+    stage.style.setProperty('--p', p.toFixed(3));
+    const phase = p < 0.16 ? 0 : p < 0.44 ? 1 : p < 0.72 ? 2 : 3;
+    if (phase !== curPhase) {
+      curPhase = phase;
+      stage.dataset.phase = phase;
+      dots.forEach((d, i) => d.classList.toggle('on', i <= phase));
+    }
   }
-  setTimeout(strike, 1200);
-  setInterval(strike, 3900);
+  let ticking = false;
+  addEventListener('scroll', () => { if (!ticking) { ticking = true; requestAnimationFrame(() => { onScroll(); ticking = false; }); } }, { passive: true });
+  addEventListener('resize', onScroll);
+  onScroll();
 
-  // rotating watch-word — Vigil watches for more than phones
-  const WORDS = ['phone', 'laptop', 'bag', 'book', 'bottle'];
-  const rw = document.getElementById('rotword'), rb = rw.parentElement;
-  rb.style.width = rw.offsetWidth + 'px';
-  let wi = 0;
-  setInterval(() => {
-    wi = (wi + 1) % WORDS.length;
-    rw.classList.add('out');
-    setTimeout(() => {
-      rw.textContent = WORDS[wi];
-      rw.classList.remove('out'); rw.classList.add('in2');
-      rb.style.width = rw.scrollWidth + 'px';
-      setTimeout(() => rw.classList.remove('in2'), 360);
-    }, 270);
-  }, 2400);
-
-  // the hero window tilts gently toward your cursor (wegic-style parallax)
+  // magnetic primary buttons — they lean toward the cursor
   if (matchMedia('(pointer:fine)').matches) {
-    const mock = document.querySelector('.mock');
-    let tx = 0, ty = 0, cxr = 0, cyr = 0, tiltOn = false;
-    setTimeout(() => { mock.style.transition = 'none'; tiltOn = true; }, 1400);  // wait out the reveal
-    addEventListener('mousemove', e => {
-      const r = mock.getBoundingClientRect();
-      const inRange = Math.abs(e.clientX - (r.left + r.width/2)) < r.width * 1.1 &&
-                      Math.abs(e.clientY - (r.top + r.height/2)) < r.height * 1.4;
-      tx = inRange ? ((e.clientX - (r.left + r.width/2)) / r.width) * -7 : 0;
-      ty = inRange ? ((e.clientY - (r.top + r.height/2)) / r.height) * 5 : 0;
-    }, { passive: true });
-    (function tilt() {
-      if (tiltOn) {
-        cyr += (tx - cyr) * 0.07;
-        cxr += (ty - cxr) * 0.07;
-        mock.style.transform = `perspective(1300px) rotateY(${(-cyr).toFixed(2)}deg) rotateX(${cxr.toFixed(2)}deg)`;
-      }
-      requestAnimationFrame(tilt);
-    })();
+    document.querySelectorAll('.btn-grn').forEach(b => {
+      b.addEventListener('mousemove', e => {
+        const r = b.getBoundingClientRect();
+        b.style.transform = `translate(${((e.clientX - r.left) / r.width - 0.5) * 14}px, ${((e.clientY - r.top) / r.height - 0.5) * 20}px)`;
+      });
+      b.addEventListener('mouseleave', () => { b.style.transform = ''; });
+    });
+    // cards catch a soft light where the cursor is
+    document.querySelectorAll('.feat, .setup-c, .step-c, .qa').forEach(c => {
+      c.addEventListener('mousemove', e => {
+        const r = c.getBoundingClientRect();
+        c.style.setProperty('--mx', (e.clientX - r.left) + 'px');
+        c.style.setProperty('--my', (e.clientY - r.top) + 'px');
+      });
+    });
   }
 
   // the CCTV cameras track your cursor (and the spotlight follows it)
