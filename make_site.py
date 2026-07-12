@@ -27,9 +27,11 @@ APPLE = svg('<path d="M12 20.94c1.5 0 2.75 1.06 4 1.06 3 0 6-8 6-12.22A4.91 4.91
 WIN = svg('<rect width="20" height="14" x="2" y="3" rx="2"/><line x1="8" x2="16" y1="21" y2="21"/><line x1="12" x2="12" y1="17" y2="21"/>')
 TUX = svg('<polyline points="4 17 10 11 4 5"/><line x1="12" x2="20" y1="19" y2="19"/>')
 
-ZIP = "https://github.com/Param077s/phone-detector/archive/refs/heads/main.zip"
 REPO = "https://github.com/Param077s/phone-detector"
 SITE = "https://param077s.github.io/phone-detector/"
+# Stable "latest release" asset URLs — always point at the newest published release.
+DMG = "https://github.com/Param077s/phone-detector/releases/latest/download/Vigil.dmg"
+ZIP = "https://github.com/Param077s/phone-detector/releases/latest/download/Vigil.zip"
 
 page = page.replace("__LOGO__", LOGO)
 page = page.replace('href="/favicon.svg"', 'href="favicon.svg"')
@@ -39,6 +41,8 @@ page = page.replace('<a href="#privacy">Privacy</a><a href="#faq">FAQ</a>',
                     '<a href="#get">Download</a><a href="#privacy">Privacy</a><a href="#faq">FAQ</a>')
 page = page.replace('<a class="btn btn-grn" href="/login">Open the dashboard →</a>',
                     '<a class="btn btn-grn" href="#get">Download Vigil free ↓</a>')
+page = page.replace('<a class="btn btn-ghost" href="https://github.com/Param077s/phone-detector" target="_blank" rel="noopener">Get Vigil on GitHub</a>',
+                    '<a class="btn btn-ghost" href="#get">See how it installs</a>')
 page = page.replace('Sign in to your control room, or set Vigil up on the computer in the room you want to watch.',
                     'Download it onto the computer in the room you want to watch — free, no account, nothing leaves the machine.')
 page = page.replace('<a href="/login">Sign in</a>', '<a href="#get">Download</a>')
@@ -52,27 +56,31 @@ page = page.replace('<link rel="icon" href="favicon.svg">',
 GET = f'''
   <section id="get">
     <span class="sec-kicker reveal">Download</span>
-    <h2 class="reveal" style="--d:.05s">Get Vigil on your laptop.</h2>
-    <p class="sec-sub reveal" style="--d:.08s">No account, no payment. Download, double-click, and create your
-      admin login in the browser tab that opens. The first run installs what it needs (one time, ~2&nbsp;GB) —
-      after that it starts instantly.</p>
+    <h2 class="reveal" style="--d:.05s">Get Vigil on your computer.</h2>
+    <p class="sec-sub reveal" style="--d:.08s">Free, no account. On Mac it installs like any app —
+      drag it into Applications and open it. The first launch sets up its AI components once
+      (~2&nbsp;GB); every launch after that is instant.</p>
     <div class="ctas reveal" style="--d:.1s; margin-top:26px; display:flex; gap:12px; flex-wrap:wrap">
-      <a class="btn btn-grn" href="{ZIP}">Download Vigil (.zip) ↓</a>
-      <a class="btn btn-ghost" href="{REPO}" target="_blank" rel="noopener">View source on GitHub</a>
+      <a class="btn btn-grn" href="{DMG}">{APPLE} Download for Mac</a>
+      <a class="btn btn-ghost" href="{ZIP}">{WIN} Windows &amp; Linux (.zip)</a>
     </div>
     <div class="setups" style="margin-top:30px">
-      <div class="setup-c reveal"><span class="ico">{APPLE}</span><h3>Mac</h3>
-        <p>Unzip, then double-click <code>Vigil.command</code>. First time only: right-click it →
-        <b>Open</b> → <b>Open</b> (macOS checks new apps once). Your browser opens to Vigil —
-        create your admin account and you're in.</p></div>
+      <div class="setup-c reveal"><span class="ico">{APPLE}</span><h3>Mac — drag &amp; drop</h3>
+        <p>Open the downloaded <code>Vigil.dmg</code> and drag <b>Vigil</b> into your
+        <b>Applications</b> folder — just like any Mac app. Double-click to open. First time only:
+        right-click → <b>Open</b> → <b>Open</b> (macOS checks new apps once). Your browser opens to
+        Vigil — create an admin account and you're watching.</p></div>
       <div class="setup-c reveal" style="--d:.08s"><span class="ico">{WIN}</span><h3>Windows</h3>
-        <p>Unzip, then double-click <code>Vigil-Windows.bat</code>. If SmartScreen warns, choose
-        <b>More info → Run anyway</b>. If it asks for Python, install it with
+        <p>Unzip the download and double-click <code>Vigil-Windows.bat</code>. If SmartScreen warns,
+        choose <b>More info → Run anyway</b>. If it asks for Python, install it with
         <b>"Add Python to PATH"</b> ticked, then run it again.</p></div>
       <div class="setup-c reveal" style="--d:.16s"><span class="ico">{TUX}</span><h3>Linux</h3>
-        <p>Run <code>./Vigil-Linux.sh</code> in a terminal — it sets itself up on the first run and
-        opens the dashboard when ready.</p></div>
+        <p>Unzip and run <code>./Vigil-Linux.sh</code> in a terminal — it sets itself up on the first
+        run and opens the dashboard when ready.</p></div>
     </div>
+    <p class="reveal" style="font-size:12.5px; color:#5b6675; margin-top:20px">
+      Prefer the code? <a href="{REPO}" target="_blank" rel="noopener" style="color:#8b95a3; text-decoration:underline">View the source on GitHub</a>.
+    </p>
   </section>
 '''
 page = page.replace('  <section id="privacy" class="privacy">', GET + '\n  <section id="privacy" class="privacy">')

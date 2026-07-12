@@ -8,13 +8,13 @@ echo "Building release…"
 rm -rf "$OUT"
 mkdir -p "$OUT"
 
-# Files an end user needs to run Vigil
+# Only the files an end user needs to RUN Vigil — no developer/training tools,
+# no Dockerfile, no docs site. Keeps the download clean and un-scary.
 FILES=(
   "READ ME FIRST.txt"
   app.py requirements.txt
   Vigil.command Vigil-Windows.bat Vigil-Linux.sh
-  INSTALL.md README.md FINETUNING.md
-  collect.py train.py build_dataset.py
+  INSTALL.md README.md
 )
 for f in "${FILES[@]}"; do
   [ -e "$f" ] && cp "$f" "$OUT/"
