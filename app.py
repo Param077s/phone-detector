@@ -67,13 +67,13 @@ REQUIRED_HITS  = 3      # a phone must be seen this many detections IN A ROW bef
 PHONE_CLASS    = 67
 ALERT_COOLDOWN = 3
 
-IMG_SIZE       = 960    # detail for the full-frame pass (catches near/large phones)
+IMG_SIZE       = 640    # detail for the full-frame pass (640 = fast/smooth; raise for range)
 JPEG_QUALITY   = 75     # streamed video quality (lower = faster / less bandwidth)
 
 # --- Tiling (for spotting phones far away) -------------------------------
 # Slice each frame into overlapping tiles and scan each one zoomed-in, so a
 # distant phone (tiny in the whole frame) is large enough inside its tile to see.
-TILING         = True
+TILING         = False  # off by default = smooth video; enable in Settings for far phones
 TILE_COLS      = 2      # tiles across
 TILE_ROWS      = 2      # tiles down   (2x2 = 4 tiles + 1 full-frame pass)
 TILE_OVERLAP   = 0.15   # overlap so a phone on a tile seam isn't cut in half
@@ -661,7 +661,10 @@ class Detector:
 
     def _run(self):
         streak = 0
+        DETECT_INTERVAL = 0.12          # cap detection at ~8/s — plenty for a held-up
+                                        # phone, and leaves GPU headroom so video stays smooth
         while self.running:
+            t0 = time.time()
             with self._lock:
                 frame, label = self._frame, self._label
                 self._frame = None
@@ -678,6 +681,9 @@ class Detector:
                     maybe_add_alert(frame[y1:y2, x1:x2].copy(), cf, label, self.camera_id)
             else:
                 streak = 0
+            dt = time.time() - t0                       # throttle to leave room for the video pipeline
+            if dt < DETECT_INTERVAL:
+                time.sleep(DETECT_INTERVAL - dt)
 
     def stop(self):
         self.running = False
@@ -1843,7 +1849,7 @@ DASHBOARD_HTML = """<!doctype html>
           }).catch(() => {});
       });
     }
-    setInterval(refreshSnapshots, 250);
+    setInterval(refreshSnapshots, 66);
 
     // ---- Per-camera online/offline status ----
     async function refreshStatus() {
@@ -3074,7 +3080,7 @@ DISPLAY_HTML = """<!doctype html>
     }
 
     loadWall().then(refreshStatus);
-    setInterval(refreshSnaps, 250);
+    setInterval(refreshSnaps, 66);
     setInterval(refreshStatus, 1500);
     setInterval(pollAlerts, 1500);
     pollAlerts();
