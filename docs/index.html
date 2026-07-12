@@ -27,10 +27,10 @@
 
   /* blueprint grid + grain over the whole page */
   .gridbg { position:fixed; inset:0; z-index:0; pointer-events:none;
-    background-image:linear-gradient(var(--line) 1px, transparent 1px),
-                     linear-gradient(90deg, var(--line) 1px, transparent 1px);
-    background-size:72px 72px; opacity:.16;
-    mask-image:radial-gradient(1200px 800px at 50% 0%, #000 30%, transparent 100%); }
+    background-image:linear-gradient(rgba(255,255,255,.05) 1px, transparent 1px),
+                     linear-gradient(90deg, rgba(255,255,255,.05) 1px, transparent 1px);
+    background-size:64px 64px; opacity:.5;
+    mask-image:radial-gradient(1600px 1400px at 50% -5%, #000 42%, rgba(0,0,0,.25) 78%, transparent 110%); }
   .grainbg { position:fixed; inset:0; z-index:0; pointer-events:none; opacity:.04; mix-blend-mode:overlay;
     background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"); }
 
@@ -141,9 +141,9 @@
   .ms-card div b { display:block; font-family:var(--mono); font-size:7.5px; color:var(--txt); letter-spacing:.3px; }
   .ms-card div span { font-family:var(--mono); font-size:6.5px; color:#77828f; }
 
-  /* CCTV */
-  .cctv { position:absolute; z-index:2; pointer-events:none; filter:drop-shadow(0 10px 24px rgba(0,0,0,.4)); }
-  .cctv-hero { top:-30px; right:4%; }
+  /* CCTV — one unit, stationed in the detection section; it chases the cursor */
+  .cctv { position:absolute; z-index:3; pointer-events:none; filter:drop-shadow(0 12px 26px rgba(0,0,0,.45)); }
+  .cctv-det { top:34px; right:5%; will-change:transform; }
   .cctv-head { transform-origin:56px 21px; }
   .cctv-lens { filter:drop-shadow(0 0 6px rgba(62,207,142,.9)); }
   .cctv-rec { animation:pulse 1.3s infinite; }
@@ -278,24 +278,14 @@
   <a class="brand" href="/"><svg class="logo-mark" width="21" height="21" viewBox="0 0 24 24" fill="none"><path d="M4 9V6a2 2 0 0 1 2-2h3M15 4h3a2 2 0 0 1 2 2v3M20 15v3a2 2 0 0 1-2 2h-3M9 20H6a2 2 0 0 1-2-2v-3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="12" cy="12" r="3" fill="#3ecf8e"/></svg><b>Vig<span>i</span>l</b></a>
   <nav class="site-nav">
     <a href="#capabilities">CAPABILITIES</a><a href="#detection">DETECTION</a>
-    <a href="#deployment">DEPLOYMENT</a><a href="#get">DOWNLOAD</a><a href="#privacy">PRIVACY</a><a href="#faq">FAQ</a>
+    <a href="#deployment">DEPLOYMENT</a><a class="js-dl" href="https://github.com/Param077s/vigil/releases/latest/download/Vigil.dmg">DOWNLOAD</a><a href="#privacy">PRIVACY</a><a href="#faq">FAQ</a>
   </nav>
-  <a class="btn btn-grn" href="#get">DOWNLOAD FREE</a>
+  <a class="btn btn-grn js-dl" href="https://github.com/Param077s/vigil/releases/latest/download/Vigil.dmg">DOWNLOAD FREE</a>
 </div></div>
 
 <main class="shell">
   <section class="hero">
     <div class="hero-glow" aria-hidden="true"></div>
-    <div class="cctv cctv-hero" aria-hidden="true"><svg width="112" height="86" viewBox="0 0 112 86" fill="none">
-      <rect x="47" y="0" width="18" height="7" rx="2.5" fill="#1c2430"/>
-      <rect x="53" y="5" width="6" height="16" rx="3" fill="#1c2430"/>
-      <g class="cctv-head">
-        <rect x="16" y="22" width="66" height="32" rx="10" fill="#141a22" stroke="#242e3a" stroke-width="1.5"/>
-        <rect x="74" y="28" width="18" height="20" rx="6" fill="#0d1218" stroke="#242e3a" stroke-width="1.5"/>
-        <circle class="cctv-lens" cx="83" cy="38" r="5.2" fill="#3ecf8e"/>
-        <circle class="cctv-rec" cx="25" cy="30" r="2.6" fill="#ef4444"/>
-        <rect x="24" y="40" width="26" height="4" rx="2" fill="#1c2430"/>
-      </g></svg></div>
     <div>
       <span class="kicker reveal in">ON-PREMISE VISION INTELLIGENCE</span>
       <h1 class="reveal in" style="--d:.06s">The room<br>is watching.</h1>
@@ -303,7 +293,7 @@
         observers. A phone appears — it's <b>flagged, photographed and logged in under a second</b>.
         Runs entirely on one machine. Nothing leaves the building.</p>
       <div class="ctas reveal in" style="--d:.18s">
-        <a class="btn btn-grn" href="#get">DOWNLOAD VIGIL FREE</a>
+        <a class="btn btn-grn js-dl" href="https://github.com/Param077s/vigil/releases/latest/download/Vigil.dmg">DOWNLOAD VIGIL FREE</a>
         <a class="btn btn-ghost" href="#deployment">RUN A PILOT</a>
       </div>
       <div class="telemetry reveal in" style="--d:.24s">
@@ -360,7 +350,17 @@
     </div>
   </section>
 
-  <section id="detection">
+  <section id="detection" style="position:relative">
+    <div class="cctv cctv-det" id="detcam" aria-hidden="true"><svg width="112" height="86" viewBox="0 0 112 86" fill="none">
+      <rect x="47" y="0" width="18" height="7" rx="2.5" fill="#1c2430"/>
+      <rect x="53" y="5" width="6" height="16" rx="3" fill="#1c2430"/>
+      <g class="cctv-head">
+        <rect x="16" y="22" width="66" height="32" rx="10" fill="#141a22" stroke="#242e3a" stroke-width="1.5"/>
+        <rect x="74" y="28" width="18" height="20" rx="6" fill="#0d1218" stroke="#242e3a" stroke-width="1.5"/>
+        <circle class="cctv-lens" cx="83" cy="38" r="5.2" fill="#3ecf8e"/>
+        <circle class="cctv-rec" cx="25" cy="30" r="2.6" fill="#ef4444"/>
+        <rect x="24" y="40" width="26" height="4" rx="2" fill="#1c2430"/>
+      </g></svg></div>
     <div class="sec-head reveal"><span class="sec-no">02 / DETECTION SEQUENCE</span></div>
     <h2 class="reveal" style="--d:.05s">From glance to evidence<br>in under a second.</h2>
     <div class="timeline reveal" id="tl">
@@ -408,11 +408,11 @@
       into Applications and open it. The first launch sets up its AI components once (~2&nbsp;GB); every
       launch after that is instant.</p>
     <div class="ctas reveal" style="--d:.1s; margin-top:30px; display:flex; gap:12px; flex-wrap:wrap">
-      <a class="btn btn-grn" href="https://github.com/Param077s/vigil/releases/latest/download/Vigil.dmg"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20.94c1.5 0 2.75 1.06 4 1.06 3 0 6-8 6-12.22A4.91 4.91 0 0 0 17 5c-2.22 0-4 1.44-5 2-1-.56-2.78-2-5-2a4.9 4.9 0 0 0-5 4.78C2 14 5 22 8 22c1.25 0 2.5-1.06 4-1.06Z"/><path d="M10 2c1 .5 2 2 2 5"/></svg> DOWNLOAD FOR MAC</a>
-      <a class="btn btn-ghost" href="https://github.com/Param077s/vigil/releases/latest/download/Vigil.zip"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="14" x="2" y="3" rx="2"/><line x1="8" x2="16" y1="21" y2="21"/><line x1="12" x2="12" y1="17" y2="21"/></svg> WINDOWS &amp; LINUX (.ZIP)</a>
+      <a class="btn btn-grn" href="https://github.com/Param077s/vigil/releases/latest/download/Vigil.dmg" download><svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12.152 6.896c-.948 0-2.415-1.078-3.96-1.04-2.04.027-3.91 1.183-4.961 3.014-2.117 3.675-.546 9.103 1.519 12.09 1.013 1.454 2.208 3.09 3.792 3.039 1.52-.065 2.09-.987 3.935-.987 1.831 0 2.35.987 3.96.948 1.637-.026 2.676-1.48 3.676-2.948 1.156-1.688 1.636-3.325 1.662-3.415-.039-.013-3.182-1.221-3.22-4.857-.026-3.04 2.48-4.494 2.597-4.559-1.429-2.09-3.623-2.324-4.39-2.376-2-.156-3.675 1.09-4.61 1.09zm3.378-3.066c.843-1.012 1.4-2.427 1.245-3.83-1.207.052-2.662.805-3.532 1.818-.78.896-1.454 2.338-1.273 3.714 1.338.104 2.715-.688 3.56-1.702z"/></svg> DOWNLOAD FOR MAC</a>
+      <a class="btn btn-ghost" href="https://github.com/Param077s/vigil/releases/latest/download/Vigil.zip" download><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="14" x="2" y="3" rx="2"/><line x1="8" x2="16" y1="21" y2="21"/><line x1="12" x2="12" y1="17" y2="21"/></svg> WINDOWS &amp; LINUX (.ZIP)</a>
     </div>
     <div class="setups">
-      <div class="setup-c reveal"><span class="ico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20.94c1.5 0 2.75 1.06 4 1.06 3 0 6-8 6-12.22A4.91 4.91 0 0 0 17 5c-2.22 0-4 1.44-5 2-1-.56-2.78-2-5-2a4.9 4.9 0 0 0-5 4.78C2 14 5 22 8 22c1.25 0 2.5-1.06 4-1.06Z"/><path d="M10 2c1 .5 2 2 2 5"/></svg></span><h3>Mac — drag &amp; drop</h3>
+      <div class="setup-c reveal"><span class="ico"><svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12.152 6.896c-.948 0-2.415-1.078-3.96-1.04-2.04.027-3.91 1.183-4.961 3.014-2.117 3.675-.546 9.103 1.519 12.09 1.013 1.454 2.208 3.09 3.792 3.039 1.52-.065 2.09-.987 3.935-.987 1.831 0 2.35.987 3.96.948 1.637-.026 2.676-1.48 3.676-2.948 1.156-1.688 1.636-3.325 1.662-3.415-.039-.013-3.182-1.221-3.22-4.857-.026-3.04 2.48-4.494 2.597-4.559-1.429-2.09-3.623-2.324-4.39-2.376-2-.156-3.675 1.09-4.61 1.09zm3.378-3.066c.843-1.012 1.4-2.427 1.245-3.83-1.207.052-2.662.805-3.532 1.818-.78.896-1.454 2.338-1.273 3.714 1.338.104 2.715-.688 3.56-1.702z"/></svg></span><h3>Mac — drag &amp; drop</h3>
         <p>Open <code>Vigil.dmg</code> and drag <b>Vigil</b> into <b>Applications</b>. Double-click to open.
         First time only: right-click → <b>Open</b> → <b>Open</b>. Your browser opens to Vigil — create the
         admin account and you're watching.</p></div>
@@ -464,7 +464,7 @@
     <h2 class="reveal" style="--d:.05s">Put a vigilant eye<br>on every room.</h2>
     <p class="sec-sub reveal" style="--d:.1s">Download it onto the computer in the room you want to watch — free, no account, nothing leaves the machine.</p>
     <div class="ctas reveal" style="--d:.15s">
-      <a class="btn btn-grn" href="#get">DOWNLOAD VIGIL FREE</a>
+      <a class="btn btn-grn js-dl" href="https://github.com/Param077s/vigil/releases/latest/download/Vigil.dmg">DOWNLOAD VIGIL FREE</a>
       <a class="btn btn-ghost" href="#deployment">READ THE PILOT PROTOCOL</a>
     </div>
   </section>
@@ -475,7 +475,7 @@
   <span>/ ON-PREMISE VISION INTELLIGENCE</span>
   <div class="right">
     <a href="#deployment">PILOT</a>
-    <a href="#get">DOWNLOAD</a>
+    <a class="js-dl" href="https://github.com/Param077s/vigil/releases/latest/download/Vigil.dmg">DOWNLOAD</a><a href="privacy.html">PRIVACY POLICY</a><a href="terms.html">TERMS</a>
   </div>
 </div></footer>
 
@@ -543,22 +543,36 @@
       }
       requestAnimationFrame(tilt);
     })();
-    // the CCTV camera tracks the cursor
-    const heads = [...document.querySelectorAll('.cctv-head')];
-    let mx = innerWidth / 2, my = innerHeight / 3;
-    addEventListener('mousemove', e => { mx = e.clientX; my = e.clientY; }, { passive: true });
-    const st = heads.map(h => ({ h, a: 10 }));
-    (function track() {
-      st.forEach(s => {
-        const r = s.h.getBoundingClientRect();
-        const cx = r.left + r.width / 2, cy = r.top + 8;
-        let t = Math.atan2(my - cy, mx - cx) * 180 / Math.PI;
-        t = Math.max(-30, Math.min(70, t)) * 0.55;
-        s.a += (t - s.a) * 0.09;
-        s.h.style.transform = `rotate(${s.a.toFixed(2)}deg)`;
-      });
-      requestAnimationFrame(track);
-    })();
+    // the detection-section camera CHASES the cursor: enters -> flies to it,
+    // hovers just beside it; leaves -> glides home to its post.
+    const det = document.getElementById('detection'), cam = document.getElementById('detcam');
+    if (det && cam) {
+      const camHead = cam.querySelector('.cctv-head');
+      let base = null, tx = 0, ty = 0, x = 0, y = 0, aim = 12, aimT = 12;
+      const measure = () => { const t = cam.style.transform; cam.style.transform = 'none';
+        base = cam.getBoundingClientRect(); cam.style.transform = t; };
+      addEventListener('resize', () => { base = null; });
+      det.addEventListener('mousemove', e => {
+        if (!base) measure();
+        const dr = det.getBoundingClientRect();
+        // park the lens just above-left of the cursor
+        let nx = e.clientX - (base.left + 96), ny = e.clientY - (base.top + 66);
+        nx = Math.max(dr.left - base.left + 8, Math.min(nx, dr.right - base.right - 8));
+        ny = Math.max(dr.top - base.top + 8,  Math.min(ny, dr.bottom - base.bottom - 8));
+        tx = nx; ty = ny;
+        const cx = base.left + nx + 56, cy = base.top + ny + 21;
+        aimT = Math.max(-32, Math.min(70, Math.atan2(e.clientY - cy, e.clientX - cx) * 180 / Math.PI)) * 0.6;
+      }, { passive: true });
+      det.addEventListener('mouseleave', () => { tx = 0; ty = 0; aimT = 12; });
+      (function chase() {
+        x += (tx - x) * 0.055; y += (ty - y) * 0.055;          // heavy drone glide
+        aim += (aimT - aim) * 0.08;
+        cam.style.transform = `translate(${x.toFixed(1)}px, ${y.toFixed(1)}px)`;
+        camHead.style.transform = `rotate(${aim.toFixed(2)}deg)`;
+        requestAnimationFrame(chase);
+      })();
+    }
   }
 </script>
+<script>(function(){var w=/Win|Linux/.test(navigator.platform)&&!/Mac/.test(navigator.platform);if(w)document.querySelectorAll('.js-dl').forEach(function(a){a.href='https://github.com/Param077s/vigil/releases/latest/download/Vigil.zip';});})();</script>
 </body></html>

@@ -2133,10 +2133,10 @@ LANDING_HTML = """<!doctype html>
 
   /* blueprint grid + grain over the whole page */
   .gridbg { position:fixed; inset:0; z-index:0; pointer-events:none;
-    background-image:linear-gradient(var(--line) 1px, transparent 1px),
-                     linear-gradient(90deg, var(--line) 1px, transparent 1px);
-    background-size:72px 72px; opacity:.16;
-    mask-image:radial-gradient(1200px 800px at 50% 0%, #000 30%, transparent 100%); }
+    background-image:linear-gradient(rgba(255,255,255,.05) 1px, transparent 1px),
+                     linear-gradient(90deg, rgba(255,255,255,.05) 1px, transparent 1px);
+    background-size:64px 64px; opacity:.5;
+    mask-image:radial-gradient(1600px 1400px at 50% -5%, #000 42%, rgba(0,0,0,.25) 78%, transparent 110%); }
   .grainbg { position:fixed; inset:0; z-index:0; pointer-events:none; opacity:.04; mix-blend-mode:overlay;
     background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"); }
 
@@ -2247,9 +2247,9 @@ LANDING_HTML = """<!doctype html>
   .ms-card div b { display:block; font-family:var(--mono); font-size:7.5px; color:var(--txt); letter-spacing:.3px; }
   .ms-card div span { font-family:var(--mono); font-size:6.5px; color:#77828f; }
 
-  /* CCTV */
-  .cctv { position:absolute; z-index:2; pointer-events:none; filter:drop-shadow(0 10px 24px rgba(0,0,0,.4)); }
-  .cctv-hero { top:-30px; right:4%; }
+  /* CCTV — one unit, stationed in the detection section; it chases the cursor */
+  .cctv { position:absolute; z-index:3; pointer-events:none; filter:drop-shadow(0 12px 26px rgba(0,0,0,.45)); }
+  .cctv-det { top:34px; right:5%; will-change:transform; }
   .cctv-head { transform-origin:56px 21px; }
   .cctv-lens { filter:drop-shadow(0 0 6px rgba(62,207,142,.9)); }
   .cctv-rec { animation:pulse 1.3s infinite; }
@@ -2392,16 +2392,6 @@ LANDING_HTML = """<!doctype html>
 <main class="shell">
   <section class="hero">
     <div class="hero-glow" aria-hidden="true"></div>
-    <div class="cctv cctv-hero" aria-hidden="true"><svg width="112" height="86" viewBox="0 0 112 86" fill="none">
-      <rect x="47" y="0" width="18" height="7" rx="2.5" fill="#1c2430"/>
-      <rect x="53" y="5" width="6" height="16" rx="3" fill="#1c2430"/>
-      <g class="cctv-head">
-        <rect x="16" y="22" width="66" height="32" rx="10" fill="#141a22" stroke="#242e3a" stroke-width="1.5"/>
-        <rect x="74" y="28" width="18" height="20" rx="6" fill="#0d1218" stroke="#242e3a" stroke-width="1.5"/>
-        <circle class="cctv-lens" cx="83" cy="38" r="5.2" fill="#3ecf8e"/>
-        <circle class="cctv-rec" cx="25" cy="30" r="2.6" fill="#ef4444"/>
-        <rect x="24" y="40" width="26" height="4" rx="2" fill="#1c2430"/>
-      </g></svg></div>
     <div>
       <span class="kicker reveal in">ON-PREMISE VISION INTELLIGENCE</span>
       <h1 class="reveal in" style="--d:.06s">The room<br>is watching.</h1>
@@ -2466,7 +2456,17 @@ LANDING_HTML = """<!doctype html>
     </div>
   </section>
 
-  <section id="detection">
+  <section id="detection" style="position:relative">
+    <div class="cctv cctv-det" id="detcam" aria-hidden="true"><svg width="112" height="86" viewBox="0 0 112 86" fill="none">
+      <rect x="47" y="0" width="18" height="7" rx="2.5" fill="#1c2430"/>
+      <rect x="53" y="5" width="6" height="16" rx="3" fill="#1c2430"/>
+      <g class="cctv-head">
+        <rect x="16" y="22" width="66" height="32" rx="10" fill="#141a22" stroke="#242e3a" stroke-width="1.5"/>
+        <rect x="74" y="28" width="18" height="20" rx="6" fill="#0d1218" stroke="#242e3a" stroke-width="1.5"/>
+        <circle class="cctv-lens" cx="83" cy="38" r="5.2" fill="#3ecf8e"/>
+        <circle class="cctv-rec" cx="25" cy="30" r="2.6" fill="#ef4444"/>
+        <rect x="24" y="40" width="26" height="4" rx="2" fill="#1c2430"/>
+      </g></svg></div>
     <div class="sec-head reveal"><span class="sec-no">02 / DETECTION SEQUENCE</span></div>
     <h2 class="reveal" style="--d:.05s">From glance to evidence<br>in under a second.</h2>
     <div class="timeline reveal" id="tl">
@@ -2623,22 +2623,35 @@ LANDING_HTML = """<!doctype html>
       }
       requestAnimationFrame(tilt);
     })();
-    // the CCTV camera tracks the cursor
-    const heads = [...document.querySelectorAll('.cctv-head')];
-    let mx = innerWidth / 2, my = innerHeight / 3;
-    addEventListener('mousemove', e => { mx = e.clientX; my = e.clientY; }, { passive: true });
-    const st = heads.map(h => ({ h, a: 10 }));
-    (function track() {
-      st.forEach(s => {
-        const r = s.h.getBoundingClientRect();
-        const cx = r.left + r.width / 2, cy = r.top + 8;
-        let t = Math.atan2(my - cy, mx - cx) * 180 / Math.PI;
-        t = Math.max(-30, Math.min(70, t)) * 0.55;
-        s.a += (t - s.a) * 0.09;
-        s.h.style.transform = `rotate(${s.a.toFixed(2)}deg)`;
-      });
-      requestAnimationFrame(track);
-    })();
+    // the detection-section camera CHASES the cursor: enters -> flies to it,
+    // hovers just beside it; leaves -> glides home to its post.
+    const det = document.getElementById('detection'), cam = document.getElementById('detcam');
+    if (det && cam) {
+      const camHead = cam.querySelector('.cctv-head');
+      let base = null, tx = 0, ty = 0, x = 0, y = 0, aim = 12, aimT = 12;
+      const measure = () => { const t = cam.style.transform; cam.style.transform = 'none';
+        base = cam.getBoundingClientRect(); cam.style.transform = t; };
+      addEventListener('resize', () => { base = null; });
+      det.addEventListener('mousemove', e => {
+        if (!base) measure();
+        const dr = det.getBoundingClientRect();
+        // park the lens just above-left of the cursor
+        let nx = e.clientX - (base.left + 96), ny = e.clientY - (base.top + 66);
+        nx = Math.max(dr.left - base.left + 8, Math.min(nx, dr.right - base.right - 8));
+        ny = Math.max(dr.top - base.top + 8,  Math.min(ny, dr.bottom - base.bottom - 8));
+        tx = nx; ty = ny;
+        const cx = base.left + nx + 56, cy = base.top + ny + 21;
+        aimT = Math.max(-32, Math.min(70, Math.atan2(e.clientY - cy, e.clientX - cx) * 180 / Math.PI)) * 0.6;
+      }, { passive: true });
+      det.addEventListener('mouseleave', () => { tx = 0; ty = 0; aimT = 12; });
+      (function chase() {
+        x += (tx - x) * 0.055; y += (ty - y) * 0.055;          // heavy drone glide
+        aim += (aimT - aim) * 0.08;
+        cam.style.transform = `translate(${x.toFixed(1)}px, ${y.toFixed(1)}px)`;
+        camHead.style.transform = `rotate(${aim.toFixed(2)}deg)`;
+        requestAnimationFrame(chase);
+      })();
+    }
   }
 </script>
 </body></html>"""
