@@ -126,9 +126,86 @@ def finish():
     print("Now run:  python train.py dataset/data.yaml")
 
 
+def _countdown(msg, secs=5):
+    print("\n" + "=" * 60)
+    print(msg)
+    print("=" * 60)
+    for i in range(secs, 0, -1):
+        print(f"   starting in {i}…", end="\r", flush=True)
+        time.sleep(1)
+    print("   ▶ RECORDING NOW — keep going!            ")
+
+
+def _phase(model, phone_cls, label_it, seconds, interval=0.3):
+    """Capture one timed phase. label_it=True auto-labels the phone; else negative."""
+    os.makedirs(RAW_IMG, exist_ok=True)
+    os.makedirs(RAW_LBL, exist_ok=True)
+    cap = cv2.VideoCapture(_src())
+    for _ in range(10):                      # webcam warm-up
+        cap.read()
+    n, kept, last, t_end = 0, 0, 0.0, time.time() + seconds
+    while time.time() < t_end:
+        ok, frame = cap.read()
+        if not ok:
+            time.sleep(0.05); continue
+        now = time.time()
+        if now - last < interval:
+            continue
+        last = now
+        h, w = frame.shape[:2]
+        lines = []
+        if label_it:
+            res = model(frame, classes=[phone_cls], conf=0.5, imgsz=640, verbose=False)
+            boxes = res[0].boxes
+            if len(boxes) == 0:
+                remaining = int(t_end - now)
+                print(f"   (no phone seen — hold it clearer)   {remaining}s left     ", end="\r")
+                continue
+            b = max(boxes, key=lambda x: float(x.conf[0]))
+            x1, y1, x2, y2 = map(float, b.xyxy[0])
+            lines.append(f"0 {((x1+x2)/2)/w:.6f} {((y1+y2)/2)/h:.6f} {(x2-x1)/w:.6f} {(y2-y1)/h:.6f}")
+        stamp = f"{'phone' if label_it else 'neg'}_{int(now)}_{n}"
+        cv2.imwrite(f"{RAW_IMG}/{stamp}.jpg", frame)
+        open(f"{RAW_LBL}/{stamp}.txt", "w").write("\n".join(lines))
+        n += 1; kept += 1
+        remaining = int(t_end - now)
+        print(f"   captured {kept} frames   {remaining}s left            ", end="\r")
+    cap.release()
+    print(f"\n   ✓ phase done — {kept} frames saved.")
+    return kept
+
+
+def guided():
+    """One-click, timed, two-phase capture that auto-labels and finishes."""
+    import shutil
+    shutil.rmtree("dataset", ignore_errors=True)          # start fresh — no old/bad data
+    from ultralytics import YOLO
+    print("Loading the labeling model…")
+    model = YOLO("yolo11x.pt")
+    phone_cls = next((i for i, n in model.names.items() if "phone" in str(n).lower()), 67)
+
+    _countdown("PHASE 1 of 2  —  HOLD YOUR PHONE UP.\n"
+               "Move it around: near, far, tilted, in your hand, both sides of the frame,\n"
+               "in different lighting. Keep the phone visible the whole time (~75s).", 6)
+    p = _phase(model, phone_cls, label_it=True, seconds=75)
+
+    _countdown("PHASE 2 of 2  —  PUT THE PHONE AWAY. Show EVERYTHING that is NOT a phone:\n"
+               "your face, mouth, hands, the bed/headboard, books, remote, the room, empty desk.\n"
+               "This is what teaches Vigil to stop false-alarming (~75s).", 6)
+    ng = _phase(model, phone_cls, label_it=False, seconds=75)
+
+    print(f"\nCaptured {p} phone frames + {ng} non-phone frames.")
+    finish()
+    print("\n" + "=" * 60)
+    print("  ✓ ALL DONE. Go back to Claude and say: \"train it\"")
+    print("=" * 60)
+
+
 if __name__ == "__main__":
     mode = sys.argv[1] if len(sys.argv) > 1 else ""
-    if mode in ("phone", "nophone"):
+    if mode == "guided":
+        guided()
+    elif mode in ("phone", "nophone"):
         capture(mode)
     elif mode == "finish":
         finish()

@@ -38,13 +38,15 @@ print(f"Fine-tuning on {data}  (device: {device})")
 #   lots of free memory (e.g. batch=8, imgsz=640) or are running it while away.
 results = model.train(
     data=data,
-    epochs=60,
-    imgsz=512,          # smaller image = far less memory
-    batch=4,            # SMALL batch = gentle on RAM (this is the big memory lever)
+    epochs=100,         # with patience it stops early once it plateaus
+    imgsz=640,          # 640 = better on small/distant phones; still light at batch 4
+    batch=4,            # SMALL batch = gentle on an 18GB laptop (~3-4GB)
     workers=2,
     cache=False,
-    patience=15,        # stop early once it stops improving
+    patience=20,        # stop early once it stops improving
     device=device,
+    name="vigil_ft",    # -> runs/detect/vigil_ft/weights/best.pt
+    plots=False,
 )
 
 print("\nDone! Your fine-tuned model is at the 'best.pt' path shown above.")
