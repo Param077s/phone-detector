@@ -27,11 +27,12 @@ APPLE = svg('<path d="M12 20.94c1.5 0 2.75 1.06 4 1.06 3 0 6-8 6-12.22A4.91 4.91
 WIN = svg('<rect width="20" height="14" x="2" y="3" rx="2"/><line x1="8" x2="16" y1="21" y2="21"/><line x1="12" x2="12" y1="17" y2="21"/>')
 TUX = svg('<polyline points="4 17 10 11 4 5"/><line x1="12" x2="20" y1="19" y2="19"/>')
 
-REPO = "https://github.com/Param077s/phone-detector"
-SITE = "https://param077s.github.io/phone-detector/"
-# Stable "latest release" asset URLs — always point at the newest published release.
-DMG = "https://github.com/Param077s/phone-detector/releases/latest/download/Vigil.dmg"
-ZIP = "https://github.com/Param077s/phone-detector/releases/latest/download/Vigil.zip"
+REPO = "https://github.com/Param077s/vigil"
+SITE = "https://phone-detector-one.vercel.app/"
+# Stable "latest release" asset URLs — public 'vigil' repo hosts the app builds
+# (source stays in the private phone-detector repo).
+DMG = "https://github.com/Param077s/vigil/releases/latest/download/Vigil.dmg"
+ZIP = "https://github.com/Param077s/vigil/releases/latest/download/Vigil.zip"
 
 page = page.replace("__LOGO__", LOGO)
 page = page.replace('href="/favicon.svg"', 'href="favicon.svg"')
