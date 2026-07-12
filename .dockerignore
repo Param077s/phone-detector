@@ -1,0 +1,17 @@
+venv/
+.venv/
+__pycache__/
+.git/
+dataset/
+runs/
+alerts/
+evidence/
+evidence.db
+dist/
+docs/
+*.pt
+!vigil-phone.pt
+secret.key
+settings.json
+cameras.json
+.DS_Store

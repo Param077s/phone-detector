@@ -1,0 +1,17 @@
+# One-click Render blueprint — deploys Vigil as a live website.
+# In Render: New + → Blueprint → pick this repo. That's it.
+services:
+  - type: web
+    name: vigil
+    runtime: docker
+    plan: free            # free instance: light model; upgrade plan for the fine-tuned model
+    healthCheckPath: /
+    envVars:
+      - key: MODEL_NAME
+        value: yolo11n.pt # on a paid instance (2 GB+), switch to vigil-phone.pt
+      - key: TILING
+        value: "false"
+      - key: IMG_SIZE
+        value: "640"
+      - key: VIGIL_NO_DEFAULT_CAMERA
+        value: "1"

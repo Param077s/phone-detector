@@ -26,6 +26,7 @@ os.environ.setdefault("OPENCV_FFMPEG_LOGLEVEL", "-8")
 import time
 import json
 import uuid
+import itertools
 import urllib.request
 import urllib.parse
 import hmac
@@ -126,7 +127,22 @@ def save_settings(new):
         pass
 
 
+def _apply_env_settings():
+    """Environment variables override defaults (used for cloud deploys,
+    e.g. MODEL_NAME=yolo11n.pt TILING=false on a small instance)."""
+    g = globals()
+    for k in TUNABLE:
+        if k in os.environ:
+            v = os.environ[k]
+            try:
+                v = json.loads(v.lower() if v.lower() in ("true", "false") else v)
+            except Exception:
+                pass
+            g[k] = v
+
+
 _apply_saved_settings()
+_apply_env_settings()
 
 print(f"Loading YOLO ({MODEL_NAME})...")
 model = YOLO(MODEL_NAME)
@@ -180,6 +196,9 @@ def _load_cameras():
                 return data
     except Exception:
         pass
+    # Cloud deploys have no local webcam — start with no cameras there
+    if os.getenv("VIGIL_NO_DEFAULT_CAMERA") == "1":
+        return []
     # Default: one camera = the Mac's built-in webcam
     return [{"id": "cam1", "label": "Camera 1 · Webcam", "source": "0"}]
 
@@ -613,6 +632,10 @@ def _get_detector(camera_id):
 #     runs for every camera even when nobody is watching it. ---
 snapshots = {}                     # camera_id -> latest annotated JPEG bytes
 snapshots_lock = threading.Lock()
+# Browser cameras: any phone/laptop opens the sender page and pushes frames here.
+browser_frames = {}                # camera_id -> (np frame, seq, received_at)
+browser_frames_lock = threading.Lock()
+BROWSER_STALE = 3.0                # no frame for this long -> camera shows offline
 camera_status = {}                 # camera_id -> "online" | "offline"
 status_lock = threading.Lock()
 producers = {}                     # camera_id -> Producer
@@ -629,11 +652,55 @@ class Producer:
     def _run(self):
         inline_cap = None
         inline_source = None
+        last_browser_seq = -1
         while self.running:
             source, label = _find_camera(self.camera_id)
             if source is None:                          # camera removed
                 break
             is_webcam = source.isdigit()
+            is_browser = source == "browser"
+
+            if is_browser:
+                # Frames are pushed by a device's browser via POST /push/<id>
+                if inline_cap is not None:
+                    inline_cap.release()
+                    inline_cap = None
+                    inline_source = None
+                frame, fresh = None, False
+                with browser_frames_lock:
+                    item = browser_frames.get(self.camera_id)
+                if item is not None and time.time() - item[2] < BROWSER_STALE:
+                    frame = item[0]
+                    fresh = item[1] != last_browser_seq
+                    last_browser_seq = item[1]
+                if frame is None:
+                    with status_lock:
+                        camera_status[self.camera_id] = "offline"
+                    ok, buf = cv2.imencode(".jpg", _placeholder("Open this camera's link on a device"),
+                                           [cv2.IMWRITE_JPEG_QUALITY, JPEG_QUALITY])
+                    if ok:
+                        with snapshots_lock:
+                            snapshots[self.camera_id] = buf.tobytes()
+                    time.sleep(0.15)
+                    continue
+                with status_lock:
+                    camera_status[self.camera_id] = "online"
+                detector = _get_detector(self.camera_id)
+                if fresh:                               # only detect NEW frames
+                    detector.submit(frame, label)
+                boxes = detector.boxes()
+                if boxes:
+                    frame = frame.copy()
+                    for (x1, y1, x2, y2, conf) in boxes:
+                        cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 220, 90), 2)
+                        cv2.putText(frame, f"PHONE {conf:.0%}", (x1, max(y1 - 10, 20)),
+                                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 220, 90), 2)
+                ok, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, JPEG_QUALITY])
+                if ok:
+                    with snapshots_lock:
+                        snapshots[self.camera_id] = buf.tobytes()
+                time.sleep(0.05)
+                continue
 
             if is_webcam:
                 # Open+read the webcam in THIS one thread (the safe pattern).
@@ -694,6 +761,8 @@ class Producer:
             d.stop()
         with snapshots_lock:
             snapshots.pop(self.camera_id, None)
+        with browser_frames_lock:
+            browser_frames.pop(self.camera_id, None)
         with status_lock:
             camera_status.pop(self.camera_id, None)
         with producers_lock:
@@ -729,7 +798,7 @@ app = FastAPI(title="Vigil")
 # Paths reachable without logging in
 _PUBLIC = {"/login", "/setup", "/logout", "/favicon.svg"}
 # API paths that should return 401 (not redirect) when not authed
-_API_PREFIXES = ("/alerts", "/cameras", "/evidence/list", "/evidence/image", "/snapshot", "/camera_status")
+_API_PREFIXES = ("/alerts", "/cameras", "/evidence/list", "/evidence/image", "/snapshot", "/camera_status", "/push")
 
 
 @app.middleware("http")
@@ -803,6 +872,26 @@ def snapshot(camera_id: str):
         data = buf.tobytes() if ok else b""
     return Response(content=data, media_type="image/jpeg",
                     headers={"Cache-Control": "no-store, max-age=0"})
+
+
+_push_seq = itertools.count()
+
+
+@app.post("/push/{camera_id}")
+async def push_frame(camera_id: str, request: Request):
+    """A browser-camera sender page posts JPEG frames here."""
+    if _find_camera(camera_id)[0] != "browser":
+        return JSONResponse({"error": "not a browser camera"}, status_code=404)
+    body = await request.body()
+    if not body or len(body) > 3_000_000:
+        return JSONResponse({"error": "bad frame"}, status_code=400)
+    frame = cv2.imdecode(np.frombuffer(body, np.uint8), cv2.IMREAD_COLOR)
+    if frame is None:
+        return JSONResponse({"error": "bad frame"}, status_code=400)
+    with browser_frames_lock:
+        browser_frames[camera_id] = (frame, next(_push_seq), time.time())
+    _get_producer(camera_id)
+    return {"ok": True}
 
 
 @app.get("/cameras")
@@ -1140,6 +1229,8 @@ STYLE = """
     padding:11px 12px; border-radius:8px; font-size:13px; margin-bottom:12px; }
   .modal-actions { display:flex; gap:8px; }
   .modal-actions button { flex:1; border:none; border-radius:8px; padding:11px 0; font-size:13px; font-weight:600; cursor:pointer; }
+  .modal-quick { display:flex; gap:8px; margin-bottom:8px; }
+  .modal-quick button { flex:1; border:none; border-radius:8px; padding:11px 0; font-size:13px; font-weight:600; cursor:pointer; }
   .btn-primary { background:#3ecf8e; color:#0e1116; }
   .btn-ghost { background:#2b3340; color:#c4ccd8; }
 </style>
@@ -1158,9 +1249,12 @@ CAMERA_MODAL = """
     <input id="cam-location" placeholder="e.g. Bag-drop · West gate">
     <label>Stream URL (leave blank for this Mac's webcam)</label>
     <input id="cam-input" placeholder="http://192.168.1.5:8080/video   (or rtsp://...)">
+    <div class="modal-quick" id="cam-quick">
+      <button class="btn-ghost" onclick="addWebcam()">This computer's webcam</button>
+      <button class="btn-ghost" onclick="addBrowserCam()">A device's camera (via link)</button>
+    </div>
     <div class="modal-actions">
       <button class="btn-primary" id="cam-submit" onclick="submitCam()">Add camera</button>
-      <button class="btn-ghost" id="cam-webcam" onclick="addWebcam()">Add this Mac's webcam</button>
       <button class="btn-ghost" onclick="closeCam()">Cancel</button>
     </div>
   </div>
@@ -1186,10 +1280,10 @@ CAMERA_MODAL = """
       <div class="ob-opt"><span class="ico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 16V7a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v9m16 0H4m16 0 1.28 2.55a1 1 0 0 1-.9 1.45H3.62a1 1 0 0 1-.9-1.45L4 16"/></svg></span><div><b>This computer's webcam</b>
         <span>The simplest start. In the next window just press
         <b>"Add this Mac's webcam"</b> — no URL needed.</span></div></div>
-      <div class="ob-opt"><span class="ico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="20" x="5" y="2" rx="2"/><path d="M12 18h.01"/></svg></span><div><b>An old phone as a camera</b>
-        <span>Install the free <b>IP Webcam</b> app, tap "Start server", and it shows a URL like
-        <code>http://192.168.1.5:8080</code>. Type that plus <code>/video</code> in the URL box.
-        Phone and this computer must be on the <b>same WiFi</b>.</span></div></div>
+      <div class="ob-opt"><span class="ico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="20" x="5" y="2" rx="2"/><path d="M12 18h.01"/></svg></span><div><b>Any phone or laptop — no app needed</b>
+        <span>Choose <b>"A device's camera (via link)"</b>, then open the camera's <b>&#8599; link</b>
+        on that device and allow the camera. Any phone browser works.
+        (An <b>IP Webcam</b>-app URL still works too.)</span></div></div>
       <div class="ob-opt"><span class="ico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7.5A1.5 1.5 0 0 1 4.5 6h9A1.5 1.5 0 0 1 15 7.5v9a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 3 16.5z"/><path d="m15 10.5 4.55-2.6A1 1 0 0 1 21 8.77v6.46a1 1 0 0 1-1.45.87L15 13.5z"/></svg></span><div><b>A CCTV / IP camera</b>
         <span>Paste its <code>rtsp://…</code> stream URL in the URL box.</span></div></div>
     </div>
@@ -1285,10 +1379,15 @@ DASHBOARD_HTML = """<!doctype html>
     function panelHTML(c, i) {
       const place = (c.location && c.location.trim()) ? c.location : c.label;
       const handle = IS_ADMIN ? `<span class="drag-handle" title="Drag to rearrange">⠿</span>` : '';
-      const controls = IS_ADMIN
+      const senderBtn = c.source === 'browser'
+        ? `<button class="icon-btn" title="Open camera link — open this on the device that films"
+             onclick="event.stopPropagation(); window.open('/sender/${c.id}','_blank')">
+             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg></button>`
+        : '';
+      const controls = senderBtn + (IS_ADMIN
         ? `<button class="icon-btn" title="Edit camera" onclick="openEdit('${c.id}')">✎</button>
            <button class="icon-btn remove" title="Remove camera" onclick="removeCam('${c.id}')">×</button>`
-        : '';
+        : '');
       return `<div class="panel enter" data-cam="${c.id}" style="--i:${i}">
         <div class="panel-head">${handle}${I.cam} ${place}<span class="status-pill offline" data-cam="${c.id}"><span class="sdot"></span><span class="stext">…</span></span>${controls}</div>
         <div class="panel-body" onclick="openFocus('${c.id}')"><img class="cam-snap" data-cam="${c.id}" alt="feed"></div>
@@ -1305,7 +1404,7 @@ DASHBOARD_HTML = """<!doctype html>
         : `<div class="grid-empty">
              <svg width="46" height="46" viewBox="0 0 24 24" fill="none"><path d="M4 9V6a2 2 0 0 1 2-2h3M15 4h3a2 2 0 0 1 2 2v3M20 15v3a2 2 0 0 1-2 2h-3M9 20H6a2 2 0 0 1-2-2v-3" stroke="#3a4557" stroke-width="1.6" stroke-linecap="round"/><circle cx="12" cy="12" r="2.4" fill="#3a4557"/></svg>
              <h3>No cameras yet</h3>
-             <p>Add your webcam, a phone (via the IP Webcam app), or a CCTV camera to start watching for phones.</p>
+             <p>Add your webcam, any phone (via a link), or a CCTV camera to start watching for phones.</p>
              ${IS_ADMIN ? '<button class="cam-btn" onclick="openAdd()">+ Add your first camera</button>' : '<p style="color:#5b6675">Ask an admin to add a camera.</p>'}
            </div>`;
       // drop the entrance class once played, so drag re-parenting never replays it
@@ -1534,7 +1633,7 @@ DASHBOARD_HTML = """<!doctype html>
       editingId = null;
       document.getElementById('cam-title').textContent = 'Add a camera';
       document.getElementById('cam-submit').textContent = 'Add camera';
-      document.getElementById('cam-webcam').style.display = '';
+      document.getElementById('cam-quick').style.display = '';
       document.getElementById('cam-label').value = '';
       document.getElementById('cam-location').value = '';
       document.getElementById('cam-input').value = '';
@@ -1548,7 +1647,7 @@ DASHBOARD_HTML = """<!doctype html>
       editingId = id;
       document.getElementById('cam-title').textContent = 'Edit camera';
       document.getElementById('cam-submit').textContent = 'Save';
-      document.getElementById('cam-webcam').style.display = 'none';
+      document.getElementById('cam-quick').style.display = 'none';
       document.getElementById('cam-label').value = c.label || '';
       document.getElementById('cam-location').value = c.location || '';
       document.getElementById('cam-input').value = (c.source === '0') ? '' : (c.source || '');
@@ -1570,6 +1669,14 @@ DASHBOARD_HTML = """<!doctype html>
       await fetch('/cameras', { method:'POST', headers:{'Content-Type':'application/json'},
         body: JSON.stringify({ label: "Mac webcam", location: "", source: '0' }) });
       closeCam(); loadCameras();
+    }
+    async function addBrowserCam() {
+      const label = document.getElementById('cam-label').value.trim() || 'Device camera';
+      const location = document.getElementById('cam-location').value.trim();
+      const cam = await (await fetch('/cameras', { method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ label, location, source: 'browser' }) })).json();
+      closeCam(); loadCameras();
+      window.open('/sender/' + cam.id, '_blank');   // this tab becomes the camera
     }
     async function removeCam(id) {
       await fetch('/cameras/' + id, { method:'DELETE' });
@@ -1836,6 +1943,91 @@ def dashboard(request: Request):
             .replace("__IS_ADMIN__", "true" if user["role"] == "admin" else "false"))
 
 
+# ---- Browser-camera sender page -------------------------------------------
+SENDER_HTML = """<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vigil — Camera sender</title>__STYLE__
+<style>
+  body { align-items:center; justify-content:center; }
+  .sender { width:min(680px, 94vw); margin:auto; display:flex; flex-direction:column; gap:14px; }
+  .s-head { display:flex; align-items:center; gap:10px; }
+  .s-head h2 { font-size:17px; font-weight:700; }
+  .s-pill { margin-left:auto; display:inline-flex; align-items:center; gap:6px; font-size:11px;
+    font-weight:800; letter-spacing:.5px; padding:5px 12px; border-radius:20px;
+    color:#94a3b8; background:rgba(148,163,184,.12); transition:all .3s var(--ease); }
+  .s-pill .dot2 { width:7px; height:7px; border-radius:50%; background:#7a8595; }
+  .s-pill.live { color:#3ecf8e; background:rgba(62,207,142,.12); }
+  .s-pill.live .dot2 { background:#3ecf8e; box-shadow:0 0 8px #3ecf8e; animation:pulse 1.5s infinite; }
+  .s-video { background:#000; border:1px solid #232a34; border-radius:14px; overflow:hidden;
+    aspect-ratio:4/3; display:flex; align-items:center; justify-content:center; }
+  .s-video video { width:100%; height:100%; object-fit:cover; }
+  .s-msg { font-size:13.5px; color:#9aa4b2; line-height:1.6; text-align:center; }
+  .s-msg b { color:#e6e9ef; }
+  .s-err { color:#f87171; }
+</style></head>
+<body>
+  <div class="sender">
+    <div class="s-head">__LOGO__<h2>__CAM_NAME__</h2>
+      <span class="s-pill" id="pill"><span class="dot2"></span><span id="ptext">STARTING…</span></span></div>
+    <div class="s-video"><video id="v" autoplay playsinline muted></video></div>
+    <p class="s-msg" id="msg">Keep this page open — this device is now a Vigil camera.<br>
+      Its feed appears on the Live Monitor like any other camera.</p>
+  </div>
+  <script>
+    const CAM_ID = "__CAM_ID__";
+    const v = document.getElementById('v'), pill = document.getElementById('pill'),
+          ptext = document.getElementById('ptext'), msg = document.getElementById('msg');
+    const canvas = document.createElement('canvas');
+    let sending = false;
+
+    async function start() {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia(
+          { video: { facingMode: 'environment', width: { ideal: 1280 } }, audio: false });
+        v.srcObject = stream;
+      } catch (e) {
+        pill.classList.remove('live'); ptext.textContent = 'NO CAMERA';
+        msg.innerHTML = '<span class="s-err">Camera permission was denied.</span> ' +
+          'Allow camera access for this site in your browser settings, then reload.';
+        return;
+      }
+      try { await navigator.wakeLock.request('screen'); } catch (e) {}   // keep phone awake
+      setInterval(shoot, 400);
+    }
+    async function shoot() {
+      if (sending || v.videoWidth === 0) return;
+      sending = true;
+      const w = Math.min(v.videoWidth, 960), h = Math.round(w * v.videoHeight / v.videoWidth);
+      canvas.width = w; canvas.height = h;
+      canvas.getContext('2d').drawImage(v, 0, 0, w, h);
+      canvas.toBlob(async blob => {
+        try {
+          const r = await fetch('/push/' + CAM_ID, { method:'POST',
+            headers:{'Content-Type':'image/jpeg'}, body: blob });
+          const ok = r.ok;
+          pill.classList.toggle('live', ok);
+          ptext.textContent = ok ? 'LIVE' : 'RECONNECTING…';
+        } catch (e) {
+          pill.classList.remove('live'); ptext.textContent = 'RECONNECTING…';
+        }
+        sending = false;
+      }, 'image/jpeg', 0.75);
+    }
+    start();
+  </script>
+</body></html>"""
+
+
+@app.get("/sender/{camera_id}", response_class=HTMLResponse)
+def sender_page(camera_id: str):
+    source, place = _find_camera(camera_id)
+    if source != "browser":
+        return RedirectResponse("/")
+    return (SENDER_HTML.replace("__STYLE__", STYLE).replace("__LOGO__", LOGO_MARK)
+            .replace("__CAM_NAME__", place or "Camera").replace("__CAM_ID__", camera_id))
+
+
 @app.get("/evidence", response_class=HTMLResponse)
 def evidence_page(request: Request):
     user = getattr(request.state, "user", None) or {"username": "", "role": "invigilator"}
@@ -2086,7 +2278,7 @@ LANDING_HTML = """<!doctype html>
       <div class="feat reveal" style="--d:.07s"><span class="ico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg></span><h3>Photo evidence, automatically</h3>
         <p>Every detection is saved with the photo, timestamp, camera and confidence. Confirm or dismiss each one to keep a clean, reviewable log.</p></div>
       <div class="feat reveal" style="--d:.14s"><span class="ico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7.5A1.5 1.5 0 0 1 4.5 6h9A1.5 1.5 0 0 1 15 7.5v9a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 3 16.5z"/><path d="m15 10.5 4.55-2.6A1 1 0 0 1 21 8.77v6.46a1 1 0 0 1-1.45.87L15 13.5z"/></svg></span><h3>Any camera works</h3>
-        <p>Your laptop's webcam, an old phone running a free app, or real <code style="font-size:12px">rtsp://</code> CCTV — mix and match as many as you like.</p></div>
+        <p>Your laptop’s webcam, any phone’s browser via a link — no app to install — or real <code style="font-size:12px">rtsp://</code> CCTV. Mix and match as many as you like.</p></div>
       <div class="feat reveal"><span class="ico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="14" x="2" y="3" rx="2"/><line x1="8" x2="16" y1="21" y2="21"/><line x1="12" x2="12" y1="17" y2="21"/></svg></span><h3>Display wall</h3>
         <p>A fullscreen monitoring wall built for a big screen — with an unmissable on-screen alarm, flash and beep when something is found.</p></div>
       <div class="feat reveal" style="--d:.07s"><span class="ico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg></span><h3>Alerts on your phone</h3>
@@ -2115,9 +2307,9 @@ LANDING_HTML = """<!doctype html>
     <div class="setups">
       <div class="setup-c reveal"><span class="ico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 16V7a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v9m16 0H4m16 0 1.28 2.55a1 1 0 0 1-.9 1.45H3.62a1 1 0 0 1-.9-1.45L4 16"/></svg></span><h3>This computer's webcam</h3>
         <p>The simplest start — one click, no URL needed. Perfect for trying Vigil out on your desk right now.</p></div>
-      <div class="setup-c reveal" style="--d:.08s"><span class="ico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="20" x="5" y="2" rx="2"/><path d="M12 18h.01"/></svg></span><h3>An old phone</h3>
-        <p>Install the free <b>IP Webcam</b> app, tap “Start server”, and enter the URL it shows plus
-        <code>/video</code> — e.g. <code>http://192.168.1.5:8080/video</code>. Same WiFi as the computer.</p></div>
+      <div class="setup-c reveal" style="--d:.08s"><span class="ico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="20" x="5" y="2" rx="2"/><path d="M12 18h.01"/></svg></span><h3>Any phone — just a link</h3>
+        <p>Add a camera, choose <b>“A device’s camera”</b>, and open the link it gives you on the
+        phone. Allow the camera — that’s it. No app to install.</p></div>
       <div class="setup-c reveal" style="--d:.16s"><span class="ico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7.5A1.5 1.5 0 0 1 4.5 6h9A1.5 1.5 0 0 1 15 7.5v9a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 3 16.5z"/><path d="m15 10.5 4.55-2.6A1 1 0 0 1 21 8.77v6.46a1 1 0 0 1-1.45.87L15 13.5z"/></svg></span><h3>CCTV / IP cameras</h3>
         <p>Paste the camera's <code>rtsp://…</code> stream URL and it joins the wall like any other feed.</p></div>
     </div>
