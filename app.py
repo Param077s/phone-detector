@@ -747,6 +747,8 @@ async def auth_gate(request: Request, call_next):
 
     user = current_user(request)
     if not user:
+        if path == "/":   # visitors get the public website; the app stays behind login
+            return HTMLResponse(LANDING_HTML.replace("__LOGO__", LOGO_MARK))
         if path.startswith(_API_PREFIXES):
             return JSONResponse({"error": "unauthorized"}, status_code=401)
         return RedirectResponse("/login")
@@ -770,7 +772,7 @@ def favicon():
            '<path d="M6 10V7.5A1.5 1.5 0 0 1 7.5 6H10M14 6h2.5A1.5 1.5 0 0 1 18 7.5V10'
            'M18 14v2.5a1.5 1.5 0 0 1-1.5 1.5H14M10 18H7.5A1.5 1.5 0 0 1 6 16.5V14" '
            'stroke="#7a8595" stroke-width="1.8" stroke-linecap="round"/>'
-           '<circle cx="12" cy="12" r="2.6" fill="#4ade80"/></svg>')
+           '<circle cx="12" cy="12" r="2.6" fill="#3ecf8e"/></svg>')
     return Response(content=svg, media_type="image/svg+xml")
 
 
@@ -838,6 +840,18 @@ def edit_camera(cam_id: str, payload: dict):
     return {"ok": False}
 
 
+@app.post("/cameras/reorder")
+def reorder_cameras(payload: dict):
+    """Persist a new camera order (list of ids) from drag-and-drop."""
+    order = payload.get("order") or []
+    with cameras_lock:
+        pos = {cid: i for i, cid in enumerate(order)}
+        # keep any camera not in the list at the end, in existing order
+        cameras.sort(key=lambda c: pos.get(c["id"], len(pos) + 1))
+        _save_cameras()
+        return list(cameras)
+
+
 @app.delete("/cameras/{cam_id}")
 def remove_camera(cam_id: str):
     with cameras_lock:
@@ -895,40 +909,49 @@ def update_alert(alert_id: int, action: str):
 LOGO_MARK = ('<svg class="logo-mark" width="21" height="21" viewBox="0 0 24 24" fill="none">'
              '<path d="M4 9V6a2 2 0 0 1 2-2h3M15 4h3a2 2 0 0 1 2 2v3M20 15v3a2 2 0 0 1-2 2h-3M9 20H6a2 2 0 0 1-2-2v-3" '
              'stroke="currentColor" stroke-width="2" stroke-linecap="round"/>'
-             '<circle cx="12" cy="12" r="3" fill="#4ade80"/></svg>')
+             '<circle cx="12" cy="12" r="3" fill="#3ecf8e"/></svg>')
 
 STYLE = """
 <link rel="icon" href="/favicon.svg">
 <style>
+  :root { --ease: cubic-bezier(.22,.9,.3,1); --spring: cubic-bezier(.34,1.56,.64,1); }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: -apple-system, Segoe UI, Roboto, sans-serif;
     background: radial-gradient(1100px 560px at 82% -12%, #17212c 0%, #0e1116 55%) fixed, #0e1116;
     color: #e6e9ef; height: 100vh; display: flex; flex-direction: column; -webkit-font-smoothing: antialiased; }
   header { display: flex; align-items: center; gap: 14px; padding: 11px 22px;
-    background: rgba(21,26,33,.92); border-bottom: 1px solid #232a34; z-index: 5; }
+    background: rgba(21,26,33,.78); backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+    border-bottom: 1px solid #232a34; z-index: 5; }
+  button:active { transform: scale(.97); }
   .brand { display:flex; align-items:center; gap:9px; }
   .logo-mark { color:#7a8595; flex-shrink:0; }
-  .dot { width: 9px; height: 9px; border-radius: 50%; background: #4ade80;
-    box-shadow: 0 0 8px #4ade80; animation: pulse 1.6s infinite; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; background: #3ecf8e;
+    box-shadow: 0 0 8px #3ecf8e; animation: pulse 1.6s infinite; }
   @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.35} }
   .logo { font-weight: 800; font-size: 20px; letter-spacing: .3px; }
-  .logo span { color: #4ade80; }
+  .logo span { color: #3ecf8e; }
   .nav { display:flex; gap:4px; margin-left: 14px; margin-right:auto; }
   .nav a { font-size:13px; color:#9aa4b2; text-decoration:none; padding:7px 13px;
-    border-radius:8px; transition: background .15s, color .15s; }
+    border-radius:8px; transition: background .2s var(--ease), color .2s var(--ease); position:relative; }
+  .nav a::after { content:''; position:absolute; left:13px; right:13px; bottom:3px; height:2px;
+    border-radius:2px; background:#3ecf8e; transform:scaleX(0); transform-origin:left;
+    transition: transform .28s var(--ease); }
   .nav a:hover { color:#e6e9ef; background:#1c222b; }
+  .nav a:hover::after { transform:scaleX(1); }
   .nav a.active { background:#232a34; color:#fff; }
-  .cam-btn { background:#4ade80; color:#0e1116; border:none; padding:8px 16px;
+  .cam-btn { background:#3ecf8e; color:#0e1116; border:none; padding:8px 16px;
     border-radius:8px; font-size:13px; font-weight:700; cursor:pointer;
-    transition: transform .1s, box-shadow .15s; box-shadow: 0 2px 12px rgba(74,222,128,.22); }
-  .cam-btn:hover { transform: translateY(-1px); box-shadow: 0 5px 18px rgba(74,222,128,.34); }
+    transition: transform .1s, box-shadow .15s; box-shadow: 0 2px 12px rgba(62,207,142,.22); }
+  .cam-btn:hover { transform: translateY(-1px); box-shadow: 0 5px 18px rgba(62,207,142,.34); }
   .clock { font-size: 13px; color: #9aa4b2; font-variant-numeric: tabular-nums; }
   .clock.push { }
-  .userchip { font-size:13px; color:#9aa4b2; }
+  .userchip { font-size:13px; color:#9aa4b2; display:inline-flex; align-items:center; gap:6px; }
+  .panel-head svg { color:#7a8595; flex-shrink:0; }
+  .alert-cam { display:flex; align-items:center; gap:5px; }
   .logout { font-size:13px; color:#9aa4b2; text-decoration:none; padding:6px 12px;
     border:1px solid #232a34; border-radius:8px; transition: color .15s, border-color .15s; }
   .logout:hover { color:#e6e9ef; border-color:#3a4557; }
-  .badge.admin { background:rgba(74,222,128,.15); color:#4ade80; }
+  .badge.admin { background:rgba(62,207,142,.15); color:#3ecf8e; }
   .badge.invigilator { background:rgba(148,163,184,.15); color:#94a3b8; }
 
   main { flex: 1; display: flex; gap: 18px; padding: 18px; min-height: 0; }
@@ -937,13 +960,62 @@ STYLE = """
   .stat { background:#151a21; border:1px solid #232a34; border-radius:12px; padding:11px 16px; min-width:118px; }
   .stat .n { font-size:22px; font-weight:800; letter-spacing:.5px; line-height:1; }
   .stat .l { font-size:10.5px; color:#9aa4b2; text-transform:uppercase; letter-spacing:.7px; margin-top:6px; }
-  .stat.ok .n { color:#4ade80; }
+  .stat.ok .n { color:#3ecf8e; }
   .stat.warn .n { color:#eab308; }
   .grid { flex:1; display:grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
     grid-auto-rows: minmax(230px, 1fr); gap:14px; overflow-y:auto; align-content:start; padding-right:2px; }
   .panel { background:#151a21; border:1px solid #232a34; border-radius:12px; overflow:hidden;
-    display:flex; flex-direction:column; transition: border-color .15s, transform .15s, box-shadow .15s; }
-  .panel:hover { border-color:#2f3a49; transform: translateY(-2px); box-shadow: 0 10px 26px rgba(0,0,0,.35); }
+    display:flex; flex-direction:column;
+    transition: border-color .25s var(--ease), transform .3s var(--ease), box-shadow .3s var(--ease); }
+  .panel:hover { border-color:#2f3a49; transform: translateY(-3px); box-shadow: 0 14px 34px rgba(0,0,0,.4); }
+  .panel.enter { animation: panelIn .55s var(--ease) backwards; animation-delay: calc(var(--i,0) * 60ms); }
+  @keyframes panelIn { from { opacity:0; transform: translateY(18px) scale(.965); } }
+  .grid .panel-body { cursor: zoom-in; }
+  .grid .panel-body img { transition: transform .7s var(--ease); }
+  .grid .panel:hover .panel-body img { transform: scale(1.045); }
+  /* Drag-to-reorder */
+  .grid.sortable .panel-head { cursor:grab; user-select:none; touch-action:none; }
+  .grid.sortable .panel-head:active { cursor:grabbing; }
+  .grid.reordering .panel { transition:none; }
+  .grid.reordering .panel:hover { transform:none; box-shadow:none; border-color:#232a34; }
+  .grid.reordering .panel-body img { transform:none !important; }
+  .panel.dragging { transition:none; cursor:grabbing; will-change:transform;
+    box-shadow:0 30px 70px rgba(0,0,0,.62), 0 0 0 1px rgba(62,207,142,.3); border-color:#3a4557; }
+  .panel.dragging .cam-snap { pointer-events:none; }
+  .drag-spacer { border:1.5px dashed #2c3542; border-radius:12px; background:rgba(255,255,255,.02); }
+  /* Fullscreen camera focus view */
+  #focus { position:fixed; inset:0; background:rgba(5,7,10,.66); backdrop-filter:blur(7px);
+    -webkit-backdrop-filter:blur(7px); opacity:0; pointer-events:none;
+    transition:opacity .32s var(--ease); z-index:60; }
+  #focus.open { opacity:1; pointer-events:auto; }
+  #focus.closing { opacity:0; }
+  .focus-card { position:fixed; background:#151a21; border:1px solid #2f3a49; border-radius:14px;
+    overflow:hidden; display:flex; flex-direction:column; box-shadow:0 40px 120px rgba(0,0,0,.65);
+    transition:left .36s var(--ease), top .36s var(--ease), width .36s var(--ease), height .36s var(--ease); }
+  .focus-card .panel-head { font-size:14.5px; padding:12px 16px; }
+  .focus-card .panel-body { position:relative; cursor:default; }
+  .focus-card .panel-body img { transform:none !important; }
+  .focus-card img.swap { animation: camSwap .38s var(--ease); }
+  @keyframes camSwap { from { opacity:0; transform:translateX(26px) scale(.985); } }
+  .focus-nav { position:absolute; top:50%; transform:translateY(-50%); z-index:2;
+    width:42px; height:42px; border-radius:50%; border:1px solid rgba(255,255,255,.14);
+    background:rgba(14,17,22,.55); backdrop-filter:blur(8px); color:#e6e9ef; font-size:22px;
+    cursor:pointer; opacity:0; transition:opacity .25s var(--ease), background .2s, transform .2s var(--ease);
+    display:flex; align-items:center; justify-content:center; padding-bottom:3px; }
+  .focus-card:hover .focus-nav { opacity:1; }
+  .focus-nav:hover { background:rgba(62,207,142,.25); }
+  .focus-nav:active { transform:translateY(-50%) scale(.92); }
+  .focus-nav.prev { left:14px; } .focus-nav.next { right:14px; }
+  .focus-hint { position:absolute; bottom:12px; left:50%; transform:translateX(-50%);
+    font-size:11px; color:#8b95a3; background:rgba(14,17,22,.55); backdrop-filter:blur(8px);
+    padding:5px 12px; border-radius:20px; border:1px solid rgba(255,255,255,.08);
+    opacity:0; transition:opacity .25s var(--ease); pointer-events:none; white-space:nowrap; }
+  .focus-card:hover .focus-hint { opacity:1; }
+  .drag-handle { cursor:grab; color:#5b6675; font-size:15px; line-height:1;
+    padding:0 4px 0 0; margin-right:-2px; user-select:none; touch-action:none;
+    transition:color .12s; letter-spacing:-1px; }
+  .drag-handle:hover { color:#e6e9ef; }
+  .drag-handle:active { cursor:grabbing; }
   .panel-head { display:flex; align-items:center; gap:8px; padding:10px 13px;
     border-bottom:1px solid #232a34; font-size:13px; font-weight:600; }
   .panel-body { flex:1; background:#000; display:flex; align-items:center; justify-content:center; min-height:0; }
@@ -951,8 +1023,8 @@ STYLE = """
   .status-pill { margin-left:auto; display:inline-flex; align-items:center; gap:5px;
     font-size:10px; font-weight:800; letter-spacing:.5px; padding:3px 9px 3px 8px; border-radius:20px; }
   .status-pill .sdot { width:6px; height:6px; border-radius:50%; }
-  .status-pill.online { color:#4ade80; background:rgba(74,222,128,.12); }
-  .status-pill.online .sdot { background:#4ade80; box-shadow:0 0 6px #4ade80; animation: pulse 1.4s infinite; }
+  .status-pill.online { color:#3ecf8e; background:rgba(62,207,142,.12); }
+  .status-pill.online .sdot { background:#3ecf8e; box-shadow:0 0 6px #3ecf8e; animation: pulse 1.4s infinite; }
   .status-pill.offline { color:#94a3b8; background:rgba(148,163,184,.12); }
   .status-pill.offline .sdot { background:#7a8595; }
   .icon-btn { background:transparent; border:none; color:#7a8595; font-size:15px;
@@ -974,6 +1046,12 @@ STYLE = """
     min-width:20px; text-align:center; padding:2px 6px; border-radius:20px; }
   #alerts { overflow-y:auto; padding: 12px; display:flex; flex-direction:column; gap:10px; }
   .empty { padding: 40px 20px; text-align: center; color: #5b6675; font-size: 13px; line-height: 1.6; }
+  .alert.new { animation: alertIn .55s var(--spring) backwards; }
+  @keyframes alertIn { from { opacity:0; transform: translateX(34px) scale(.96); } }
+  .stat .n.bump { animation: bump .5s var(--spring); }
+  @keyframes bump { 35% { transform: scale(1.22); } }
+  .grid-empty svg { animation: floaty 4.5s ease-in-out infinite; }
+  @keyframes floaty { 50% { transform: translateY(-9px); } }
   .alert { display:flex; gap:12px; background:#1b212a; border:1px solid #283040;
     border-radius:10px; padding:10px; }
   .alert.pending { border-color: rgba(234,179,8,.35); box-shadow: 0 0 0 1px rgba(234,179,8,.10); }
@@ -981,16 +1059,16 @@ STYLE = """
   .alert img { width:56px; height:72px; object-fit:cover; border-radius:6px; background:#000; flex-shrink:0; }
   .alert-info { flex:1; display:flex; flex-direction:column; gap:3px; min-width:0; }
   .alert-title { font-size:13px; font-weight:600; }
-  .alert-cam { font-size:11px; color:#4ade80; }
+  .alert-cam { font-size:11px; color:#3ecf8e; }
   .alert-time { font-size:12px; color:#9aa4b2; }
   .alert-actions { display:flex; gap:8px; margin-top:4px; }
   .alert-actions button { flex:1; border:none; border-radius:6px; padding:6px 0;
     font-size:12px; font-weight:600; cursor:pointer; }
-  button.confirm { background:#4ade80; color:#0e1116; }
+  button.confirm { background:#3ecf8e; color:#0e1116; }
   button.dismiss { background:#2b3340; color:#c4ccd8; }
   .badge { align-self:flex-start; margin-top:4px; font-size:11px; font-weight:700;
     padding:3px 10px; border-radius:20px; text-transform:capitalize; }
-  .badge.confirmed { background:rgba(74,222,128,.15); color:#4ade80; }
+  .badge.confirmed { background:rgba(62,207,142,.15); color:#3ecf8e; }
   .badge.dismissed { background:rgba(148,163,184,.15); color:#94a3b8; }
   .badge.pending   { background:rgba(234,179,8,.15); color:#eab308; }
 
@@ -999,7 +1077,7 @@ STYLE = """
   .filters { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
   .filters .fbtn { font-size:13px; color:#9aa4b2; background:#151a21; border:1px solid #232a34;
     padding:7px 14px; border-radius:8px; cursor:pointer; }
-  .filters .fbtn.active { background:#4ade80; color:#0e1116; border-color:#4ade80; font-weight:600; }
+  .filters .fbtn.active { background:#3ecf8e; color:#0e1116; border-color:#3ecf8e; font-weight:600; }
   .filters input[type=date] { margin-left:auto; background:#151a21; color:#e6e9ef;
     border:1px solid #232a34; padding:7px 10px; border-radius:8px; font-size:13px; }
   .table { flex:1; overflow-y:auto; background:#151a21; border:1px solid #232a34; border-radius:14px; }
@@ -1010,20 +1088,59 @@ STYLE = """
   td img { width:40px; height:52px; object-fit:cover; border-radius:5px; background:#000; }
   tr:hover td { background:#1a2028; }
 
+  /* First-run setup guide */
+  .ob-bg { position:fixed; inset:0; background:rgba(8,10,14,.72); backdrop-filter:blur(6px);
+    -webkit-backdrop-filter:blur(6px); display:flex; align-items:center; justify-content:center;
+    z-index:80; opacity:0; pointer-events:none; transition:opacity .3s var(--ease); }
+  .ob-bg.open { opacity:1; pointer-events:auto; }
+  @keyframes obfade { from { opacity:0; } to { opacity:1; } }
+  .ob { background:#151a21; border:1px solid #232a34; border-radius:18px; width:560px; max-width:94vw;
+    padding:30px 30px 24px; box-shadow:0 30px 80px rgba(0,0,0,.6);
+    transform:scale(.93) translateY(14px); opacity:0;
+    transition:transform .45s var(--spring), opacity .28s var(--ease); }
+  .ob-bg.open .ob { transform:none; opacity:1; }
+  .ob-badge { display:inline-flex; align-items:center; gap:7px; font-size:12px; font-weight:700;
+    color:#3ecf8e; background:rgba(62,207,142,.12); padding:4px 11px; border-radius:20px; margin-bottom:14px; }
+  .ob h2 { font-size:22px; font-weight:800; margin-bottom:10px; letter-spacing:-.3px; }
+  .ob p { font-size:14px; color:#9aa4b2; line-height:1.6; margin-bottom:14px; }
+  .ob .step { display:none; }
+  .ob .step.on { display:block; animation: stepIn .38s var(--ease); }
+  @keyframes stepIn { from { opacity:0; transform:translateX(22px); } }
+  .ob-opt { display:flex; gap:13px; align-items:flex-start; background:#0e1116; border:1px solid #232a34;
+    border-radius:11px; padding:13px 15px; margin-bottom:10px; }
+  .ob-opt .ico { width:34px; height:34px; border-radius:9px; background:#1a212b; color:#3ecf8e;
+    display:flex; align-items:center; justify-content:center; flex-shrink:0; }
+  .ob-opt b { font-size:13.5px; color:#e6e9ef; }
+  .ob-opt span { display:block; font-size:12.5px; color:#8b95a3; line-height:1.5; margin-top:2px; }
+  .ob-opt code { background:#1c222b; padding:1px 6px; border-radius:5px; color:#3ecf8e; font-size:11.5px; }
+  .ob-foot { display:flex; align-items:center; gap:10px; margin-top:22px; }
+  .ob-dots { display:flex; gap:6px; margin-right:auto; }
+  .ob-dots i { width:7px; height:7px; border-radius:50%; background:#2b3340; transition:background .2s, width .2s; }
+  .ob-dots i.on { background:#3ecf8e; width:20px; border-radius:4px; }
+  .ob-btn { border:none; border-radius:9px; padding:11px 20px; font-size:13.5px; font-weight:700; cursor:pointer; }
+  .ob-next { background:#3ecf8e; color:#0e1116; }
+  .ob-back { background:#2b3340; color:#c4ccd8; }
+  .ob-skip { background:transparent; color:#7a8595; font-size:12.5px; cursor:pointer; border:none; }
+  .nav a.guide-link { color:#3ecf8e; }
+
   /* Add-camera modal */
-  .modal-bg { position:fixed; inset:0; background:rgba(0,0,0,.6); display:none;
-    align-items:center; justify-content:center; z-index:50; }
-  .modal-bg.open { display:flex; }
-  .modal { background:#151a21; border:1px solid #232a34; border-radius:14px; padding:22px; width:470px; max-width:92vw; }
+  .modal-bg { position:fixed; inset:0; background:rgba(0,0,0,.55); backdrop-filter:blur(5px);
+    -webkit-backdrop-filter:blur(5px); display:flex; align-items:center; justify-content:center;
+    z-index:50; opacity:0; pointer-events:none; transition:opacity .28s var(--ease); }
+  .modal-bg.open { opacity:1; pointer-events:auto; }
+  .modal { background:#151a21; border:1px solid #232a34; border-radius:14px; padding:22px; width:470px; max-width:92vw;
+    transform:scale(.93) translateY(12px); opacity:0;
+    transition:transform .42s var(--spring), opacity .25s var(--ease); }
+  .modal-bg.open .modal { transform:none; opacity:1; }
   .modal h3 { font-size:16px; margin-bottom:8px; }
   .modal p { font-size:13px; color:#9aa4b2; line-height:1.55; margin-bottom:14px; }
-  .modal code { background:#0e1116; padding:2px 6px; border-radius:5px; color:#4ade80; font-size:12px; }
+  .modal code { background:#0e1116; padding:2px 6px; border-radius:5px; color:#3ecf8e; font-size:12px; }
   .modal label { display:block; font-size:12px; color:#9aa4b2; margin:0 0 5px 2px; }
   .modal input { width:100%; background:#0e1116; border:1px solid #2b3340; color:#e6e9ef;
     padding:11px 12px; border-radius:8px; font-size:13px; margin-bottom:12px; }
   .modal-actions { display:flex; gap:8px; }
   .modal-actions button { flex:1; border:none; border-radius:8px; padding:11px 0; font-size:13px; font-weight:600; cursor:pointer; }
-  .btn-primary { background:#4ade80; color:#0e1116; }
+  .btn-primary { background:#3ecf8e; color:#0e1116; }
   .btn-ghost { background:#2b3340; color:#c4ccd8; }
 </style>
 """
@@ -1048,6 +1165,66 @@ CAMERA_MODAL = """
     </div>
   </div>
 </div>
+
+<div class="ob-bg" id="onboard">
+  <div class="ob">
+    <div class="step on" data-step="0">
+      <span class="ob-badge">● Getting started</span>
+      <h2>Welcome to Vigil</h2>
+      <p>Vigil watches your camera feeds and raises an alert the moment it spots a phone
+         in someone's hand — with a photo and the exact location. Let's get your first
+         camera watching. It takes about 2 minutes.</p>
+      <div class="ob-opt"><span class="ico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="14" x="2" y="3" rx="2"/><line x1="8" x2="16" y1="21" y2="21"/><line x1="12" x2="12" y1="17" y2="21"/></svg></span><div><b>Everything stays on this computer</b>
+        <span>Detection photos are saved locally in the <code>evidence</code> folder and in the
+        Evidence Log. Nothing is uploaded anywhere.</span></div></div>
+    </div>
+
+    <div class="step" data-step="1">
+      <span class="ob-badge">● Step 1 of 3</span>
+      <h2>Add a camera</h2>
+      <p>Pick whatever camera you have. You can add more later.</p>
+      <div class="ob-opt"><span class="ico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 16V7a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v9m16 0H4m16 0 1.28 2.55a1 1 0 0 1-.9 1.45H3.62a1 1 0 0 1-.9-1.45L4 16"/></svg></span><div><b>This computer's webcam</b>
+        <span>The simplest start. In the next window just press
+        <b>"Add this Mac's webcam"</b> — no URL needed.</span></div></div>
+      <div class="ob-opt"><span class="ico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="20" x="5" y="2" rx="2"/><path d="M12 18h.01"/></svg></span><div><b>An old phone as a camera</b>
+        <span>Install the free <b>IP Webcam</b> app, tap "Start server", and it shows a URL like
+        <code>http://192.168.1.5:8080</code>. Type that plus <code>/video</code> in the URL box.
+        Phone and this computer must be on the <b>same WiFi</b>.</span></div></div>
+      <div class="ob-opt"><span class="ico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7.5A1.5 1.5 0 0 1 4.5 6h9A1.5 1.5 0 0 1 15 7.5v9a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 3 16.5z"/><path d="m15 10.5 4.55-2.6A1 1 0 0 1 21 8.77v6.46a1 1 0 0 1-1.45.87L15 13.5z"/></svg></span><div><b>A CCTV / IP camera</b>
+        <span>Paste its <code>rtsp://…</code> stream URL in the URL box.</span></div></div>
+    </div>
+
+    <div class="step" data-step="2">
+      <span class="ob-badge">● Step 2 of 3</span>
+      <h2>Aim it and test</h2>
+      <p>Point the camera where people sit. Then <b>hold a phone up in front of it</b> like
+         someone using it.</p>
+      <div class="ob-opt"><span class="ico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg></span><div><b>Watch the right-hand Alerts panel</b>
+        <span>Within a second or two a red alert with a photo appears, and you'll hear a beep.
+        That's Vigil working. Confirm or dismiss each alert to keep the log clean.</span></div></div>
+      <div class="ob-opt"><span class="ico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="5 9 2 12 5 15"/><polyline points="9 5 12 2 15 5"/><polyline points="15 19 12 22 9 19"/><polyline points="19 9 22 12 19 15"/><line x1="2" x2="22" y1="12" y2="12"/><line x1="12" x2="12" y1="2" y2="22"/></svg></span><div><b>Rearrange your cameras any time</b>
+        <span>Grab the <b>⠿</b> handle on a camera's title bar and drag it to reorder the wall.</span></div></div>
+    </div>
+
+    <div class="step" data-step="3">
+      <span class="ob-badge">● Optional</span>
+      <h2>Get alerts on your phone</h2>
+      <p>Want a photo sent to your phone even when you're not at the screen? Open
+         <b>Settings → Telegram alerts</b> and follow the steps there. Great for when the
+         person running an exam is walking the room.</p>
+      <div class="ob-opt"><span class="ico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg></span><div><b>You're all set</b>
+        <span>Your cameras keep watching as long as Vigil is running. Reopen this guide any time
+        from <b>"Setup guide"</b> in the top bar.</span></div></div>
+    </div>
+
+    <div class="ob-foot">
+      <div class="ob-dots" id="ob-dots"></div>
+      <button class="ob-skip" onclick="closeOnboard()">Skip</button>
+      <button class="ob-btn ob-back" id="ob-back" onclick="obStep(-1)" style="display:none">Back</button>
+      <button class="ob-btn ob-next" id="ob-next" onclick="obNext()">Next</button>
+    </div>
+  </div>
+</div>
 """
 
 
@@ -1060,9 +1237,9 @@ DASHBOARD_HTML = """<!doctype html>
   <header>
     __LOGO__
     <span class="logo">Vig<span>i</span>l</span>
-    <nav class="nav"><a href="/" class="active">Live Monitor</a><a href="/evidence">Evidence Log</a><a href="/display">Display</a>__ADMIN_NAV__</nav>
+    <nav class="nav"><a href="/" class="active">Live Monitor</a><a href="/evidence">Evidence Log</a><a href="/display">Display</a>__ADMIN_NAV__<a href="#" class="guide-link" onclick="openOnboard();return false;">Setup guide</a></nav>
     <button class="cam-btn" id="cam-btn">+ Add camera</button>
-    <span class="userchip">👤 __USERNAME__</span>
+    <span class="userchip"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>__USERNAME__</span>
     <a class="logout" href="/logout">Log out</a>
     <span class="clock" id="clock"></span>
   </header>
@@ -1081,36 +1258,274 @@ DASHBOARD_HTML = """<!doctype html>
     </aside>
   </main>
   __CAMERA_MODAL__
+  <div id="focus" onclick="if (event.target === this) closeFocus()">
+    <div class="focus-card" id="focus-card">
+      <div class="panel-head"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7.5A1.5 1.5 0 0 1 4.5 6h9A1.5 1.5 0 0 1 15 7.5v9a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 3 16.5z"/><path d="m15 10.5 4.55-2.6A1 1 0 0 1 21 8.77v6.46a1 1 0 0 1-1.45.87L15 13.5z"/></svg> <span id="focus-title"></span>
+        <span class="status-pill offline" id="focus-pill" data-cam=""><span class="sdot"></span><span class="stext">…</span></span>
+        <button class="icon-btn remove" title="Close" onclick="closeFocus()">×</button>
+      </div>
+      <div class="panel-body">
+        <img id="focus-img" class="cam-snap" data-cam="" alt="feed">
+        <button class="focus-nav prev" onclick="stepFocus(-1)">‹</button>
+        <button class="focus-nav next" onclick="stepFocus(1)">›</button>
+        <span class="focus-hint">← → switch camera · Esc close</span>
+      </div>
+    </div>
+  </div>
   <script>
     const clock = document.getElementById('clock');
     setInterval(() => { clock.textContent = new Date().toLocaleTimeString(); }, 1000);
 
     // ---- Camera grid ----
     const IS_ADMIN = __IS_ADMIN__;
-    function panelHTML(c) {
+    const I = {
+      cam: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7.5A1.5 1.5 0 0 1 4.5 6h9A1.5 1.5 0 0 1 15 7.5v9a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 3 16.5z"/><path d="m15 10.5 4.55-2.6A1 1 0 0 1 21 8.77v6.46a1 1 0 0 1-1.45.87L15 13.5z"/></svg>',
+      pin: '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 6-8 12-8 12S4 16 4 10a8 8 0 1 1 16 0"/><circle cx="12" cy="10" r="3"/></svg>'
+    };
+    function panelHTML(c, i) {
       const place = (c.location && c.location.trim()) ? c.location : c.label;
+      const handle = IS_ADMIN ? `<span class="drag-handle" title="Drag to rearrange">⠿</span>` : '';
       const controls = IS_ADMIN
         ? `<button class="icon-btn" title="Edit camera" onclick="openEdit('${c.id}')">✎</button>
            <button class="icon-btn remove" title="Remove camera" onclick="removeCam('${c.id}')">×</button>`
         : '';
-      return `<div class="panel">
-        <div class="panel-head">📹 ${place}<span class="status-pill offline" data-cam="${c.id}"><span class="sdot"></span><span class="stext">…</span></span>${controls}</div>
-        <div class="panel-body"><img class="cam-snap" data-cam="${c.id}" alt="feed"></div>
+      return `<div class="panel enter" data-cam="${c.id}" style="--i:${i}">
+        <div class="panel-head">${handle}${I.cam} ${place}<span class="status-pill offline" data-cam="${c.id}"><span class="sdot"></span><span class="stext">…</span></span>${controls}</div>
+        <div class="panel-body" onclick="openFocus('${c.id}')"><img class="cam-snap" data-cam="${c.id}" alt="feed"></div>
       </div>`;
     }
+    let lastCams = [];
     async function loadCameras() {
       let cams = [];
       try { cams = await (await fetch('/cameras')).json(); } catch (e) { return; }
+      lastCams = cams;
       const grid = document.getElementById('grid');
       grid.innerHTML = cams.length
-        ? cams.map(panelHTML).join('')
+        ? cams.map((c, i) => panelHTML(c, i)).join('')
         : `<div class="grid-empty">
              <svg width="46" height="46" viewBox="0 0 24 24" fill="none"><path d="M4 9V6a2 2 0 0 1 2-2h3M15 4h3a2 2 0 0 1 2 2v3M20 15v3a2 2 0 0 1-2 2h-3M9 20H6a2 2 0 0 1-2-2v-3" stroke="#3a4557" stroke-width="1.6" stroke-linecap="round"/><circle cx="12" cy="12" r="2.4" fill="#3a4557"/></svg>
              <h3>No cameras yet</h3>
              <p>Add your webcam, a phone (via the IP Webcam app), or a CCTV camera to start watching for phones.</p>
              ${IS_ADMIN ? '<button class="cam-btn" onclick="openAdd()">+ Add your first camera</button>' : '<p style="color:#5b6675">Ask an admin to add a camera.</p>'}
            </div>`;
+      // drop the entrance class once played, so drag re-parenting never replays it
+      grid.querySelectorAll('.panel.enter').forEach(p =>
+        p.addEventListener('animationend', () => p.classList.remove('enter'), { once:true }));
+      if (IS_ADMIN && cams.length > 1) initSortable();
+      // First run: the first time an admin opens the dashboard, walk them through setup
+      if (IS_ADMIN && !localStorage.getItem('vigil_onboarded') && !obShownThisLoad
+          && !document.getElementById('onboard').classList.contains('open')) {
+        obShownThisLoad = true;
+        openOnboard();
+      }
     }
+    let obShownThisLoad = false;
+
+    // ---- First-run setup guide ----
+    let obState = 0;
+    const OB_STEPS = 4;
+    function renderDots() {
+      const d = document.getElementById('ob-dots');
+      d.innerHTML = Array.from({length: OB_STEPS}, (_, i) =>
+        `<i class="${i === obState ? 'on' : ''}"></i>`).join('');
+      document.querySelectorAll('#onboard .step').forEach(s =>
+        s.classList.toggle('on', +s.dataset.step === obState));
+      document.getElementById('ob-back').style.display = obState === 0 ? 'none' : '';
+      document.getElementById('ob-next').textContent = obState === OB_STEPS - 1 ? 'Add a camera →' : 'Next';
+    }
+    function openOnboard() { obState = 0; renderDots(); document.getElementById('onboard').classList.add('open'); }
+    function closeOnboard() {
+      document.getElementById('onboard').classList.remove('open');
+      localStorage.setItem('vigil_onboarded', '1');
+    }
+    function obStep(delta) {
+      obState = Math.max(0, Math.min(OB_STEPS - 1, obState + delta));
+      renderDots();
+    }
+    function obNext() {
+      if (obState === OB_STEPS - 1) { closeOnboard(); openAdd(); }
+      else obStep(1);
+    }
+
+    // ---- Fluid drag-to-rearrange (admin only) ----
+    // Grab anywhere on a panel's title bar. The card follows the pointer on the
+    // compositor (transform-only) with a hint of weight and velocity tilt;
+    // siblings FLIP out of the way; release springs the card into its slot.
+    function initSortable() {
+      const grid = document.getElementById('grid');
+      grid.classList.add('sortable');
+      grid.querySelectorAll('.panel').forEach(p => {
+        const head = p.querySelector('.panel-head');
+        head.onpointerdown = e => {
+          if (e.target.closest('.icon-btn') || e.target.closest('.status-pill')) return;
+          startDrag(e, p, grid);
+        };
+      });
+    }
+    function startDrag(e, panel, grid) {
+      if (e.button !== 0) return;
+      e.preventDefault();
+      const r0 = panel.getBoundingClientRect();
+      const offX = e.clientX - r0.left, offY = e.clientY - r0.top;
+
+      // leave a subtle "drop here" outline in the vacated slot
+      const spacer = document.createElement('div');
+      spacer.className = 'drag-spacer';
+      spacer.style.width = r0.width + 'px'; spacer.style.height = r0.height + 'px';
+      panel.after(spacer);
+      grid.classList.add('reordering');
+      panel.classList.add('dragging');
+      Object.assign(panel.style, { position:'fixed', left:r0.left+'px', top:r0.top+'px',
+        width:r0.width+'px', height:r0.height+'px', margin:'0', zIndex:30 });
+
+      let px = e.clientX, py = e.clientY;         // live pointer
+      let x = 0, y = 0, tilt = 0, scale = 1;      // rendered state
+      let lastPX = px, raf = 0, done = false;
+
+      const render = () => {
+        const tx = px - offX - r0.left, ty = py - offY - r0.top;
+        x += (tx - x) * 0.55;                     // 1:1 feel with a whisper of weight
+        y += (ty - y) * 0.55;
+        const vx = px - lastPX; lastPX = px;
+        tilt += (Math.max(-5, Math.min(5, vx * 0.32)) - tilt) * 0.14;
+        scale += (1.035 - scale) * 0.22;
+        panel.style.transform =
+          `translate3d(${x}px,${y}px,0) rotate(${tilt.toFixed(2)}deg) scale(${scale.toFixed(3)})`;
+        if (!done) raf = requestAnimationFrame(render);
+      };
+      raf = requestAnimationFrame(render);
+
+      // FLIP siblings only when the spacer actually changes slot — no thrash
+      const flip = mutate => {
+        const sibs = [...grid.querySelectorAll('.panel:not(.dragging)')];
+        const first = new Map(sibs.map(s => [s, s.getBoundingClientRect()]));
+        mutate();
+        sibs.forEach(s => {
+          const f = first.get(s), l = s.getBoundingClientRect();
+          const dx = f.left - l.left, dy = f.top - l.top;
+          if (dx || dy) s.animate(
+            [{ transform:`translate(${dx}px,${dy}px)` }, { transform:'none' }],
+            { duration: 340, easing:'cubic-bezier(.22,.9,.3,1)' });
+        });
+      };
+
+      const move = ev => {
+        px = ev.clientX; py = ev.clientY;
+        const over = [...grid.querySelectorAll('.panel:not(.dragging)')].find(s => {
+          const r = s.getBoundingClientRect();
+          return px > r.left && px < r.right && py > r.top && py < r.bottom;
+        });
+        if (!over) return;
+        const kids = [...grid.children];
+        if (kids.indexOf(over) < kids.indexOf(spacer)) {
+          if (over.previousElementSibling !== spacer) flip(() => over.before(spacer));
+        } else {
+          if (over.nextElementSibling !== spacer) flip(() => over.after(spacer));
+        }
+      };
+      const up = () => {
+        window.removeEventListener('pointermove', move);
+        window.removeEventListener('pointerup', up);
+        window.removeEventListener('pointercancel', up);
+        done = true; cancelAnimationFrame(raf);
+        const commit = () => {
+          panel.style.cssText = '';
+          spacer.replaceWith(panel);
+          panel.classList.remove('dragging');
+          grid.classList.remove('reordering');
+          saveOrder(grid);
+        };
+        if (document.hidden) { commit(); return; }   // no frames will run — settle instantly
+        const d = spacer.getBoundingClientRect();
+        const anim = panel.animate(
+          [{ transform:`translate3d(${x}px,${y}px,0) rotate(${tilt}deg) scale(${scale})` },
+           { transform:`translate3d(${d.left - r0.left}px,${d.top - r0.top}px,0) rotate(0deg) scale(1)` }],
+          { duration: 400, easing:'cubic-bezier(.3,1.28,.35,1)' });  // gentle overshoot settle
+        anim.onfinish = anim.oncancel = commit;
+      };
+      window.addEventListener('pointermove', move);
+      window.addEventListener('pointerup', up);
+      window.addEventListener('pointercancel', up);
+    }
+    async function saveOrder(grid) {
+      const order = [...grid.querySelectorAll('.panel')].map(p => p.dataset.cam).filter(Boolean);
+      try {
+        const r = await fetch('/cameras/reorder', { method:'POST', headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({ order }) });
+        lastCams = await r.json();
+      } catch (e) {}
+    }
+
+    // ---- Fullscreen camera focus view (click a feed to expand) ----
+    let focusId = null;
+    function focusRect() {
+      const w = Math.min(window.innerWidth - 72, (window.innerHeight - 130) * 16 / 9, 1360);
+      const h = w * 9 / 16 + 46;
+      return { left: (window.innerWidth - w) / 2, top: (window.innerHeight - h) / 2, w, h };
+    }
+    function setFocusCam(id, animate) {
+      focusId = id;
+      const c = lastCams.find(x => x.id === id);
+      if (!c) return;
+      document.getElementById('focus-title').textContent =
+        (c.location && c.location.trim()) ? c.location : c.label;
+      const img = document.getElementById('focus-img');
+      img.dataset.cam = id;
+      document.getElementById('focus-pill').dataset.cam = id;
+      if (animate) { img.classList.remove('swap'); void img.offsetWidth; img.classList.add('swap'); }
+    }
+    function openFocus(id) {
+      const grid = document.getElementById('grid');
+      if (grid.classList.contains('reordering')) return;   // mid-drag: ignore the click
+      const src = grid.querySelector(`.panel[data-cam="${id}"]`);
+      if (!src) return;
+      const r = src.getBoundingClientRect();
+      const ov = document.getElementById('focus'), card = document.getElementById('focus-card');
+      document.querySelectorAll('.focus-nav').forEach(b => b.style.display = lastCams.length > 1 ? '' : 'none');
+      setFocusCam(id, false);
+      card.style.transition = 'none';
+      Object.assign(card.style, { left:r.left+'px', top:r.top+'px', width:r.width+'px', height:r.height+'px' });
+      ov.classList.add('open');
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        card.style.transition = '';
+        const t = focusRect();
+        Object.assign(card.style, { left:t.left+'px', top:t.top+'px', width:t.w+'px', height:t.h+'px' });
+      }));
+    }
+    function stepFocus(dir) {
+      if (!lastCams.length) return;
+      const ids = lastCams.map(c => c.id);
+      const i = (ids.indexOf(focusId) + dir + ids.length) % ids.length;
+      setFocusCam(ids[i], true);
+    }
+    function closeFocus() {
+      if (focusId === null) return;
+      const ov = document.getElementById('focus'), card = document.getElementById('focus-card');
+      const src = document.querySelector(`#grid .panel[data-cam="${focusId}"]`);
+      ov.classList.add('closing');
+      if (src) {
+        const r = src.getBoundingClientRect();
+        Object.assign(card.style, { left:r.left+'px', top:r.top+'px', width:r.width+'px', height:r.height+'px' });
+      }
+      focusId = null;
+      setTimeout(() => {
+        ov.classList.remove('open', 'closing');
+        card.style.cssText = '';
+        document.getElementById('focus-img').dataset.cam = '';
+        document.getElementById('focus-pill').dataset.cam = '';
+      }, 340);
+    }
+    window.addEventListener('keydown', e => {
+      if (focusId === null) return;
+      if (e.key === 'Escape') closeFocus();
+      if (e.key === 'ArrowRight') stepFocus(1);
+      if (e.key === 'ArrowLeft') stepFocus(-1);
+    });
+    window.addEventListener('resize', () => {
+      if (focusId === null) return;
+      const t = focusRect(), card = document.getElementById('focus-card');
+      Object.assign(card.style, { left:t.left+'px', top:t.top+'px', width:t.w+'px', height:t.h+'px' });
+    });
 
     let editingId = null;
     function openCam(){ document.getElementById('cam-modal').classList.add('open'); }
@@ -1189,9 +1604,11 @@ DASHBOARD_HTML = """<!doctype html>
     }
 
     // ---- Alerts ----
+    let lastAlertsKey = '';
     async function loadAlerts() {
       let data = [];
       try { data = await (await fetch('/alerts')).json(); } catch (e) { return; }
+      const prevMax = lastAlertId, wasFirst = firstAlertLoad;
       if (data.length) {                       // ping on a genuinely new pending alert
         const newest = data[0];
         if (!firstAlertLoad && newest.id > lastAlertId && newest.status === 'pending') notifyAlert(newest);
@@ -1203,16 +1620,20 @@ DASHBOARD_HTML = """<!doctype html>
       const pending = data.filter(a => a.status === 'pending').length;
       countEl.style.display = pending ? 'inline-block' : 'none';
       countEl.textContent = pending;
+      // only touch the DOM when something actually changed (no flicker, no replayed animations)
+      const key = data.map(a => a.id + ':' + a.status).join('|');
+      if (key === lastAlertsKey) return;
+      lastAlertsKey = key;
       if (data.length === 0) {
         box.innerHTML = '<div class="empty">No alerts yet.<br>Hold a phone up to a camera.</div>';
         return;
       }
       box.innerHTML = data.map(a => `
-        <div class="alert ${a.status}">
+        <div class="alert ${a.status}${!wasFirst && a.id > prevMax ? ' new' : ''}">
           <img src="${a.image}">
           <div class="alert-info">
             <div class="alert-title">Phone detected · ${Math.round(a.confidence*100)}%</div>
-            <div class="alert-cam">📍 ${a.camera}</div>
+            <div class="alert-cam">${I.pin}${a.camera}</div>
             <div class="alert-time">${a.time}</div>
             ${a.status === 'pending'
               ? `<div class="alert-actions">
@@ -1234,6 +1655,7 @@ DASHBOARD_HTML = """<!doctype html>
     function refreshSnapshots() {
       document.querySelectorAll('img.cam-snap').forEach(img => {
         const id = img.dataset.cam;
+        if (!id) return;
         fetch('/snapshot/' + id + '?t=' + Date.now())
           .then(r => r.ok ? r.blob() : null)
           .then(blob => {
@@ -1263,12 +1685,18 @@ DASHBOARD_HTML = """<!doctype html>
     refreshStatus();
 
     // ---- Overview stats ----
+    function setStat(id, v) {
+      const el = document.getElementById(id);
+      if (el.textContent === String(v)) return;
+      el.textContent = v;
+      el.classList.remove('bump'); void el.offsetWidth; el.classList.add('bump');
+    }
     async function loadStats() {
       try {
         const s = await (await fetch('/stats')).json();
-        document.getElementById('stat-cameras').textContent = s.cameras;
-        document.getElementById('stat-today').textContent = s.alerts_today;
-        document.getElementById('stat-pending').textContent = s.pending;
+        setStat('stat-cameras', s.cameras);
+        setStat('stat-today', s.alerts_today);
+        setStat('stat-pending', s.pending);
       } catch (e) {}
     }
     setInterval(loadStats, 2000);
@@ -1287,7 +1715,7 @@ EVIDENCE_HTML = """<!doctype html>
     __LOGO__
     <span class="logo">Vig<span>i</span>l</span>
     <nav class="nav"><a href="/">Live Monitor</a><a href="/evidence" class="active">Evidence Log</a><a href="/display">Display</a>__ADMIN_NAV__</nav>
-    <span class="userchip">👤 __USERNAME__</span>
+    <span class="userchip"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>__USERNAME__</span>
     <a class="logout" href="/logout">Log out</a>
     <span class="clock" id="clock"></span>
   </header>
@@ -1355,7 +1783,7 @@ USERS_HTML = """<!doctype html>
   .add label { display:block; font-size:12px; color:#9aa4b2; margin:0 0 5px 2px; }
   .add input, .add select { width:100%; background:#0e1116; border:1px solid #2b3340; color:#e6e9ef;
     padding:10px 12px; border-radius:8px; font-size:13px; margin-bottom:12px; }
-  .add button { width:100%; background:#4ade80; color:#0e1116; border:none; padding:11px;
+  .add button { width:100%; background:#3ecf8e; color:#0e1116; border:none; padding:11px;
     border-radius:8px; font-weight:700; cursor:pointer; }
   .list { flex:1; min-width:320px; }
   .del { background:#2b3340; color:#f87171; border:none; padding:6px 12px; border-radius:6px; font-size:12px; cursor:pointer; }
@@ -1364,7 +1792,7 @@ USERS_HTML = """<!doctype html>
   <header>
     __LOGO__<span class="logo">Vig<span>i</span>l</span>
     <nav class="nav"><a href="/">Live Monitor</a><a href="/evidence">Evidence Log</a><a href="/display">Display</a><a href="/users" class="active">Users</a><a href="/settings">Settings</a></nav>
-    <span class="userchip">👤 __USERNAME__</span>
+    <span class="userchip"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>__USERNAME__</span>
     <a class="logout" href="/logout">Log out</a>
   </header>
   <div class="users-wrap">
@@ -1416,6 +1844,381 @@ def evidence_page(request: Request):
             .replace("__ADMIN_NAV__", _admin_nav(user)))
 
 
+# ---- Public landing website (shown at "/" when not signed in) -------------
+LANDING_HTML = """<!doctype html>
+<html lang="en" style="scroll-behavior:smooth"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vigil — Local AI phone detection for exams & secure spaces</title>
+<meta name="description" content="Vigil watches your camera feeds with on-device AI and raises an alert with photo evidence the moment a phone appears. Runs 100% on your computer — webcams, old phones, or CCTV. Set up in 2 minutes.">
+<meta property="og:title" content="Vigil — the moment a phone appears, you'll know">
+<meta property="og:description" content="Local AI phone detection with photo evidence. Any camera. Nothing uploaded. Set up in 2 minutes.">
+<meta name="theme-color" content="#0a0d12">
+<link rel="icon" href="/favicon.svg">
+<style>
+  :root { --ease: cubic-bezier(.22,.9,.3,1); --spring: cubic-bezier(.34,1.56,.64,1);
+    --bg:#0a0d12; --panel:#12171f; --line:#222a35; --txt:#e8ebf1; --mut:#9aa4b2; --grn:#3ecf8e; }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  html, body { background:var(--bg); color:var(--txt);
+    font-family:-apple-system, Segoe UI, Roboto, sans-serif; -webkit-font-smoothing:antialiased; }
+  ::selection { background:rgba(62,207,142,.3); }
+  a { color:inherit; text-decoration:none; }
+
+  .orbs { position:fixed; inset:0; overflow:hidden; pointer-events:none; z-index:0; }
+  .orbs i { position:absolute; border-radius:50%; filter:blur(90px); opacity:.5; }
+  .orbs i:nth-child(1) { width:560px; height:560px; background:radial-gradient(circle,#123524,transparent 65%);
+    top:-180px; right:-120px; animation:drift 16s ease-in-out infinite alternate; }
+  .orbs i:nth-child(2) { width:460px; height:460px; background:radial-gradient(circle,#0e2233,transparent 65%);
+    top:44%; left:-190px; animation:drift 20s ease-in-out infinite alternate-reverse; }
+  .orbs i:nth-child(3) { width:420px; height:420px; background:radial-gradient(circle,#132a1c,transparent 65%);
+    bottom:-160px; right:22%; animation:drift 24s ease-in-out infinite alternate; }
+  @keyframes drift { to { transform:translate(46px,30px) scale(1.08); } }
+
+  .shell { position:relative; z-index:1; max-width:1120px; margin:0 auto; padding:0 26px; }
+  .site-head { position:sticky; top:0; z-index:10; backdrop-filter:blur(14px); -webkit-backdrop-filter:blur(14px);
+    background:rgba(10,13,18,.66); border-bottom:1px solid transparent; transition:border-color .3s, background .3s; }
+  .site-head.scrolled { border-color:var(--line); background:rgba(10,13,18,.86); }
+  .site-head .row { display:flex; align-items:center; gap:26px; height:62px; max-width:1120px; margin:0 auto; padding:0 26px; }
+  .brand { display:flex; align-items:center; gap:9px; font-weight:800; font-size:19px; }
+  .brand svg { color:#7a8595; }
+  .brand b span { color:var(--grn); }
+  .site-nav { display:flex; gap:2px; margin-left:auto; }
+  .site-nav a { font-size:13.5px; color:var(--mut); padding:8px 13px; border-radius:8px;
+    transition:color .2s var(--ease), background .2s var(--ease); }
+  .site-nav a:hover { color:var(--txt); background:#161d27; }
+  .btn { display:inline-flex; align-items:center; gap:8px; border-radius:10px; font-weight:700;
+    font-size:14px; padding:12px 22px; cursor:pointer; border:none;
+    transition:transform .2s var(--spring), box-shadow .25s var(--ease), background .2s; }
+  .btn:active { transform:scale(.97); }
+  .btn-grn { background:var(--grn); color:#0a0d12; box-shadow:0 4px 24px rgba(62,207,142,.28); }
+  .btn-grn:hover { transform:translateY(-2px); box-shadow:0 8px 32px rgba(62,207,142,.42); }
+  .btn-ghost { background:#161d27; color:var(--txt); border:1px solid var(--line); }
+  .btn-ghost:hover { transform:translateY(-2px); border-color:#33405082; background:#1a222e; }
+  .site-head .btn { padding:9px 18px; font-size:13px; }
+
+  .hero { display:grid; grid-template-columns: 1fr 1fr; gap:54px; align-items:center; padding:84px 0 70px; }
+  .kicker { display:inline-flex; align-items:center; gap:8px; font-size:12.5px; font-weight:700;
+    color:var(--grn); background:rgba(62,207,142,.1); border:1px solid rgba(62,207,142,.22);
+    padding:6px 14px; border-radius:20px; margin-bottom:22px; }
+  .kicker .dot { width:7px; height:7px; border-radius:50%; background:var(--grn);
+    box-shadow:0 0 9px var(--grn); animation:pulse 1.6s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.3} }
+  h1 { font-size:clamp(34px,4.6vw,56px); line-height:1.07; letter-spacing:-1.4px; font-weight:800; }
+  h1 .grad { background:linear-gradient(100deg,#8ce8bd,#3ecf8e 55%,#2fb98a);
+    -webkit-background-clip:text; background-clip:text; color:transparent; }
+  .hero p.sub { font-size:16.5px; color:var(--mut); line-height:1.65; margin:20px 0 30px; max-width:480px; }
+  .hero .ctas { display:flex; gap:12px; flex-wrap:wrap; }
+  .hero .facts { display:flex; gap:26px; margin-top:34px; font-size:13px; color:var(--mut); }
+  .hero .facts b { display:block; color:var(--txt); font-size:17px; font-weight:800; margin-bottom:2px; }
+
+  /* animated product mock */
+  .mock { background:#0d1219; border:1px solid var(--line); border-radius:16px; overflow:hidden;
+    box-shadow:0 40px 90px rgba(0,0,0,.55); }
+  .mock-bar { display:flex; align-items:center; gap:7px; padding:11px 14px; border-bottom:1px solid var(--line); }
+  .mock-bar i { width:10px; height:10px; border-radius:50%; background:#242e3b; }
+  .mock-bar span { font-size:11.5px; color:#5b6675; margin-left:8px; font-weight:600; }
+  .mock-bar em { margin-left:auto; font-style:normal; font-size:10px; font-weight:800; color:var(--grn);
+    letter-spacing:.8px; animation:pulse 1.6s infinite; }
+  .mock-body { display:grid; grid-template-columns:1fr 148px; gap:10px; padding:12px; }
+  .mock-grid { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  .tile { background:#11161e; border:1px solid #1e2632; border-radius:10px; overflow:hidden;
+    transition:border-color .3s, box-shadow .3s; }
+  .tile .t-head { display:flex; align-items:center; font-size:9.5px; color:#8b95a3; font-weight:600;
+    padding:6px 9px; border-bottom:1px solid #1e2632; }
+  .tile .t-head b { margin-left:auto; color:var(--grn); font-size:8px; letter-spacing:.6px; }
+  .t-view { position:relative; height:88px; overflow:hidden;
+    background:linear-gradient(160deg,#151c26 0%,#0e131b 70%); }
+  .t-view .desk { position:absolute; bottom:10px; width:34%; height:26px; border-radius:6px 6px 0 0;
+    background:#1b2330; }
+  .t-view .desk::after { content:''; position:absolute; top:-16px; left:50%; transform:translateX(-50%);
+    width:16px; height:16px; border-radius:50%; background:#232e3e; }
+  .t-view .d1 { left:8%; } .t-view .d2 { right:8%; }
+  .scan { position:absolute; left:0; right:0; height:34px; top:-40px;
+    background:linear-gradient(180deg,transparent,rgba(62,207,142,.14) 65%,rgba(62,207,142,.5));
+    animation:scan 3.2s linear infinite; }
+  @keyframes scan { to { top:110%; } }
+  .bbox { position:absolute; top:18px; left:14%; width:34px; height:44px; border:2px solid #ef4444;
+    border-radius:4px; opacity:0; transform:scale(.7); box-shadow:0 0 18px rgba(239,68,68,.5); }
+  .bbox::after { content:'PHONE 93%'; position:absolute; top:-15px; left:-2px; font-size:7.5px;
+    font-weight:800; color:#fff; background:#ef4444; padding:1.5px 5px; border-radius:3px; white-space:nowrap; }
+  .tile.hit { border-color:rgba(239,68,68,.65); box-shadow:0 0 0 1px rgba(239,68,68,.35), 0 0 30px rgba(239,68,68,.18); }
+  .tile.hit .bbox { opacity:1; transform:scale(1); transition:all .3s var(--spring); }
+  .mock-side { background:#11161e; border:1px solid #1e2632; border-radius:10px; padding:9px; overflow:hidden; }
+  .ms-head { font-size:9.5px; font-weight:700; color:#8b95a3; letter-spacing:.6px; margin-bottom:8px; }
+  .ms-card { display:flex; gap:7px; background:#161d28; border:1px solid rgba(234,179,8,.3);
+    border-radius:7px; padding:6px; margin-bottom:7px; animation:msIn .5s var(--spring); }
+  @keyframes msIn { from { opacity:0; transform:translateX(26px) scale(.94); } }
+  .ms-card .ph { width:20px; height:27px; border-radius:3px; background:linear-gradient(150deg,#2a3547,#151b25); flex-shrink:0; }
+  .ms-card div b { display:block; font-size:8.5px; color:var(--txt); }
+  .ms-card div span { font-size:7.5px; color:#8b95a3; }
+
+  section { padding:76px 0; }
+  .sec-kicker { font-size:12px; font-weight:800; letter-spacing:1.6px; color:var(--grn); text-transform:uppercase; }
+  h2 { font-size:clamp(26px,3.2vw,38px); letter-spacing:-.8px; margin:10px 0 14px; }
+  .sec-sub { color:var(--mut); font-size:15.5px; line-height:1.65; max-width:560px; }
+
+  .feats { display:grid; grid-template-columns:repeat(3,1fr); gap:14px; margin-top:40px; }
+  .feat { background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:22px;
+    transition:transform .3s var(--ease), border-color .3s, box-shadow .3s; }
+  .feat:hover { transform:translateY(-5px); border-color:rgba(62,207,142,.35); box-shadow:0 18px 44px rgba(0,0,0,.4); }
+  .feat .ico { width:40px; height:40px; border-radius:11px; background:#1a212b; color:var(--grn);
+    display:flex; align-items:center; justify-content:center; transition:transform .3s var(--spring); }
+  .feat:hover .ico { transform:scale(1.12) rotate(-3deg); }
+  .feat h3 { font-size:15.5px; margin:12px 0 7px; }
+  .feat p { font-size:13.5px; color:var(--mut); line-height:1.6; }
+
+  .steps { display:grid; grid-template-columns:repeat(3,1fr); gap:14px; margin-top:40px; counter-reset:step; }
+  .step-c { position:relative; background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:24px;
+    transition:transform .3s var(--ease), border-color .3s; }
+  .step-c:hover { transform:translateY(-4px); border-color:#33405082; }
+  .step-c::before { counter-increment:step; content:counter(step);
+    display:inline-flex; align-items:center; justify-content:center; width:30px; height:30px;
+    border-radius:9px; background:rgba(62,207,142,.12); color:var(--grn); font-weight:800; font-size:14px; }
+  .step-c h3 { font-size:15.5px; margin:13px 0 7px; }
+  .step-c p { font-size:13.5px; color:var(--mut); line-height:1.6; }
+
+  .setups { display:grid; grid-template-columns:repeat(3,1fr); gap:14px; margin-top:40px; }
+  .setup-c { background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:22px;
+    transition:transform .3s var(--ease), border-color .3s; }
+  .setup-c:hover { transform:translateY(-4px); border-color:rgba(62,207,142,.3); }
+  .setup-c .ico { width:40px; height:40px; border-radius:11px; background:#1a212b; color:var(--grn);
+    display:flex; align-items:center; justify-content:center; }
+  .note .nico { color:var(--grn); flex-shrink:0; margin-top:1px; }
+  .setup-c h3 { font-size:15.5px; margin:12px 0 7px; }
+  .setup-c p { font-size:13.5px; color:var(--mut); line-height:1.65; }
+  .setup-c code { background:#0a0e14; border:1px solid var(--line); padding:2px 7px; border-radius:5px;
+    color:var(--grn); font-size:12px; }
+  .note { display:flex; gap:12px; align-items:flex-start; margin-top:22px; background:rgba(62,207,142,.06);
+    border:1px solid rgba(62,207,142,.2); border-radius:12px; padding:16px 18px; font-size:13.5px;
+    color:var(--mut); line-height:1.6; }
+  .note b { color:var(--txt); }
+
+  .privacy { text-align:center; }
+  .privacy .big { font-size:clamp(24px,3vw,34px); font-weight:800; letter-spacing:-.7px;
+    max-width:640px; margin:12px auto 0; }
+  .priv-pts { display:flex; justify-content:center; gap:34px; margin-top:34px; flex-wrap:wrap; }
+  .priv-pts div { font-size:13.5px; color:var(--mut); display:flex; align-items:center; gap:9px; }
+  .priv-pts b { color:var(--grn); font-size:16px; }
+
+  .faq { max-width:680px; margin:40px auto 0; }
+  .qa { border:1px solid var(--line); border-radius:12px; background:var(--panel); margin-bottom:10px; overflow:hidden; }
+  .qa button { width:100%; display:flex; align-items:center; text-align:left; background:none; border:none;
+    color:var(--txt); font-size:14.5px; font-weight:600; padding:17px 20px; cursor:pointer; font-family:inherit; }
+  .qa button i { margin-left:auto; font-style:normal; color:var(--grn); font-size:18px;
+    transition:transform .3s var(--ease); }
+  .qa.open button i { transform:rotate(45deg); }
+  .qa .a { max-height:0; overflow:hidden; transition:max-height .38s var(--ease); }
+  .qa .a p { padding:0 20px 17px; font-size:13.5px; color:var(--mut); line-height:1.65; }
+
+  .final { text-align:center; padding:90px 0 100px; }
+  .final h2 { margin-bottom:10px; }
+  .final .ctas { display:flex; gap:12px; justify-content:center; margin-top:30px; }
+  footer { border-top:1px solid var(--line); padding:26px 0; }
+  footer .row { display:flex; align-items:center; gap:12px; max-width:1120px; margin:0 auto; padding:0 26px;
+    font-size:13px; color:var(--mut); }
+  footer .row a:hover { color:var(--txt); }
+  footer .right { margin-left:auto; display:flex; gap:18px; }
+
+  .reveal { opacity:0; transform:translateY(28px); transition:opacity .75s var(--ease), transform .75s var(--ease);
+    transition-delay:var(--d,0s); }
+  .reveal.in { opacity:1; transform:none; }
+
+  @media (max-width: 920px) {
+    .hero { grid-template-columns:1fr; padding-top:52px; gap:40px; }
+    .feats, .steps, .setups { grid-template-columns:1fr; }
+    .site-nav { display:none; }
+    .hero p.sub { max-width:none; }
+  }
+</style></head>
+<body>
+<div class="orbs"><i></i><i></i><i></i></div>
+
+<div class="site-head" id="site-head"><div class="row">
+  <a class="brand" href="/">__LOGO__<b>Vig<span>i</span>l</b></a>
+  <nav class="site-nav">
+    <a href="#features">Features</a><a href="#how">How it works</a>
+    <a href="#setup">Setup</a><a href="#privacy">Privacy</a><a href="#faq">FAQ</a>
+  </nav>
+  <a class="btn btn-grn" href="/login">Open dashboard</a>
+</div></div>
+
+<main class="shell">
+  <section class="hero">
+    <div>
+      <span class="kicker reveal in"><span class="dot"></span> Private by design — runs entirely on your computer</span>
+      <h1 class="reveal in" style="--d:.06s">The moment a phone appears, <span class="grad">Vigil sees it.</span></h1>
+      <p class="sub reveal in" style="--d:.12s">Point any camera at the room. Vigil's AI watches every feed in
+        real time and raises an alert with photo evidence and the exact location — so your team can act in seconds,
+        not after the fact.</p>
+      <div class="ctas reveal in" style="--d:.18s">
+        <a class="btn btn-grn" href="/login">Open the dashboard →</a>
+        <a class="btn btn-ghost" href="#setup">See the 2-minute setup</a>
+      </div>
+      <div class="facts reveal in" style="--d:.24s">
+        <div><b>Real-time</b>alerts in ~1s</div>
+        <div><b>100% local</b>zero uploads</div>
+        <div><b>Any camera</b>webcam · phone · CCTV</div>
+      </div>
+    </div>
+    <div class="mock reveal in" style="--d:.2s">
+      <div class="mock-bar"><i></i><i></i><i></i><span>Vigil — Live Monitor</span><em>● LIVE</em></div>
+      <div class="mock-body">
+        <div class="mock-grid">
+          <div class="tile"><div class="t-head">Row 1 · Front<b>LIVE</b></div>
+            <div class="t-view"><span class="desk d1"></span><span class="desk d2"></span><div class="bbox"></div><div class="scan"></div></div></div>
+          <div class="tile"><div class="t-head">Row 3 · Left<b>LIVE</b></div>
+            <div class="t-view"><span class="desk d1"></span><span class="desk d2"></span><div class="bbox"></div><div class="scan" style="animation-delay:-1.2s"></div></div></div>
+          <div class="tile"><div class="t-head">Row 5 · Back<b>LIVE</b></div>
+            <div class="t-view"><span class="desk d1"></span><span class="desk d2"></span><div class="bbox"></div><div class="scan" style="animation-delay:-2.1s"></div></div></div>
+          <div class="tile"><div class="t-head">Corridor · A<b>LIVE</b></div>
+            <div class="t-view"><span class="desk d1"></span><span class="desk d2"></span><div class="bbox"></div><div class="scan" style="animation-delay:-.6s"></div></div></div>
+        </div>
+        <div class="mock-side"><div class="ms-head">ALERTS</div><div id="ms-list"></div></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="features">
+    <span class="sec-kicker reveal">Features</span>
+    <h2 class="reveal" style="--d:.05s">Everything a control room needs.<br>Nothing it doesn't.</h2>
+    <div class="feats">
+      <div class="feat reveal"><span class="ico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg></span><h3>Real-time AI detection</h3>
+        <p>A fine-tuned vision model scans every frame of every camera and flags a phone within about a second — even small, half-hidden ones.</p></div>
+      <div class="feat reveal" style="--d:.07s"><span class="ico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></svg></span><h3>Photo evidence, automatically</h3>
+        <p>Every detection is saved with the photo, timestamp, camera and confidence. Confirm or dismiss each one to keep a clean, reviewable log.</p></div>
+      <div class="feat reveal" style="--d:.14s"><span class="ico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7.5A1.5 1.5 0 0 1 4.5 6h9A1.5 1.5 0 0 1 15 7.5v9a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 3 16.5z"/><path d="m15 10.5 4.55-2.6A1 1 0 0 1 21 8.77v6.46a1 1 0 0 1-1.45.87L15 13.5z"/></svg></span><h3>Any camera works</h3>
+        <p>Your laptop's webcam, an old phone running a free app, or real <code style="font-size:12px">rtsp://</code> CCTV — mix and match as many as you like.</p></div>
+      <div class="feat reveal"><span class="ico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="14" x="2" y="3" rx="2"/><line x1="8" x2="16" y1="21" y2="21"/><line x1="12" x2="12" y1="17" y2="21"/></svg></span><h3>Display wall</h3>
+        <p>A fullscreen monitoring wall built for a big screen — with an unmissable on-screen alarm, flash and beep when something is found.</p></div>
+      <div class="feat reveal" style="--d:.07s"><span class="ico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg></span><h3>Alerts on your phone</h3>
+        <p>Optional Telegram alerts send the photo and location straight to invigilators walking the room.</p></div>
+      <div class="feat reveal" style="--d:.14s"><span class="ico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></span><h3>Roles for your team</h3>
+        <p>Admins manage cameras and settings; invigilators watch feeds and handle alerts. Everyone sees exactly what they need.</p></div>
+    </div>
+  </section>
+
+  <section id="how">
+    <span class="sec-kicker reveal">How it works</span>
+    <h2 class="reveal" style="--d:.05s">Watching in three steps.</h2>
+    <div class="steps">
+      <div class="step-c reveal"><h3>Add a camera</h3>
+        <p>Press “+ Add camera”, give it a name and the location it watches. A built-in guide walks first-timers through every option.</p></div>
+      <div class="step-c reveal" style="--d:.08s"><h3>Aim it & test</h3>
+        <p>Point it where people sit, then hold a phone up in front of it. Within a second a red alert with a photo appears — that's Vigil working.</p></div>
+      <div class="step-c reveal" style="--d:.16s"><h3>Let it watch</h3>
+        <p>Vigil monitors every feed all the time, viewed or not. Rearrange your camera wall by simply dragging the panels.</p></div>
+    </div>
+  </section>
+
+  <section id="setup">
+    <span class="sec-kicker reveal">Setup</span>
+    <h2 class="reveal" style="--d:.05s">Any camera you already own.<br>Ready in about 2 minutes.</h2>
+    <div class="setups">
+      <div class="setup-c reveal"><span class="ico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 16V7a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v9m16 0H4m16 0 1.28 2.55a1 1 0 0 1-.9 1.45H3.62a1 1 0 0 1-.9-1.45L4 16"/></svg></span><h3>This computer's webcam</h3>
+        <p>The simplest start — one click, no URL needed. Perfect for trying Vigil out on your desk right now.</p></div>
+      <div class="setup-c reveal" style="--d:.08s"><span class="ico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect width="14" height="20" x="5" y="2" rx="2"/><path d="M12 18h.01"/></svg></span><h3>An old phone</h3>
+        <p>Install the free <b>IP Webcam</b> app, tap “Start server”, and enter the URL it shows plus
+        <code>/video</code> — e.g. <code>http://192.168.1.5:8080/video</code>. Same WiFi as the computer.</p></div>
+      <div class="setup-c reveal" style="--d:.16s"><span class="ico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7.5A1.5 1.5 0 0 1 4.5 6h9A1.5 1.5 0 0 1 15 7.5v9a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 3 16.5z"/><path d="m15 10.5 4.55-2.6A1 1 0 0 1 21 8.77v6.46a1 1 0 0 1-1.45.87L15 13.5z"/></svg></span><h3>CCTV / IP cameras</h3>
+        <p>Paste the camera's <code>rtsp://…</code> stream URL and it joins the wall like any other feed.</p></div>
+    </div>
+    <div class="note reveal"><span class="nico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg></span> <span><b>Where do the photos go?</b> Every detection photo is stored on the computer
+      running Vigil — in its local <b>evidence folder</b> and Evidence Log. Nothing is uploaded to any server,
+      and only alerts you enable (like Telegram) ever leave the machine.</span></div>
+  </section>
+
+  <section id="privacy" class="privacy">
+    <span class="sec-kicker reveal">Privacy</span>
+    <div class="big reveal" style="--d:.05s">Nothing leaves the room.<br>
+      <span style="color:#8b95a3">Your cameras, your computer, your data.</span></div>
+    <div class="priv-pts reveal" style="--d:.12s">
+      <div><b>✓</b> AI runs on your machine</div>
+      <div><b>✓</b> Photos stored locally</div>
+      <div><b>✓</b> Works without internet</div>
+      <div><b>✓</b> You own the evidence</div>
+    </div>
+  </section>
+
+  <section id="faq">
+    <span class="sec-kicker reveal">FAQ</span>
+    <h2 class="reveal" style="--d:.05s">Quick answers.</h2>
+    <div class="faq">
+      <div class="qa reveal"><button>Does it need an internet connection?<i>+</i></button>
+        <div class="a"><p>No. Detection, the dashboard and the evidence log all run locally. Internet is only used
+        if you turn on Telegram phone alerts.</p></div></div>
+      <div class="qa reveal" style="--d:.05s"><button>How many cameras can it watch?<i>+</i></button>
+        <div class="a"><p>As many as your computer can decode — every configured camera is monitored all the time,
+        whether or not it's on screen. Add webcams, phones and CCTV together.</p></div></div>
+      <div class="qa reveal" style="--d:.1s"><button>Where is the evidence stored?<i>+</i></button>
+        <div class="a"><p>In a local evidence folder and database on the machine running Vigil. Each alert keeps the
+        photo, time, camera, location and confidence, plus its confirmed/dismissed status.</p></div></div>
+      <div class="qa reveal" style="--d:.15s"><button>What happens when a phone is detected?<i>+</i></button>
+        <div class="a"><p>The dashboard beeps and shows a red alert with the photo and location; the Display wall
+        flashes an on-screen alarm; and if enabled, Telegram sends the photo to your team's phones — all within
+        about a second.</p></div></div>
+    </div>
+  </section>
+
+  <section class="final">
+    <span class="kicker reveal"><span class="dot"></span> Free to run on your own machine</span>
+    <h2 class="reveal" style="--d:.05s">Put a vigilant eye on every room.</h2>
+    <p class="sec-sub reveal" style="--d:.1s; margin:0 auto">Sign in to your control room, or set Vigil up on the computer in the room you want to watch.</p>
+    <div class="ctas reveal" style="--d:.15s">
+      <a class="btn btn-grn" href="/login">Open the dashboard →</a>
+      <a class="btn btn-ghost" href="https://github.com/Param077s/phone-detector" target="_blank" rel="noopener">Get Vigil on GitHub</a>
+    </div>
+  </section>
+</main>
+
+<footer><div class="row">
+  <a class="brand" href="/" style="font-size:15px">__LOGO__<b>Vig<span>i</span>l</b></a>
+  <span>· Local AI phone detection</span>
+  <div class="right">
+    <a href="#setup">Setup guide</a>
+    <a href="https://github.com/Param077s/phone-detector" target="_blank" rel="noopener">GitHub</a>
+    <a href="/login">Sign in</a>
+  </div>
+</div></footer>
+
+<script>
+  // reveal on scroll
+  const io = new IntersectionObserver(es => es.forEach(e => {
+    if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); }
+  }), { threshold:.14 });
+  document.querySelectorAll('.reveal:not(.in)').forEach(el => io.observe(el));
+
+  // header border on scroll
+  const head = document.getElementById('site-head');
+  addEventListener('scroll', () => head.classList.toggle('scrolled', scrollY > 8), { passive:true });
+
+  // FAQ accordion
+  document.querySelectorAll('.qa button').forEach(b => b.onclick = () => {
+    const qa = b.parentElement, a = qa.querySelector('.a'), open = qa.classList.contains('open');
+    document.querySelectorAll('.qa.open').forEach(o => { o.classList.remove('open'); o.querySelector('.a').style.maxHeight = 0; });
+    if (!open) { qa.classList.add('open'); a.style.maxHeight = a.scrollHeight + 'px'; }
+  });
+
+  // hero mock: staged detections
+  const tiles = [...document.querySelectorAll('.tile')];
+  const msList = document.getElementById('ms-list');
+  const spots = ['Row 1 · Front','Row 3 · Left','Row 5 · Back','Corridor · A'];
+  let ti = 1;
+  function strike() {
+    const i = ti % tiles.length; ti += 2 + (ti % 3);
+    const t = tiles[i];
+    t.classList.add('hit');
+    const card = document.createElement('div');
+    card.className = 'ms-card';
+    card.innerHTML = `<span class="ph"></span><div><b>Phone · ${88 + (i * 3) % 10}%</b><span>📍 ${spots[i]}</span></div>`;
+    msList.prepend(card);
+    while (msList.children.length > 3) msList.lastChild.remove();
+    setTimeout(() => t.classList.remove('hit'), 2300);
+  }
+  setTimeout(strike, 1200);
+  setInterval(strike, 3900);
+</script>
+</body></html>"""
+
+
 # ---- Login / Setup / Logout ----------------------------------------------
 AUTH_TEMPLATE = """<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
@@ -1429,7 +2232,7 @@ AUTH_TEMPLATE = """<!doctype html>
   .auth label { display:block; font-size:12px; color:#9aa4b2; margin:0 0 5px 2px; }
   .auth input { width:100%; background:#0e1116; border:1px solid #2b3340; color:#e6e9ef;
     padding:11px 12px; border-radius:8px; font-size:14px; margin-bottom:14px; }
-  .auth button { width:100%; background:#4ade80; color:#0e1116; border:none; padding:12px;
+  .auth button { width:100%; background:#3ecf8e; color:#0e1116; border:none; padding:12px;
     border-radius:8px; font-size:14px; font-weight:700; cursor:pointer; }
   .auth .err { background:rgba(239,68,68,.15); color:#f87171; font-size:13px;
     padding:9px 12px; border-radius:8px; margin-bottom:14px; }
@@ -1566,16 +2369,16 @@ SETTINGS_SHELL = """<!doctype html>
   .toggle label { margin:0; }
   .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:16px; max-width:420px; }
   .save-row { margin-top:20px; }
-  .save-row button { background:#4ade80; color:#0e1116; border:none; padding:11px 24px;
+  .save-row button { background:#3ecf8e; color:#0e1116; border:none; padding:11px 24px;
     border-radius:8px; font-weight:700; cursor:pointer; }
-  .saved { background:rgba(74,222,128,.15); color:#4ade80; font-size:13px; padding:10px 12px; border-radius:8px; margin-bottom:16px; }
+  .saved { background:rgba(62,207,142,.15); color:#3ecf8e; font-size:13px; padding:10px 12px; border-radius:8px; margin-bottom:16px; }
   .sec { border-top:1px solid #232a34; margin:22px 0 16px; padding-top:16px; font-size:13px; color:#9aa4b2; font-weight:700; }
 </style></head>
 <body>
   <header>
     __LOGO__<span class="logo">Vig<span>i</span>l</span>
     <nav class="nav"><a href="/">Live Monitor</a><a href="/evidence">Evidence Log</a><a href="/display">Display</a><a href="/users">Users</a><a href="/settings" class="active">Settings</a></nav>
-    <span class="userchip">👤 __USERNAME__</span>
+    <span class="userchip"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>__USERNAME__</span>
     <a class="logout" href="/logout">Log out</a>
   </header>
   <div class="settings-wrap"><div class="settings">__BODY__</div></div>
@@ -1738,7 +2541,7 @@ DISPLAY_HTML = """<!doctype html>
     background:#0b0e12; border-bottom:1px solid #232a34; }
   .disp-title { font-size:12px; letter-spacing:2.5px; text-transform:uppercase; color:#9aa4b2; }
   .disp-online { margin-left:auto; font-size:13px; color:#9aa4b2; }
-  .disp-online b { color:#4ade80; font-size:15px; }
+  .disp-online b { color:#3ecf8e; font-size:15px; }
   .disp-clock { font-size:13px; color:#9aa4b2; font-variant-numeric:tabular-nums; }
   .disp-btn { background:#1c222b; color:#c4ccd8; border:1px solid #2b3340; padding:7px 13px;
     border-radius:8px; font-size:13px; text-decoration:none; cursor:pointer; }
@@ -1750,7 +2553,7 @@ DISPLAY_HTML = """<!doctype html>
   .tile .label { position:absolute; left:10px; bottom:10px; display:flex; align-items:center; gap:8px;
     background:rgba(8,11,15,.75); padding:6px 12px; border-radius:20px; font-size:13px; font-weight:600; }
   .tile .sdot { width:8px; height:8px; border-radius:50%; flex-shrink:0; }
-  .tile .sdot.online { background:#4ade80; box-shadow:0 0 8px #4ade80; }
+  .tile .sdot.online { background:#3ecf8e; box-shadow:0 0 8px #3ecf8e; }
   .tile .sdot.offline { background:#7a8595; }
   .wall-empty { grid-column:1/-1; align-self:center; justify-self:center; color:#5b6675; text-align:center; }
   .flash { position:fixed; inset:0; pointer-events:none; z-index:90; box-shadow: inset 0 0 0 0 rgba(239,68,68,0);
