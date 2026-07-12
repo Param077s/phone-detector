@@ -822,7 +822,7 @@ class Producer:
             if ok:
                 with snapshots_lock:
                     snapshots[self.camera_id] = buf.tobytes()
-            time.sleep(0.04)
+            time.sleep(0.008)   # run near the camera's native frame rate (~30fps); no disk cost
 
         # cleanup when the camera is removed or stopped
         if inline_cap is not None:
@@ -1849,7 +1849,7 @@ DASHBOARD_HTML = """<!doctype html>
           }).catch(() => {});
       });
     }
-    setInterval(refreshSnapshots, 66);
+    setInterval(refreshSnapshots, 33);
 
     // ---- Per-camera online/offline status ----
     async function refreshStatus() {
@@ -3080,7 +3080,7 @@ DISPLAY_HTML = """<!doctype html>
     }
 
     loadWall().then(refreshStatus);
-    setInterval(refreshSnaps, 66);
+    setInterval(refreshSnaps, 33);
     setInterval(refreshStatus, 1500);
     setInterval(pollAlerts, 1500);
     pollAlerts();
