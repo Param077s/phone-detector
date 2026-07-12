@@ -59,7 +59,7 @@ MODEL_NAME     = "yolo11m.pt"       # generic model (reliable). The auto-labeled
                                     # "vigil-phone.pt" fine-tune learned bad labels
                                     # (faces marked as phones) — needs clean labels first.
 
-CONFIDENCE     = 0.45   # lower = catches faint/distant phones (but more false alarms).
+CONFIDENCE     = 0.55   # higher = fewer false alarms on phone-shaped objects (bed, book…).
                         # Raise toward 0.6 if it false-alarms; lower toward 0.35 for more range.
 REQUIRED_HITS  = 3      # a phone must be seen this many detections IN A ROW before it
                         # raises an alert — this is what kills brief false positives on
