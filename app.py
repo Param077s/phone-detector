@@ -1521,8 +1521,8 @@ DASHBOARD_HTML = """<!doctype html>
     }
 
     // ---- Fluid drag-to-rearrange (admin only) ----
-    // Grab anywhere on a panel's title bar. The card follows the pointer on the
-    // compositor (transform-only) with a hint of weight and velocity tilt;
+    // Grab anywhere on a panel's title bar. The card follows the pointer 1:1
+    // on the compositor (transform-only) with a subtle velocity tilt;
     // siblings FLIP out of the way; release springs the card into its slot.
     function initSortable() {
       const grid = document.getElementById('grid');
@@ -1551,22 +1551,11 @@ DASHBOARD_HTML = """<!doctype html>
       Object.assign(panel.style, { position:'fixed', left:r0.left+'px', top:r0.top+'px',
         width:r0.width+'px', height:r0.height+'px', margin:'0', zIndex:30 });
 
-      let px = e.clientX, py = e.clientY;         // live pointer
-      let x = 0, y = 0, tilt = 0, scale = 1;      // rendered state
-      let lastPX = px, raf = 0, done = false;
-
-      const render = () => {
-        const tx = px - offX - r0.left, ty = py - offY - r0.top;
-        x += (tx - x) * 0.55;                     // 1:1 feel with a whisper of weight
-        y += (ty - y) * 0.55;
-        const vx = px - lastPX; lastPX = px;
-        tilt += (Math.max(-5, Math.min(5, vx * 0.32)) - tilt) * 0.14;
-        scale += (1.035 - scale) * 0.22;
-        panel.style.transform =
-          `translate3d(${x}px,${y}px,0) rotate(${tilt.toFixed(2)}deg) scale(${scale.toFixed(3)})`;
-        if (!done) raf = requestAnimationFrame(render);
-      };
-      raf = requestAnimationFrame(render);
+      let px = e.clientX, py = e.clientY;         // live pointer (from events)
+      let x = 0, y = 0, tilt = 0;                 // rendered state
+      let vel = 0, lastMX = px, lastMT = e.timeStamp;  // event-time velocity (px/ms)
+      let lastT = performance.now();
+      let raf = 0, done = false, pending = false;
 
       // Hit-test against SETTLED slot rects (cached, re-measured only after a
       // mutation) — never against mid-animation positions, which oscillate.
@@ -1590,18 +1579,44 @@ DASHBOARD_HTML = """<!doctype html>
         });
       };
 
-      const move = ev => {
-        px = ev.clientX; py = ev.clientY;
+      // Decide before/after from the POINTER position (midpoint of the slot),
+      // never from DOM order — an order-based rule inverts itself after every
+      // insert and made the spacer flip back and forth on each mousemove.
+      const hitTest = () => {
         let over = null, r = null;
         for (const [s, sr] of slotRects)
           if (px > sr.left && px < sr.right && py > sr.top && py < sr.bottom) { over = s; r = sr; break; }
         if (!over) return;
-        // Decide before/after from the POINTER position (midpoint of the slot),
-        // never from DOM order — an order-based rule inverts itself after every
-        // insert and made the spacer flip back and forth on each mousemove.
         const before = cols > 1 ? px < r.left + r.width / 2 : py < r.top + r.height / 2;
         if (before ? over.previousElementSibling !== spacer : over.nextElementSibling !== spacer)
           flip(() => before ? over.before(spacer) : over.after(spacer));
+      };
+
+      // One render per display frame. The card tracks the pointer 1:1 — no
+      // positional lerp (lag reads as jitter). Tilt comes from velocity
+      // measured between pointer EVENTS (px/ms), never per frame: frame-delta
+      // velocity reads 0 on frames without a fresh event, which made the tilt
+      // target flap between full and zero at the display rate — the tremble.
+      // Reorder hit-tests are coalesced to at most one per frame.
+      const render = now => {
+        const dt = Math.min(40, Math.max(1, now - lastT)); lastT = now;
+        x = px - offX - r0.left; y = py - offY - r0.top;
+        const target = now - lastMT > 90 ? 0 : Math.max(-4, Math.min(4, vel * 5));
+        tilt += (target - tilt) * Math.min(1, dt / 90);
+        panel.style.transform =
+          `translate3d(${x}px,${y}px,0) rotate(${tilt.toFixed(2)}deg) scale(1.03)`;
+        if (pending) { pending = false; hitTest(); }
+        if (!done) raf = requestAnimationFrame(render);
+      };
+      raf = requestAnimationFrame(render);
+
+      const move = ev => {
+        px = ev.clientX; py = ev.clientY; pending = true;
+        const mdt = ev.timeStamp - lastMT;
+        if (mdt > 0) {
+          vel += ((ev.clientX - lastMX) / mdt - vel) * Math.min(1, mdt / 50);
+          lastMX = ev.clientX; lastMT = ev.timeStamp;
+        }
       };
       const up = () => {
         window.removeEventListener('pointermove', move);
@@ -1618,7 +1633,7 @@ DASHBOARD_HTML = """<!doctype html>
         if (document.hidden) { commit(); return; }   // no frames will run — settle instantly
         const d = spacer.getBoundingClientRect();
         const anim = panel.animate(
-          [{ transform:`translate3d(${x}px,${y}px,0) rotate(${tilt}deg) scale(${scale})` },
+          [{ transform:`translate3d(${x}px,${y}px,0) rotate(${tilt}deg) scale(1.03)` },
            { transform:`translate3d(${d.left - r0.left}px,${d.top - r0.top}px,0) rotate(0deg) scale(1)` }],
           { duration: 400, easing:'cubic-bezier(.3,1.28,.35,1)' });  // gentle overshoot settle
         anim.onfinish = anim.oncancel = commit;
