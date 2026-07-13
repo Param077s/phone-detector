@@ -1136,16 +1136,18 @@ STYLE = """
   .panel.enter { animation: panelIn .55s var(--ease) backwards; animation-delay: calc(var(--i,0) * 60ms); }
   @keyframes panelIn { from { opacity:0; transform: translateY(18px) scale(.965); } }
   .grid .panel-body { cursor: zoom-in; }
-  /* Drag-to-reorder */
+  /* Drag-to-reorder — slot-based transform engine (see JS) */
   .grid.sortable .panel-head { cursor:grab; user-select:none; touch-action:none; }
   .grid.sortable .panel-head:active { cursor:grabbing; }
-  .grid.reordering .panel { transition:none; will-change:transform; }  /* pre-promote: FLIP starts cost no paint */
-  .grid.reordering .panel:hover { transform:none; box-shadow:none; border-color:#232a34; }
+  /* every panel is promoted to its own isolated compositor layer for the whole
+     drag, so both the dragged card and the gliding siblings are pure GPU work */
+  .grid.reordering .panel { transition:none; will-change:transform;
+    contain:layout paint style; backface-visibility:hidden; }
+  .grid.reordering .panel:hover { box-shadow:none; border-color:#232a34; }
   .grid.reordering .panel-body img { transform:none !important; }
-  .panel.dragging { transition:none; cursor:grabbing; will-change:transform;
+  .panel.dragging { transition:none !important; cursor:grabbing; z-index:40;
     box-shadow:0 30px 70px rgba(0,0,0,.62), 0 0 0 1px rgba(62,207,142,.3); border-color:#3a4557; }
   .panel.dragging .cam-snap { pointer-events:none; }
-  .drag-spacer { border:1.5px dashed #2c3542; border-radius:12px; background:rgba(255,255,255,.02); }
   /* Fullscreen camera focus view */
   #focus { position:fixed; inset:0; background:rgba(5,7,10,.66); backdrop-filter:blur(7px);
     -webkit-backdrop-filter:blur(7px); opacity:0; pointer-events:none;
@@ -1520,10 +1522,22 @@ DASHBOARD_HTML = """<!doctype html>
       else obStep(1);
     }
 
-    // ---- Fluid drag-to-rearrange (admin only) ----
-    // Grab anywhere on a panel's title bar. The card follows the pointer 1:1
-    // on the compositor (transform-only, rigid — no lerp, no tilt);
-    // siblings FLIP out of the way; release settles the card into its slot.
+    // ---- Slot-based drag engine (admin only) — Apple-caliber reorder ----
+    // The DOM is NEVER mutated during a drag. At grab we freeze every panel's
+    // slot geometry once; the dragged card and every sibling stay in normal
+    // flow and are moved with translate3d() only. Logical order lives in an
+    // in-memory index; the DOM reorders exactly once, on drop, with every
+    // transform cleared in the same frame so nothing jumps.
+    //
+    //   • Dragged card: rigid, tracks the pointer 1:1 (no lerp, no tilt).
+    //   • Siblings: each eases toward a target offset with a retargetable
+    //     spring (exponential integrator) — new targets steer the existing
+    //     motion, they never cancel/restart an animation.
+    //   • Insertion: the card's centre picks the nearest fixed slot, with
+    //     45%-of-a-slot distance hysteresis — direction-agnostic, so tremor
+    //     or hovering can never oscillate a neighbour.
+    //   • Auto-scroll near the grid edges; geometry stays valid because the
+    //     card tracks the viewport pointer and slot deltas are scroll-invariant.
     function initSortable() {
       const grid = document.getElementById('grid');
       grid.classList.add('sortable');
@@ -1535,112 +1549,143 @@ DASHBOARD_HTML = """<!doctype html>
         };
       });
     }
-    function startDrag(e, panel, grid) {
+
+    function startDrag(e, dragEl, grid) {
       if (e.button !== 0) return;
       e.preventDefault();
-      const r0 = panel.getBoundingClientRect();
-      const offX = e.clientX - r0.left, offY = e.clientY - r0.top;
+      try { e.target.setPointerCapture(e.pointerId); } catch (_) {}
 
-      // leave a subtle "drop here" outline in the vacated slot
-      const spacer = document.createElement('div');
-      spacer.className = 'drag-spacer';
-      spacer.style.width = r0.width + 'px'; spacer.style.height = r0.height + 'px';
-      panel.after(spacer);
+      const gridRect = grid.getBoundingClientRect();
+      const sx0 = grid.scrollLeft, sy0 = grid.scrollTop;
+      const cx0 = e.clientX, cy0 = e.clientY;      // pointer at grab
+      const panels = [...grid.querySelectorAll('.panel')];
+      const n = panels.length;
+      const dragIndex = panels.indexOf(dragEl);
+
+      // --- Freeze slot geometry ONCE (content coords). Never measured again. ---
+      const slot = panels.map(p => {
+        const r = p.getBoundingClientRect();
+        const left = r.left - gridRect.left + grid.scrollLeft;
+        const top  = r.top  - gridRect.top  + grid.scrollTop;
+        return { left, top, cx: left + r.width / 2, cy: top + r.height / 2 };
+      });
+      const span = (() => { const r = dragEl.getBoundingClientRect(); return Math.min(r.width, r.height); })();
+
+      // --- Sibling spring state: transform offset from each panel's own home ---
+      const others = panels.filter(p => p !== dragEl);
+      const homeIdx = new Map(panels.map((p, i) => [p, i]));   // panel -> its own slot
+      const cur = new Map(others.map(p => [p, { x: 0, y: 0 }]));  // rendered offset
+      const tgt = new Map(others.map(p => [p, { x: 0, y: 0 }]));  // desired offset
+
       grid.classList.add('reordering');
-      panel.classList.add('dragging');
-      Object.assign(panel.style, { position:'fixed', left:r0.left+'px', top:r0.top+'px',
-        width:r0.width+'px', height:r0.height+'px', margin:'0', zIndex:30 });
+      dragEl.classList.add('dragging');
 
-      let px = e.clientX, py = e.clientY;         // live pointer (from events)
-      let x = 0, y = 0;                           // rendered state
-      let raf = 0, done = false, pending = false;
-
-      // Reorder model: the grid is a set of fixed SLOTS, and the spacer
-      // occupies exactly one. Each frame, find the slot whose centre is
-      // nearest to the dragged CARD'S centre (the card is what the user
-      // aligns — not the pointer, whose grab-offset is arbitrary) and move
-      // the spacer there — but only when that slot is decisively closer
-      // (by 25% of a slot) than the spacer's current one. Distance
-      // hysteresis is direction-agnostic: approach from any angle, and
-      // neither hand tremor nor hovering can ever flip a neighbour back
-      // and forth. Slot centres are SETTLED positions (measured only after
-      // a mutation), never mid-animation ones, which oscillate.
-      let slots = [];                              // [{el,cx,cy,w,h}] in DOM order, spacer included
-      const measure = () => {
-        slots = [...grid.children]
-          .filter(el => el === spacer || (el !== panel && el.classList.contains('panel')))
-          .map(el => { const r = el.getBoundingClientRect();
-            return { el, cx: r.left + r.width / 2, cy: r.top + r.height / 2, w: r.width, h: r.height }; });
-      };
-      measure();
-      let stale = false;
-      const onScroll = () => { stale = true; };    // grid scrolled mid-drag: rects moved
-      grid.addEventListener('scroll', onScroll, { passive: true });
-
-      // FLIP siblings only when the spacer actually changes slot — no thrash
-      const flip = mutate => {
-        const sibs = [...grid.querySelectorAll('.panel:not(.dragging)')];
-        const first = new Map(sibs.map(s => [s, s.getBoundingClientRect()]));
-        mutate();
-        sibs.forEach(s => {
-          const f = first.get(s), l = s.getBoundingClientRect();
-          const dx = f.left - l.left, dy = f.top - l.top;
-          if (dx || dy) s.animate(
-            [{ transform:`translate(${dx}px,${dy}px)` }, { transform:'none' }],
-            { duration: 340, easing:'cubic-bezier(.22,.9,.3,1)' });
+      // insIndex = the physical slot the card currently occupies (0..n-1).
+      // dragIndex is the identity insertion. Each sibling's target slot follows.
+      let insIndex = dragIndex;
+      const retarget = () => {
+        others.forEach((p, rank) => {
+          const targetSlot = rank < insIndex ? rank : rank + 1;
+          const from = slot[homeIdx.get(p)], to = slot[targetSlot];
+          const t = tgt.get(p); t.x = to.left - from.left; t.y = to.top - from.top;
         });
-        measure();
       };
 
-      const hitTest = () => {
-        if (stale) { stale = false; measure(); }
-        const ccx = r0.left + x + r0.width / 2, ccy = r0.top + y + r0.height / 2;
-        let si = 0, ni = 0, best = Infinity, cur = 0;
-        slots.forEach((s, i) => {
-          const d = Math.hypot(s.cx - ccx, s.cy - ccy);
-          if (s.el === spacer) { si = i; cur = d; }
-          if (d < best) { best = d; ni = i; }
+      // Card centre (content coords) -> nearest fixed slot, with distance
+      // hysteresis: a settled slot only yields when another is closer by >45%
+      // of a slot. Direction-agnostic (true Euclidean), so no axis oscillation.
+      const card = { x: 0, y: 0, s: 1.03 };
+      const chooseIndex = () => {
+        const ccx = slot[dragIndex].cx + card.x, ccy = slot[dragIndex].cy + card.y;
+        let best = insIndex, bestD = Infinity, curD = Infinity;
+        for (let k = 0; k < n; k++) {
+          const d = Math.hypot(slot[k].cx - ccx, slot[k].cy - ccy);
+          if (k === insIndex) curD = d;
+          if (d < bestD) { bestD = d; best = k; }
+        }
+        if (best !== insIndex && curD - bestD > 0.45 * span) { insIndex = best; retarget(); }
+      };
+
+      let pointerX = cx0, pointerY = cy0, edge = 0;
+      let phase = 'drag', raf = 0, last = performance.now();
+      const TAU_SIB = 90, TAU_CARD = 55;           // ms glide constants
+
+      const frame = now => {
+        const dt = Math.min(40, now - last); last = now;
+        const aS = 1 - Math.exp(-dt / TAU_SIB);
+
+        if (phase === 'drag') {
+          if (edge) grid.scrollTop += edge * dt / 16;
+          // card follows the viewport pointer 1:1; + any auto-scroll delta so it
+          // stays under the finger even as content scrolls beneath it.
+          card.x = (pointerX - cx0) + (grid.scrollLeft - sx0);
+          card.y = (pointerY - cy0) + (grid.scrollTop  - sy0);
+          card.s += (1.03 - card.s) * aS;
+          chooseIndex();
+        } else {
+          const aC = 1 - Math.exp(-dt / TAU_CARD);
+          card.x += (cardTgtX - card.x) * aC;
+          card.y += (cardTgtY - card.y) * aC;
+          card.s += (1 - card.s) * aC;
+        }
+        dragEl.style.transform = `translate3d(${card.x}px,${card.y}px,0) scale(${card.s.toFixed(4)})`;
+
+        let settled = phase === 'settle';
+        others.forEach(p => {
+          const c = cur.get(p), t = tgt.get(p);
+          c.x += (t.x - c.x) * aS; c.y += (t.y - c.y) * aS;
+          if (Math.abs(t.x - c.x) > 0.3 || Math.abs(t.y - c.y) > 0.3) settled = false;
+          p.style.transform = `translate3d(${c.x}px,${c.y}px,0)`;
         });
-        if (ni === si) return;
-        if (cur - best < 0.25 * Math.min(slots[ni].w, slots[ni].h)) return;  // not decisively closer
-        const target = slots[ni].el;
-        flip(() => ni < si ? target.before(spacer) : target.after(spacer));
+
+        if (phase === 'settle') {
+          if (Math.abs(cardTgtX - card.x) > 0.3 || Math.abs(cardTgtY - card.y) > 0.3) settled = false;
+          if (settled) { commit(); return; }
+        }
+        raf = requestAnimationFrame(frame);
+      };
+      raf = requestAnimationFrame(frame);
+
+      const move = ev => {
+        pointerX = ev.clientX; pointerY = ev.clientY;
+        const EDGE = 64, SPEED = 14;               // auto-scroll ramp near edges
+        if (ev.clientY < gridRect.top + EDGE)
+          edge = -SPEED * Math.min(1, (gridRect.top + EDGE - ev.clientY) / EDGE);
+        else if (ev.clientY > gridRect.bottom - EDGE)
+          edge = SPEED * Math.min(1, (ev.clientY - (gridRect.bottom - EDGE)) / EDGE);
+        else edge = 0;
       };
 
-      // One render per display frame. The card is RIGID: it tracks the
-      // pointer 1:1 with no lerp, no rotation, no per-frame scale changes —
-      // any of those reads as lag or wobble. Precision feels native.
-      // Reorder hit-tests are coalesced to at most one per frame.
-      const render = () => {
-        x = px - offX - r0.left; y = py - offY - r0.top;
-        panel.style.transform = `translate3d(${x}px,${y}px,0) scale(1.03)`;
-        if (pending) { pending = false; hitTest(); }
-        if (!done) raf = requestAnimationFrame(render);
-      };
-      raf = requestAnimationFrame(render);
-
-      const move = ev => { px = ev.clientX; py = ev.clientY; pending = true; };
+      let cardTgtX = 0, cardTgtY = 0;
       const up = () => {
         window.removeEventListener('pointermove', move);
         window.removeEventListener('pointerup', up);
         window.removeEventListener('pointercancel', up);
-        grid.removeEventListener('scroll', onScroll);
-        done = true; cancelAnimationFrame(raf);
-        const commit = () => {
-          panel.style.cssText = '';
-          spacer.replaceWith(panel);
-          panel.classList.remove('dragging');
-          grid.classList.remove('reordering');
-          saveOrder(grid);
-        };
-        if (document.hidden) { commit(); return; }   // no frames will run — settle instantly
-        const d = spacer.getBoundingClientRect();
-        const anim = panel.animate(
-          [{ transform:`translate3d(${x}px,${y}px,0) scale(1.03)` },
-           { transform:`translate3d(${d.left - r0.left}px,${d.top - r0.top}px,0) scale(1)` }],
-          { duration: 300, easing:'cubic-bezier(.3,1.12,.35,1)' });  // crisp settle, hint of spring
-        anim.onfinish = anim.oncancel = commit;
+        edge = 0;
+        cardTgtX = slot[insIndex].left - slot[dragIndex].left;   // scroll-invariant delta
+        cardTgtY = slot[insIndex].top  - slot[dragIndex].top;
+        phase = 'settle';
+        if (document.hidden) { cancelAnimationFrame(raf); commit(); }   // no frames will run
       };
+
+      let committed = false;
+      function commit() {
+        if (committed) return; committed = true;   // pointerup + pointercancel can both fire
+        cancelAnimationFrame(raf);
+        // The ONE and only DOM mutation: reorder to the in-memory order, then
+        // clear every transform in the same frame. Because each element is
+        // visually already at its new slot, clearing produces zero movement.
+        const ordered = others.slice();
+        ordered.splice(insIndex, 0, dragEl);
+        const frag = document.createDocumentFragment();
+        ordered.forEach(p => { p.style.transform = ''; frag.appendChild(p); });
+        dragEl.classList.remove('dragging');
+        dragEl.style.cssText = '';
+        grid.appendChild(frag);
+        grid.classList.remove('reordering');
+        saveOrder(grid);
+      }
+
       window.addEventListener('pointermove', move);
       window.addEventListener('pointerup', up);
       window.addEventListener('pointercancel', up);
