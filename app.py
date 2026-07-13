@@ -1178,11 +1178,35 @@ STYLE = """
     padding:5px 12px; border-radius:20px; border:1px solid rgba(255,255,255,.08);
     opacity:0; transition:opacity .25s var(--ease); pointer-events:none; white-space:nowrap; }
   .focus-card:hover .focus-hint { opacity:1; }
-  .drag-handle { cursor:grab; color:#5b6675; font-size:15px; line-height:1;
+  .drag-handle { cursor:grab; color:#5b6675; line-height:0;
     padding:0 4px 0 0; margin-right:-2px; user-select:none; touch-action:none;
-    transition:color .12s; letter-spacing:-1px; }
-  .drag-handle:hover { color:#e6e9ef; }
+    transition:color .15s, transform .2s cubic-bezier(.3,1.4,.4,1); }
+  .drag-handle:hover { color:#3ecf8e; transform:scale(1.18); }
   .drag-handle:active { cursor:grabbing; }
+  /* Direction pad — hover the ✥ handle, click arrows to walk a camera around.
+     It behaves like a remote: it stays under your cursor while the panel
+     travels, so repeated clicks step it across the grid. */
+  #dpad { position:fixed; z-index:80; display:grid;
+    grid-template-columns:repeat(3,28px); grid-template-rows:repeat(3,28px); gap:2px;
+    padding:7px; background:rgba(15,20,27,.9);
+    backdrop-filter:blur(14px); -webkit-backdrop-filter:blur(14px);
+    border:1px solid rgba(255,255,255,.1); border-radius:14px;
+    box-shadow:0 18px 50px rgba(0,0,0,.55), inset 0 1px 0 rgba(255,255,255,.06);
+    opacity:0; transform:scale(.86) translateY(-5px); transform-origin:top left;
+    pointer-events:none;
+    transition:opacity .15s var(--ease), transform .22s cubic-bezier(.3,1.45,.4,1); }
+  #dpad.open { opacity:1; transform:none; pointer-events:auto; }
+  #dpad button { border:none; background:transparent; border-radius:9px; color:#8b95a3;
+    display:flex; align-items:center; justify-content:center; cursor:pointer; padding:0;
+    transition:background .15s, color .15s, transform .18s cubic-bezier(.3,1.4,.4,1); }
+  #dpad button:hover { background:rgba(62,207,142,.16); color:#3ecf8e; transform:scale(1.15); }
+  #dpad button:active { transform:scale(.9); }
+  #dpad button[hidden] { display:none; }
+  #dpad .dp-up { grid-area:1/2; } #dpad .dp-left { grid-area:2/1; }
+  #dpad .dp-right { grid-area:2/3; } #dpad .dp-down { grid-area:3/2; }
+  #dpad .dp-c { grid-area:2/2; display:flex; align-items:center; justify-content:center; }
+  #dpad .dp-c i { width:5px; height:5px; border-radius:50%; background:#3ecf8e;
+    box-shadow:0 0 8px rgba(62,207,142,.8); }
   .panel-head { display:flex; align-items:center; gap:8px; padding:10px 13px;
     border-bottom:1px solid #232a34; font-size:13px; font-weight:600; }
   .panel-body { flex:1; background:#000; display:flex; align-items:center; justify-content:center; min-height:0; }
@@ -1456,7 +1480,9 @@ DASHBOARD_HTML = """<!doctype html>
     };
     function panelHTML(c, i) {
       const place = (c.location && c.location.trim()) ? c.location : c.label;
-      const handle = IS_ADMIN ? `<span class="drag-handle" title="Drag to rearrange">⠿</span>` : '';
+      const handle = IS_ADMIN ? `<span class="drag-handle" title="Drag to move — hover for arrows">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M12 2v20M2 12h20M9 5l3-3 3 3M9 19l3 3 3-3M5 9 2 12l3 3M19 9l3 3-3 3"/></svg></span>` : '';
       const senderBtn = c.source === 'browser'
         ? `<button class="icon-btn" title="Open camera link — open this on the device that films"
              onclick="event.stopPropagation(); window.open('/sender/${c.id}','_blank')">
@@ -1550,12 +1576,18 @@ DASHBOARD_HTML = """<!doctype html>
           if (e.target.closest('.icon-btn') || e.target.closest('.status-pill')) return;
           startDrag(e, p, grid);
         };
+        const hd = p.querySelector('.drag-handle');
+        if (hd) hd.onpointerenter = () => {
+          if (!grid.classList.contains('reordering')) dpShow(p);
+        };
       });
+      grid.onscroll = dpHide;                    // rects shift under the pad
     }
 
     function startDrag(e, dragEl, grid) {
       if (e.button !== 0) return;
       e.preventDefault();
+      dpHide();                                  // free-drag takes over from the pad
       try { e.target.setPointerCapture(e.pointerId); } catch (_) {}
 
       const gridRect = grid.getBoundingClientRect();
@@ -1693,6 +1725,95 @@ DASHBOARD_HTML = """<!doctype html>
       window.addEventListener('pointerup', up);
       window.addEventListener('pointercancel', up);
     }
+    // ---- Direction pad: hover the ✥ handle, click arrows to nudge a camera ----
+    // Arrows adapt to where the panel sits (corner = 2, edge = 3, interior = 4).
+    // The pad is a remote control: it stays under your cursor while the panel
+    // glides away, so repeated clicks walk a camera across the grid. It fades
+    // out when the cursor leaves its neighbourhood.
+    const CHEV = d => { const r = { up:180, right:270, down:0, left:90 }[d];
+      return `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="transform:rotate(${r}deg)"><path d="m6 9 6 6 6-6"/></svg>`; };
+    const dpad = document.createElement('div');
+    dpad.id = 'dpad';
+    dpad.innerHTML = `<button class="dp-up" data-dir="up" title="Move up">${CHEV('up')}</button>
+      <button class="dp-left" data-dir="left" title="Move left">${CHEV('left')}</button>
+      <span class="dp-c"><i></i></span>
+      <button class="dp-right" data-dir="right" title="Move right">${CHEV('right')}</button>
+      <button class="dp-down" data-dir="down" title="Move down">${CHEV('down')}</button>`;
+    document.body.appendChild(dpad);
+    let dpPanel = null, dpBusy = false;
+
+    function dpCols() {                          // columns from the grid's computed
+      const g = document.getElementById('grid'); // track list — layout truth, immune
+      const v = getComputedStyle(g).gridTemplateColumns.split(' ').filter(Boolean);
+      return Math.max(1, v.length);              // to mid-animation transforms
+    }
+    function dpUpdate() {                        // show only the arrows that exist here
+      const ps = [...document.querySelectorAll('#grid .panel')];
+      const i = ps.indexOf(dpPanel), n = ps.length, C = dpCols();
+      if (i < 0) { dpHide(); return; }
+      const ok = { up: i - C >= 0, down: i + C < n, left: i % C > 0, right: i % C < C - 1 && i + 1 < n };
+      dpad.querySelectorAll('button').forEach(b => b.hidden = !ok[b.dataset.dir]);
+    }
+    function dpShow(panel) {
+      const wasOpen = dpad.classList.contains('open');
+      dpPanel = panel;
+      dpUpdate();
+      if (!dpPanel) return;
+      const hr = panel.querySelector('.drag-handle').getBoundingClientRect();
+      const w = dpad.offsetWidth || 104, h = dpad.offsetHeight || 104;
+      dpad.style.left = Math.max(8, Math.min(innerWidth  - w - 8, hr.left - 12)) + 'px';
+      dpad.style.top  = Math.max(8, Math.min(innerHeight - h - 8, hr.bottom + 8)) + 'px';
+      if (!wasOpen) dpad.classList.add('open');
+    }
+    function dpHide() { dpad.classList.remove('open'); dpPanel = null; }
+
+    addEventListener('pointermove', ev => {      // fade when cursor leaves the neighbourhood
+      if (!dpPanel || dpBusy) return;
+      const R = 26;
+      const near = b => b && ev.clientX > b.left - R && ev.clientX < b.right + R &&
+                        ev.clientY > b.top - R && ev.clientY < b.bottom + R;
+      const hd = dpPanel.querySelector('.drag-handle');
+      if (!near(dpad.getBoundingClientRect()) && !near(hd && hd.getBoundingClientRect()))
+        dpHide();
+    }, { passive: true });
+
+    dpad.addEventListener('click', ev => {
+      const btn = ev.target.closest('button');
+      if (btn && !dpBusy && dpPanel) dpSwap(btn.dataset.dir);
+    });
+
+    function dpSwap(dir) {
+      const grid = document.getElementById('grid');
+      const ps = [...grid.querySelectorAll('.panel')];
+      const i = ps.indexOf(dpPanel), C = dpCols();
+      const j = dir === 'up' ? i - C : dir === 'down' ? i + C : dir === 'left' ? i - 1 : i + 1;
+      if (i < 0 || j < 0 || j >= ps.length) return;
+      const a = dpPanel, b = ps[j];
+      const ra = a.getBoundingClientRect(), rb = b.getBoundingClientRect();
+      const mark = document.createElement('i');  // swap a and b in the DOM
+      a.replaceWith(mark); b.replaceWith(a); mark.replaceWith(b);
+      const na = a.getBoundingClientRect(), nb = b.getBoundingClientRect();
+      const dax = ra.left - na.left, day = ra.top - na.top;
+      const dbx = rb.left - nb.left, dby = rb.top - nb.top;
+      dpBusy = true; a.style.zIndex = 30;        // traveller rides above
+      const EASE = 'cubic-bezier(.32,1.16,.35,1)';
+      const anim = a.animate(
+        [{ transform: `translate(${dax}px,${day}px) scale(1)` },
+         { transform: `translate(${dax/2}px,${day/2}px) scale(1.04)`, offset: .45 },
+         { transform: 'translate(0,0) scale(1)' }],
+        { duration: 480, easing: EASE });
+      b.animate(
+        [{ transform: `translate(${dbx}px,${dby}px) scale(1)` },
+         { transform: `translate(${dbx/2}px,${dby/2}px) scale(.985)`, offset: .5 },
+         { transform: 'translate(0,0) scale(1)' }],
+        { duration: 480, easing: EASE });
+      const clear = () => { a.style.zIndex = ''; dpBusy = false; };
+      anim.onfinish = anim.oncancel = clear;
+      setTimeout(clear, 560);                    // safety: never wedge the pad
+      dpUpdate();                                // arrows adapt to the new spot
+      saveOrder(grid);
+    }
+
     async function saveOrder(grid) {
       const order = [...grid.querySelectorAll('.panel')].map(p => p.dataset.cam).filter(Boolean);
       try {
