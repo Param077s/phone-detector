@@ -91,9 +91,30 @@ GET = f'''
 '''
 page = page.replace('  <section id="privacy" class="doctrine">', GET + '\n  <section id="privacy" class="doctrine">')
 
-DLSWAP = ("<script>(function(){var w=/Win|Linux/.test(navigator.platform)&&!/Mac/.test(navigator.platform);"
-          f"if(w)document.querySelectorAll('.js-dl').forEach(function(a){{a.href='{ZIP}';}});}})();</script>")
-page = page.replace('</body></html>', DLSWAP + '\n</body></html>')
+# Platform-aware download CTAs:
+#  - iOS / Android → download buttons become a "coming soon for iOS/Android" pill
+#  - Windows / Linux desktops → download links point at the .zip instead of the .dmg
+SOON_CSS = ("<style>.soon{pointer-events:none;cursor:default}"
+            "a.btn.soon{background:rgba(62,207,142,.08);color:var(--grn);"
+            "border:1px dashed rgba(62,207,142,.4);box-shadow:none}"
+            "a.btn.soon::before{content:'\\25CF';font-size:7px;animation:pulse 1.6s infinite}"
+            "a.soon:not(.btn){color:var(--grn)}</style>")
+DLSWAP = ("<script>(function(){var ua=navigator.userAgent||'';"
+          "var ios=/iPhone|iPad|iPod/.test(ua)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);"
+          "var andr=/Android/i.test(ua);"
+          "if(ios||andr){var os=ios?'IOS':'ANDROID';"
+          "var get=document.getElementById('get');"
+          "if(get){var c=get.querySelectorAll('.ctas a');if(c[1])c[1].style.display='none';"
+          "var sub=get.querySelector('.sec-sub');"
+          "if(sub)sub.textContent='Vigil runs on Mac, Windows and Linux today \\u2014 the '"
+          "+(ios?'iOS':'Android')+' app is coming soon. Open this page on your computer to download.';}"
+          "document.querySelectorAll('.js-dl, #get .ctas a').forEach(function(a){"
+          "if(a.style.display==='none')return;"
+          "a.removeAttribute('href');a.removeAttribute('download');a.classList.add('soon');"
+          "a.textContent=a.closest('.site-head')?'COMING SOON':'COMING SOON FOR '+os;});}"
+          "else if(/Win|Linux/.test(navigator.platform)&&!/Mac/.test(navigator.platform)){"
+          f"document.querySelectorAll('.js-dl').forEach(function(a){{a.href='{ZIP}';}});}}}})();</script>")
+page = page.replace('</body></html>', SOON_CSS + DLSWAP + '\n</body></html>')
 
 os.makedirs("docs", exist_ok=True)
 open("docs/index.html", "w").write(page)
