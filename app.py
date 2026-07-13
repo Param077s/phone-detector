@@ -48,6 +48,40 @@ try:
 except Exception:
     pass
 
+# OpenCV's FFmpeg backend is NOT thread-safe while a capture is being OPENED:
+# opening one stream (its one-time FFmpeg registration + av_option setup) while
+# other camera threads are mid-read races on FFmpeg's global state and segfaults
+# (seen when adding an IP/RTSP camera while other feeds are live). Serialise every
+# VideoCapture construction through this lock so no two opens — and no open racing
+# the global init — ever run at once. Reads on already-open captures stay parallel.
+_capture_open_lock = threading.Lock()
+
+
+def open_capture(src):
+    """Open a cv2.VideoCapture with the FFmpeg-open race serialised."""
+    with _capture_open_lock:
+        cap = cv2.VideoCapture(src)
+        try:
+            cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)   # don't queue stale frames
+        except Exception:
+            pass
+        return cap
+
+
+def _prewarm_ffmpeg():
+    """Trigger OpenCV's one-time global FFmpeg registration NOW, at startup on the
+    main thread. Done once, it becomes a no-op — so it can never later fire while a
+    camera thread is mid-read, which is the concurrent-init crash we hit when an IP
+    camera was added. The bogus path fails to open instantly; we only want the init."""
+    try:
+        with _capture_open_lock:
+            cv2.VideoCapture("vigil://prewarm", cv2.CAP_FFMPEG).release()
+    except Exception:
+        pass
+
+
+_prewarm_ffmpeg()
+
 
 # ---------------------------------------------------------------------------
 # SETTINGS
@@ -535,12 +569,7 @@ class CameraStream:
         self.thread.start()
 
     def _open(self):
-        cap = cv2.VideoCapture(_resolve_source(self.source))
-        try:
-            cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)     # don't queue old frames
-        except Exception:
-            pass
-        return cap
+        return open_capture(_resolve_source(self.source))   # serialised FFmpeg open
 
     def _reader(self):
         self.cap = self._open()                     # open IN this thread (thread-safe)
@@ -783,7 +812,7 @@ class Producer:
                 if inline_cap is None or inline_source != source:
                     if inline_cap is not None:
                         inline_cap.release()
-                    inline_cap = cv2.VideoCapture(_resolve_source(source))
+                    inline_cap = open_capture(_resolve_source(source))   # serialised FFmpeg open
                     inline_source = source
                 frame = None
                 if inline_cap is not None and inline_cap.isOpened():
