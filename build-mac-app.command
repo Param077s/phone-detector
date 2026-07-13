@@ -119,7 +119,7 @@ PLIST
 
 # --- 5) Icon (drawn with the venv's Pillow, then packed into .icns) ---------
 echo "Building icon…"
-PYBIN="./venv/bin/python"
+PYBIN="${BUILD_PY:-./venv/bin/python}"
 [ -x "$PYBIN" ] || PYBIN="python3"
 if "$PYBIN" - <<'PYICON'
 try:
