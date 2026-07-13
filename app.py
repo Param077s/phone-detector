@@ -1194,7 +1194,8 @@ STYLE = """
     box-shadow:0 18px 50px rgba(0,0,0,.55), inset 0 1px 0 rgba(255,255,255,.06);
     opacity:0; transform:scale(.86) translateY(-5px); transform-origin:top left;
     pointer-events:none;
-    transition:opacity .15s var(--ease), transform .22s cubic-bezier(.3,1.45,.4,1); }
+    transition:opacity .15s var(--ease), transform .22s cubic-bezier(.3,1.45,.4,1),
+      left .46s cubic-bezier(.32,1.1,.36,1), top .46s cubic-bezier(.32,1.1,.36,1); }
   #dpad.open { opacity:1; transform:none; pointer-events:auto; }
   #dpad button { border:none; background:transparent; border-radius:9px; color:#8b95a3;
     display:flex; align-items:center; justify-content:center; cursor:pointer; padding:0;
@@ -1727,9 +1728,10 @@ DASHBOARD_HTML = """<!doctype html>
     }
     // ---- Direction pad: hover the ✥ handle, click arrows to nudge a camera ----
     // Arrows adapt to where the panel sits (corner = 2, edge = 3, interior = 4).
-    // The pad is a remote control: it stays under your cursor while the panel
-    // glides away, so repeated clicks walk a camera across the grid. It fades
-    // out when the cursor leaves its neighbourhood.
+    // The pad STAYS STUCK TO the camera it controls: press an arrow and the pad
+    // glides along with the camera to its new slot, so the arrows always belong
+    // to the camera you're moving and you can keep tapping to walk it across the
+    // wall. It fades out when the cursor leaves its neighbourhood.
     const CHEV = d => { const r = { up:180, right:270, down:0, left:90 }[d];
       return `<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" style="transform:rotate(${r}deg)"><path d="m6 9 6 6 6-6"/></svg>`; };
     const dpad = document.createElement('div');
@@ -1754,15 +1756,24 @@ DASHBOARD_HTML = """<!doctype html>
       const ok = { up: i - C >= 0, down: i + C < n, left: i % C > 0, right: i % C < C - 1 && i + 1 < n };
       dpad.querySelectorAll('button').forEach(b => b.hidden = !ok[b.dataset.dir]);
     }
+    // place the pad next to a handle rect. glide=false snaps (fresh open, no
+    // slide-in from a stale spot); glide=true lets the CSS left/top transition
+    // carry it — used when it follows a camera to its new slot.
+    const PAD = 104;                            // fixed 3x3 pad; reading offsetWidth
+    function dpPlace(hr, glide) {                // on first open mismeasured badly
+      const w = PAD, h = PAD;
+      const L = Math.max(8, Math.min(innerWidth  - w - 8, hr.left - 12));
+      const T = Math.max(8, Math.min(innerHeight - h - 8, hr.bottom + 8));
+      if (!glide) dpad.style.transition = 'none';
+      dpad.style.left = L + 'px'; dpad.style.top = T + 'px';
+      if (!glide) { void dpad.offsetWidth; dpad.style.transition = ''; }  // reflow, restore CSS
+    }
     function dpShow(panel) {
       const wasOpen = dpad.classList.contains('open');
       dpPanel = panel;
       dpUpdate();
       if (!dpPanel) return;
-      const hr = panel.querySelector('.drag-handle').getBoundingClientRect();
-      const w = dpad.offsetWidth || 104, h = dpad.offsetHeight || 104;
-      dpad.style.left = Math.max(8, Math.min(innerWidth  - w - 8, hr.left - 12)) + 'px';
-      dpad.style.top  = Math.max(8, Math.min(innerHeight - h - 8, hr.bottom + 8)) + 'px';
+      dpPlace(panel.querySelector('.drag-handle').getBoundingClientRect(), wasOpen);
       if (!wasOpen) dpad.classList.add('open');
     }
     function dpHide() { dpad.classList.remove('open'); dpPanel = null; }
@@ -1793,9 +1804,12 @@ DASHBOARD_HTML = """<!doctype html>
       const mark = document.createElement('i');  // swap a and b in the DOM
       a.replaceWith(mark); b.replaceWith(a); mark.replaceWith(b);
       const na = a.getBoundingClientRect(), nb = b.getBoundingClientRect();
+      // handle rect at a's NEW slot, captured before any transform is applied
+      const nh = a.querySelector('.drag-handle').getBoundingClientRect();
       const dax = ra.left - na.left, day = ra.top - na.top;
       const dbx = rb.left - nb.left, dby = rb.top - nb.top;
       dpBusy = true; a.style.zIndex = 30;        // traveller rides above
+      dpPlace(nh, true);                          // pad glides along with the camera
       const EASE = 'cubic-bezier(.32,1.16,.35,1)';
       const anim = a.animate(
         [{ transform: `translate(${dax}px,${day}px) scale(1)` },
