@@ -1568,13 +1568,21 @@ DASHBOARD_HTML = """<!doctype html>
       };
       raf = requestAnimationFrame(render);
 
+      // Hit-test against SETTLED slot rects (cached, re-measured only after a
+      // mutation) — never against mid-animation positions, which oscillate.
+      const cols = getComputedStyle(grid).gridTemplateColumns.split(' ').length;
+      let slotRects = new Map([...grid.querySelectorAll('.panel:not(.dragging)')]
+        .map(s => [s, s.getBoundingClientRect()]));
+
       // FLIP siblings only when the spacer actually changes slot — no thrash
       const flip = mutate => {
         const sibs = [...grid.querySelectorAll('.panel:not(.dragging)')];
         const first = new Map(sibs.map(s => [s, s.getBoundingClientRect()]));
         mutate();
+        slotRects = new Map();
         sibs.forEach(s => {
           const f = first.get(s), l = s.getBoundingClientRect();
+          slotRects.set(s, l);                     // settled rect, pre-animation
           const dx = f.left - l.left, dy = f.top - l.top;
           if (dx || dy) s.animate(
             [{ transform:`translate(${dx}px,${dy}px)` }, { transform:'none' }],
@@ -1584,17 +1592,16 @@ DASHBOARD_HTML = """<!doctype html>
 
       const move = ev => {
         px = ev.clientX; py = ev.clientY;
-        const over = [...grid.querySelectorAll('.panel:not(.dragging)')].find(s => {
-          const r = s.getBoundingClientRect();
-          return px > r.left && px < r.right && py > r.top && py < r.bottom;
-        });
+        let over = null, r = null;
+        for (const [s, sr] of slotRects)
+          if (px > sr.left && px < sr.right && py > sr.top && py < sr.bottom) { over = s; r = sr; break; }
         if (!over) return;
-        const kids = [...grid.children];
-        if (kids.indexOf(over) < kids.indexOf(spacer)) {
-          if (over.previousElementSibling !== spacer) flip(() => over.before(spacer));
-        } else {
-          if (over.nextElementSibling !== spacer) flip(() => over.after(spacer));
-        }
+        // Decide before/after from the POINTER position (midpoint of the slot),
+        // never from DOM order — an order-based rule inverts itself after every
+        // insert and made the spacer flip back and forth on each mousemove.
+        const before = cols > 1 ? px < r.left + r.width / 2 : py < r.top + r.height / 2;
+        if (before ? over.previousElementSibling !== spacer : over.nextElementSibling !== spacer)
+          flip(() => before ? over.before(spacer) : over.after(spacer));
       };
       const up = () => {
         window.removeEventListener('pointermove', move);
@@ -1834,6 +1841,8 @@ DASHBOARD_HTML = """<!doctype html>
 
     // ---- Live camera snapshots (poll — no limit on number of cameras) ----
     function refreshSnapshots() {
+      // mid-drag: give the drag every frame; feeds resume the moment it ends
+      if (document.querySelector('.grid.reordering')) return;
       document.querySelectorAll('img.cam-snap').forEach(img => {
         const id = img.dataset.cam;
         if (!id) return;
