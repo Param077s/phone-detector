@@ -1139,14 +1139,16 @@ STYLE = """
   /* Drag-to-reorder — slot-based transform engine (see JS) */
   .grid.sortable .panel-head { cursor:grab; user-select:none; touch-action:none; }
   .grid.sortable .panel-head:active { cursor:grabbing; }
-  /* every panel is promoted to its own isolated compositor layer for the whole
-     drag, so both the dragged card and the gliding siblings are pure GPU work */
-  .grid.reordering .panel { transition:none; will-change:transform;
-    contain:layout paint style; backface-visibility:hidden; }
+  /* Siblings only need their CSS transition disabled so the JS spring owns
+     their transform. Do NOT force-promote them with will-change/contain:
+     N video panels each on an isolated layer, with the dragged card's big
+     soft shadow sweeping across them, is what made the siblings shimmer.
+     Only the dragged card gets a dedicated layer. */
+  .grid.reordering .panel { transition:none; }
   .grid.reordering .panel:hover { box-shadow:none; border-color:#232a34; }
   .grid.reordering .panel-body img { transform:none !important; }
-  .panel.dragging { transition:none !important; cursor:grabbing; z-index:40;
-    box-shadow:0 30px 70px rgba(0,0,0,.62), 0 0 0 1px rgba(62,207,142,.3); border-color:#3a4557; }
+  .panel.dragging { transition:none !important; cursor:grabbing; z-index:40; will-change:transform;
+    box-shadow:0 24px 60px rgba(0,0,0,.5), 0 0 0 1px rgba(62,207,142,.28); border-color:#3a4557; }
   .panel.dragging .cam-snap { pointer-events:none; }
   /* Fullscreen camera focus view */
   #focus { position:fixed; inset:0; background:rgba(5,7,10,.66); backdrop-filter:blur(7px);
@@ -1540,6 +1542,7 @@ DASHBOARD_HTML = """<!doctype html>
     //     card tracks the viewport pointer and slot deltas are scroll-invariant.
     function initSortable() {
       const grid = document.getElementById('grid');
+      console.log('%cVigil drag engine: slot-v3 (no-cache)', 'color:#3ecf8e;font-weight:600');
       grid.classList.add('sortable');
       grid.querySelectorAll('.panel').forEach(p => {
         const head = p.querySelector('.panel-head');
@@ -2088,12 +2091,15 @@ def _admin_nav(user):
 @app.get("/", response_class=HTMLResponse)
 def dashboard(request: Request):
     user = getattr(request.state, "user", None) or {"username": "", "role": "invigilator"}
-    return (DASHBOARD_HTML
+    html = (DASHBOARD_HTML
             .replace("__STYLE__", STYLE).replace("__LOGO__", LOGO_MARK)
             .replace("__CAMERA_MODAL__", CAMERA_MODAL)
             .replace("__USERNAME__", user["username"])
             .replace("__ADMIN_NAV__", _admin_nav(user))
             .replace("__IS_ADMIN__", "true" if user["role"] == "admin" else "false"))
+    # The dashboard is inline HTML+JS that changes with every app update. Never
+    # let a browser serve a stale copy from cache — always fetch the live one.
+    return HTMLResponse(html, headers={"Cache-Control": "no-store, max-age=0"})
 
 
 # ---- Browser-camera sender page -------------------------------------------
