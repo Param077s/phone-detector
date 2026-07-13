@@ -22,6 +22,10 @@ import os
 # (must be set before cv2 is imported)
 os.environ.setdefault("OPENCV_LOG_LEVEL", "OFF")
 os.environ.setdefault("OPENCV_FFMPEG_LOGLEVEL", "-8")
+# Bound network I/O so a dead IP camera's open/read can't hang forever (which
+# would hold the capture lock and stall other cameras). 5s, in microseconds;
+# prefer TCP for RTSP so half-open streams fail cleanly.
+os.environ.setdefault("OPENCV_FFMPEG_CAPTURE_OPTIONS", "rtsp_transport;tcp|timeout;5000000")
 
 import time
 import json
@@ -48,34 +52,94 @@ try:
 except Exception:
     pass
 
-# OpenCV's FFmpeg backend is NOT thread-safe while a capture is being OPENED:
-# opening one stream (its one-time FFmpeg registration + av_option setup) while
-# other camera threads are mid-read races on FFmpeg's global state and segfaults
-# (seen when adding an IP/RTSP camera while other feeds are live). Serialise every
-# VideoCapture construction through this lock so no two opens — and no open racing
-# the global init — ever run at once. Reads on already-open captures stay parallel.
-_capture_open_lock = threading.Lock()
+# OpenCV's FFmpeg backend is NOT thread-safe when a capture is opened or torn
+# down while ANOTHER capture is being read: the open/close mutates FFmpeg's
+# global av_option/registration state that the concurrent read walks, and it
+# segfaults in av_opt_find2 (seen when an IP camera is added while other feeds
+# are live). A single global lock on opens alone is not enough — a read on one
+# camera still races an open on another. So we use a read/write lock: frame
+# grabs are shared READERS (run concurrently with each other); opening or
+# releasing a capture is an exclusive WRITER that briefly pauses all reads.
+# Opens/closes are rare, so reads only stall for a moment.
+class _CaptureRWLock:
+    def __init__(self):
+        self._cond = threading.Condition()
+        self._readers = 0
+        self._writer = False
+        self._writers_waiting = 0          # writer priority: opens never starve
+
+    def acquire_read(self):
+        with self._cond:
+            while self._writer or self._writers_waiting > 0:
+                self._cond.wait()
+            self._readers += 1
+
+    def release_read(self):
+        with self._cond:
+            self._readers -= 1
+            if self._readers == 0:
+                self._cond.notify_all()
+
+    def acquire_write(self):
+        with self._cond:
+            self._writers_waiting += 1
+            while self._writer or self._readers > 0:
+                self._cond.wait()
+            self._writers_waiting -= 1
+            self._writer = True
+
+    def release_write(self):
+        with self._cond:
+            self._writer = False
+            self._cond.notify_all()
+
+
+_capture_lock = _CaptureRWLock()
 
 
 def open_capture(src):
-    """Open a cv2.VideoCapture with the FFmpeg-open race serialised."""
-    with _capture_open_lock:
+    """Open a cv2.VideoCapture as an exclusive writer (no reads run during it)."""
+    _capture_lock.acquire_write()
+    try:
         cap = cv2.VideoCapture(src)
         try:
             cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)   # don't queue stale frames
         except Exception:
             pass
         return cap
+    finally:
+        _capture_lock.release_write()
+
+
+def read_capture(cap):
+    """Grab a frame under a shared read lock (safe against a concurrent open)."""
+    _capture_lock.acquire_read()
+    try:
+        return cap.read()
+    finally:
+        _capture_lock.release_read()
+
+
+def release_capture(cap):
+    """Tear a capture down as an exclusive writer (no reads run during it)."""
+    if cap is None:
+        return
+    _capture_lock.acquire_write()
+    try:
+        cap.release()
+    finally:
+        _capture_lock.release_write()
 
 
 def _prewarm_ffmpeg():
     """Trigger OpenCV's one-time global FFmpeg registration NOW, at startup on the
-    main thread. Done once, it becomes a no-op — so it can never later fire while a
-    camera thread is mid-read, which is the concurrent-init crash we hit when an IP
-    camera was added. The bogus path fails to open instantly; we only want the init."""
+    main thread, before any camera threads exist — so it can never fire mid-read."""
     try:
-        with _capture_open_lock:
+        _capture_lock.acquire_write()
+        try:
             cv2.VideoCapture("vigil://prewarm", cv2.CAP_FFMPEG).release()
+        finally:
+            _capture_lock.release_write()
     except Exception:
         pass
 
@@ -579,12 +643,12 @@ class CameraStream:
                 time.sleep(1.0)
                 self.cap = self._open()
                 continue
-            ok, f = self.cap.read()
+            ok, f = read_capture(self.cap)              # shared read lock
             if not ok:                                  # stream dropped / camera off
                 fails += 1
                 with self.lock:
                     self.frame = None
-                self.cap.release()
+                release_capture(self.cap)               # exclusive: pauses reads
                 time.sleep(min(10.0, 1.0 * fails))      # back off hard — a dead camera logs rarely
                 self.cap = self._open()
                 continue
@@ -599,7 +663,7 @@ class CameraStream:
     def stop(self):
         self.running = False
         try:
-            self.cap.release()
+            release_capture(self.cap)               # exclusive: pauses reads
         except Exception:
             pass
 
@@ -768,7 +832,7 @@ class Producer:
             if is_browser:
                 # Frames are pushed by a device's browser via POST /push/<id>
                 if inline_cap is not None:
-                    inline_cap.release()
+                    release_capture(inline_cap)
                     inline_cap = None
                     inline_source = None
                 frame, fresh = None, False
@@ -811,19 +875,19 @@ class Producer:
                 # Open+read the webcam in THIS one thread (the safe pattern).
                 if inline_cap is None or inline_source != source:
                     if inline_cap is not None:
-                        inline_cap.release()
+                        release_capture(inline_cap)
                     inline_cap = open_capture(_resolve_source(source))   # serialised FFmpeg open
                     inline_source = source
                 frame = None
                 if inline_cap is not None and inline_cap.isOpened():
-                    ok, frame = inline_cap.read()
+                    ok, frame = read_capture(inline_cap)
                     if not ok:
-                        inline_cap.release()
+                        release_capture(inline_cap)
                         inline_cap = None
                         frame = None
             else:
                 if inline_cap is not None:
-                    inline_cap.release()
+                    release_capture(inline_cap)
                     inline_cap = None
                     inline_source = None
                 frame = _get_stream(self.camera_id, source).read()
@@ -855,7 +919,7 @@ class Producer:
 
         # cleanup when the camera is removed or stopped
         if inline_cap is not None:
-            inline_cap.release()
+            release_capture(inline_cap)
         with streams_lock:
             s = streams.pop(self.camera_id, None)
         if s is not None:
