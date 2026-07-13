@@ -1139,7 +1139,7 @@ STYLE = """
   /* Drag-to-reorder */
   .grid.sortable .panel-head { cursor:grab; user-select:none; touch-action:none; }
   .grid.sortable .panel-head:active { cursor:grabbing; }
-  .grid.reordering .panel { transition:none; }
+  .grid.reordering .panel { transition:none; will-change:transform; }  /* pre-promote: FLIP starts cost no paint */
   .grid.reordering .panel:hover { transform:none; box-shadow:none; border-color:#232a34; }
   .grid.reordering .panel-body img { transform:none !important; }
   .panel.dragging { transition:none; cursor:grabbing; will-change:transform;
@@ -1522,8 +1522,8 @@ DASHBOARD_HTML = """<!doctype html>
 
     // ---- Fluid drag-to-rearrange (admin only) ----
     // Grab anywhere on a panel's title bar. The card follows the pointer 1:1
-    // on the compositor (transform-only) with a subtle velocity tilt;
-    // siblings FLIP out of the way; release springs the card into its slot.
+    // on the compositor (transform-only, rigid — no lerp, no tilt);
+    // siblings FLIP out of the way; release settles the card into its slot.
     function initSortable() {
       const grid = document.getElementById('grid');
       grid.classList.add('sortable');
@@ -1552,9 +1552,7 @@ DASHBOARD_HTML = """<!doctype html>
         width:r0.width+'px', height:r0.height+'px', margin:'0', zIndex:30 });
 
       let px = e.clientX, py = e.clientY;         // live pointer (from events)
-      let x = 0, y = 0, tilt = 0;                 // rendered state
-      let vel = 0, lastMX = px, lastMT = e.timeStamp;  // event-time velocity (px/ms)
-      let lastT = performance.now();
+      let x = 0, y = 0;                           // rendered state
       let raf = 0, done = false, pending = false;
 
       // Hit-test against SETTLED slot rects (cached, re-measured only after a
@@ -1592,32 +1590,19 @@ DASHBOARD_HTML = """<!doctype html>
           flip(() => before ? over.before(spacer) : over.after(spacer));
       };
 
-      // One render per display frame. The card tracks the pointer 1:1 — no
-      // positional lerp (lag reads as jitter). Tilt comes from velocity
-      // measured between pointer EVENTS (px/ms), never per frame: frame-delta
-      // velocity reads 0 on frames without a fresh event, which made the tilt
-      // target flap between full and zero at the display rate — the tremble.
+      // One render per display frame. The card is RIGID: it tracks the
+      // pointer 1:1 with no lerp, no rotation, no per-frame scale changes —
+      // any of those reads as lag or wobble. Precision feels native.
       // Reorder hit-tests are coalesced to at most one per frame.
-      const render = now => {
-        const dt = Math.min(40, Math.max(1, now - lastT)); lastT = now;
+      const render = () => {
         x = px - offX - r0.left; y = py - offY - r0.top;
-        const target = now - lastMT > 90 ? 0 : Math.max(-4, Math.min(4, vel * 5));
-        tilt += (target - tilt) * Math.min(1, dt / 90);
-        panel.style.transform =
-          `translate3d(${x}px,${y}px,0) rotate(${tilt.toFixed(2)}deg) scale(1.03)`;
+        panel.style.transform = `translate3d(${x}px,${y}px,0) scale(1.03)`;
         if (pending) { pending = false; hitTest(); }
         if (!done) raf = requestAnimationFrame(render);
       };
       raf = requestAnimationFrame(render);
 
-      const move = ev => {
-        px = ev.clientX; py = ev.clientY; pending = true;
-        const mdt = ev.timeStamp - lastMT;
-        if (mdt > 0) {
-          vel += ((ev.clientX - lastMX) / mdt - vel) * Math.min(1, mdt / 50);
-          lastMX = ev.clientX; lastMT = ev.timeStamp;
-        }
-      };
+      const move = ev => { px = ev.clientX; py = ev.clientY; pending = true; };
       const up = () => {
         window.removeEventListener('pointermove', move);
         window.removeEventListener('pointerup', up);
@@ -1633,9 +1618,9 @@ DASHBOARD_HTML = """<!doctype html>
         if (document.hidden) { commit(); return; }   // no frames will run — settle instantly
         const d = spacer.getBoundingClientRect();
         const anim = panel.animate(
-          [{ transform:`translate3d(${x}px,${y}px,0) rotate(${tilt}deg) scale(1.03)` },
-           { transform:`translate3d(${d.left - r0.left}px,${d.top - r0.top}px,0) rotate(0deg) scale(1)` }],
-          { duration: 400, easing:'cubic-bezier(.3,1.28,.35,1)' });  // gentle overshoot settle
+          [{ transform:`translate3d(${x}px,${y}px,0) scale(1.03)` },
+           { transform:`translate3d(${d.left - r0.left}px,${d.top - r0.top}px,0) scale(1)` }],
+          { duration: 300, easing:'cubic-bezier(.3,1.12,.35,1)' });  // crisp settle, hint of spring
         anim.onfinish = anim.oncancel = commit;
       };
       window.addEventListener('pointermove', move);
@@ -1809,6 +1794,8 @@ DASHBOARD_HTML = """<!doctype html>
     // ---- Alerts ----
     let lastAlertsKey = '';
     async function loadAlerts() {
+      // mid-drag: no DOM writes anywhere — they force layout and hitch the drag
+      if (document.querySelector('.grid.reordering')) return;
       let data = [];
       try { data = await (await fetch('/alerts')).json(); } catch (e) { return; }
       const prevMax = lastAlertId, wasFirst = firstAlertLoad;
@@ -1877,13 +1864,17 @@ DASHBOARD_HTML = """<!doctype html>
 
     // ---- Per-camera online/offline status ----
     async function refreshStatus() {
+      // mid-drag: the pills live inside the panels being dragged/FLIPped —
+      // touching their text mid-drag forces layout and hitches the animation
+      if (document.querySelector('.grid.reordering')) return;
       let st = {};
       try { st = await (await fetch('/camera_status')).json(); } catch (e) { return; }
       document.querySelectorAll('.status-pill').forEach(p => {
         const online = st[p.dataset.cam] === 'online';
         p.classList.toggle('online', online);
         p.classList.toggle('offline', !online);
-        p.querySelector('.stext').textContent = online ? 'LIVE' : 'OFFLINE';
+        const el = p.querySelector('.stext'), txt = online ? 'LIVE' : 'OFFLINE';
+        if (el.textContent !== txt) el.textContent = txt;   // write only on change
       });
     }
     setInterval(refreshStatus, 1500);
