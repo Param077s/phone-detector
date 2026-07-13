@@ -1555,46 +1555,56 @@ DASHBOARD_HTML = """<!doctype html>
       let x = 0, y = 0;                           // rendered state
       let raf = 0, done = false, pending = false;
 
-      // Hit-test against SETTLED slot rects (cached, re-measured only after a
-      // mutation) — never against mid-animation positions, which oscillate.
-      const cols = getComputedStyle(grid).gridTemplateColumns.split(' ').length;
-      let slotRects = new Map([...grid.querySelectorAll('.panel:not(.dragging)')]
-        .map(s => [s, s.getBoundingClientRect()]));
+      // Reorder model: the grid is a set of fixed SLOTS, and the spacer
+      // occupies exactly one. Each frame, find the slot whose centre is
+      // nearest to the dragged CARD'S centre (the card is what the user
+      // aligns — not the pointer, whose grab-offset is arbitrary) and move
+      // the spacer there — but only when that slot is decisively closer
+      // (by 25% of a slot) than the spacer's current one. Distance
+      // hysteresis is direction-agnostic: approach from any angle, and
+      // neither hand tremor nor hovering can ever flip a neighbour back
+      // and forth. Slot centres are SETTLED positions (measured only after
+      // a mutation), never mid-animation ones, which oscillate.
+      let slots = [];                              // [{el,cx,cy,w,h}] in DOM order, spacer included
+      const measure = () => {
+        slots = [...grid.children]
+          .filter(el => el === spacer || (el !== panel && el.classList.contains('panel')))
+          .map(el => { const r = el.getBoundingClientRect();
+            return { el, cx: r.left + r.width / 2, cy: r.top + r.height / 2, w: r.width, h: r.height }; });
+      };
+      measure();
+      let stale = false;
+      const onScroll = () => { stale = true; };    // grid scrolled mid-drag: rects moved
+      grid.addEventListener('scroll', onScroll, { passive: true });
 
       // FLIP siblings only when the spacer actually changes slot — no thrash
       const flip = mutate => {
         const sibs = [...grid.querySelectorAll('.panel:not(.dragging)')];
         const first = new Map(sibs.map(s => [s, s.getBoundingClientRect()]));
         mutate();
-        slotRects = new Map();
         sibs.forEach(s => {
           const f = first.get(s), l = s.getBoundingClientRect();
-          slotRects.set(s, l);                     // settled rect, pre-animation
           const dx = f.left - l.left, dy = f.top - l.top;
           if (dx || dy) s.animate(
             [{ transform:`translate(${dx}px,${dy}px)` }, { transform:'none' }],
             { duration: 340, easing:'cubic-bezier(.22,.9,.3,1)' });
         });
+        measure();
       };
 
-      // Decide before/after from the POINTER position, never from DOM order —
-      // an order-based rule inverts itself after every insert and made the
-      // spacer flip back and forth on each mousemove. The ±10% dead zone
-      // around the slot's midpoint is hysteresis: hovering a card's CENTRE is
-      // the natural "swap places" gesture, and without the dead zone every
-      // 1px hand tremor across the midpoint slid the displaced card a full
-      // slot back and forth.
       const hitTest = () => {
-        let over = null, r = null;
-        for (const [s, sr] of slotRects)
-          if (px > sr.left && px < sr.right && py > sr.top && py < sr.bottom) { over = s; r = sr; break; }
-        if (!over) return;
-        const m = cols > 1 ? (px - r.left - r.width / 2) / r.width
-                           : (py - r.top - r.height / 2) / r.height;   // -.5 … +.5
-        if (m < -0.1 && over.previousElementSibling !== spacer)
-          flip(() => over.before(spacer));
-        else if (m > 0.1 && over.nextElementSibling !== spacer)
-          flip(() => over.after(spacer));
+        if (stale) { stale = false; measure(); }
+        const ccx = r0.left + x + r0.width / 2, ccy = r0.top + y + r0.height / 2;
+        let si = 0, ni = 0, best = Infinity, cur = 0;
+        slots.forEach((s, i) => {
+          const d = Math.hypot(s.cx - ccx, s.cy - ccy);
+          if (s.el === spacer) { si = i; cur = d; }
+          if (d < best) { best = d; ni = i; }
+        });
+        if (ni === si) return;
+        if (cur - best < 0.25 * Math.min(slots[ni].w, slots[ni].h)) return;  // not decisively closer
+        const target = slots[ni].el;
+        flip(() => ni < si ? target.before(spacer) : target.after(spacer));
       };
 
       // One render per display frame. The card is RIGID: it tracks the
@@ -1614,6 +1624,7 @@ DASHBOARD_HTML = """<!doctype html>
         window.removeEventListener('pointermove', move);
         window.removeEventListener('pointerup', up);
         window.removeEventListener('pointercancel', up);
+        grid.removeEventListener('scroll', onScroll);
         done = true; cancelAnimationFrame(raf);
         const commit = () => {
           panel.style.cssText = '';
