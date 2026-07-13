@@ -1577,17 +1577,24 @@ DASHBOARD_HTML = """<!doctype html>
         });
       };
 
-      // Decide before/after from the POINTER position (midpoint of the slot),
-      // never from DOM order — an order-based rule inverts itself after every
-      // insert and made the spacer flip back and forth on each mousemove.
+      // Decide before/after from the POINTER position, never from DOM order —
+      // an order-based rule inverts itself after every insert and made the
+      // spacer flip back and forth on each mousemove. The ±10% dead zone
+      // around the slot's midpoint is hysteresis: hovering a card's CENTRE is
+      // the natural "swap places" gesture, and without the dead zone every
+      // 1px hand tremor across the midpoint slid the displaced card a full
+      // slot back and forth.
       const hitTest = () => {
         let over = null, r = null;
         for (const [s, sr] of slotRects)
           if (px > sr.left && px < sr.right && py > sr.top && py < sr.bottom) { over = s; r = sr; break; }
         if (!over) return;
-        const before = cols > 1 ? px < r.left + r.width / 2 : py < r.top + r.height / 2;
-        if (before ? over.previousElementSibling !== spacer : over.nextElementSibling !== spacer)
-          flip(() => before ? over.before(spacer) : over.after(spacer));
+        const m = cols > 1 ? (px - r.left - r.width / 2) / r.width
+                           : (py - r.top - r.height / 2) / r.height;   // -.5 … +.5
+        if (m < -0.1 && over.previousElementSibling !== spacer)
+          flip(() => over.before(spacer));
+        else if (m > 0.1 && over.nextElementSibling !== spacer)
+          flip(() => over.after(spacer));
       };
 
       // One render per display frame. The card is RIGID: it tracks the
