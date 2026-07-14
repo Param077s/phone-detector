@@ -19,7 +19,8 @@ mkdir -p "$RES" "$MACOS"
 
 # --- 1) App payload (what the app runs) ------------------------------------
 echo "Copying app files…"
-cp app.py requirements.txt "$RES/"
+cp app.py vlm.py requirements.txt "$RES/"
+for f in GOOGLE-SIGNIN.md UNIVERSITY-CCTV.md; do [ -e "$f" ] && cp "$f" "$RES/"; done
 # ship the reliable general model (the fine-tuned vigil-phone.pt over-triggers)
 [ -e yolo11m.pt ] && cp yolo11m.pt "$RES/"
 

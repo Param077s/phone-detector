@@ -17,6 +17,7 @@ Camera source rules:
 """
 
 import os
+import sys
 
 # Quiet OpenCV/FFmpeg so a disconnected camera doesn't flood the terminal.
 # (must be set before cv2 is imported)
@@ -38,12 +39,15 @@ import hashlib
 import secrets
 import sqlite3
 import threading
+import queue
 from datetime import datetime
 
 import cv2
 import numpy as np
 from ultralytics import YOLO
-from fastapi import FastAPI, Response, Request, Form
+import vlm                                   # optional AI "second look" (Ollama)
+from fastapi import FastAPI, Response, Request, Form, WebSocket, WebSocketDisconnect
+from starlette.concurrency import run_in_threadpool
 from fastapi.responses import (StreamingResponse, HTMLResponse, FileResponse,
                                RedirectResponse, JSONResponse)
 
@@ -97,15 +101,104 @@ class _CaptureRWLock:
 _capture_lock = _CaptureRWLock()
 
 
+class MJPEGCapture:
+    """Pure-Python MJPEG-over-HTTP reader (IP Webcam app, most MJPEG cameras).
+    A drop-in stand-in for cv2.VideoCapture, used when FFmpeg can't open an
+    http(s) source — FFmpeg is picky about multipart streams; this isn't."""
+    CHUNK = 16384
+
+    def __init__(self, url):
+        self.url = url
+        self._resp = None
+        self._buf = b""
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "Vigil"})
+            self._resp = urllib.request.urlopen(req, timeout=6)
+            ctype = self._resp.headers.get("Content-Type", "")
+            if "multipart" not in ctype and "image" not in ctype:
+                self._resp.close()
+                self._resp = None
+        except Exception:
+            self._resp = None
+
+    def isOpened(self):
+        return self._resp is not None
+
+    def read(self):
+        if self._resp is None:
+            return False, None
+        try:
+            # Scan the byte stream for a complete JPEG (SOI .. EOI) — this works
+            # with any multipart framing without parsing part headers.
+            for _ in range(400):                        # hard cap ≈ 6 MB per frame
+                soi = self._buf.find(b"\xff\xd8")
+                eoi = self._buf.find(b"\xff\xd9", soi + 2) if soi != -1 else -1
+                if soi != -1 and eoi != -1:
+                    jpg = self._buf[soi:eoi + 2]
+                    self._buf = self._buf[eoi + 2:]
+                    frame = cv2.imdecode(np.frombuffer(jpg, np.uint8), cv2.IMREAD_COLOR)
+                    if frame is None:
+                        continue                        # corrupt part — keep scanning
+                    return True, frame
+                chunk = self._resp.read(self.CHUNK)
+                if not chunk:
+                    break
+                self._buf += chunk
+                if len(self._buf) > 8_000_000:          # runaway garbage — bail out
+                    break
+        except Exception:
+            pass
+        self.release()
+        return False, None
+
+    def release(self):
+        if self._resp is not None:
+            try:
+                self._resp.close()
+            except Exception:
+                pass
+            self._resp = None
+
+    def set(self, *a, **k):                             # VideoCapture API no-op
+        return False
+
+
+def _ffmpeg_options_for(src):
+    """Per-protocol FFmpeg options. The old global env var applied RTSP options
+    to every URL — harmless for RTSP, but it broke some HTTP (IP Webcam) opens."""
+    if isinstance(src, str) and src.startswith("rtsp"):
+        return "rtsp_transport;tcp|stimeout;5000000|timeout;5000000"
+    return "timeout;5000000"
+
+
 def open_capture(src):
-    """Open a cv2.VideoCapture as an exclusive writer (no reads run during it)."""
+    """Open a capture as an exclusive writer (no reads run during it).
+    Webcam index -> AVFoundation; URLs -> FFmpeg; http(s) MJPEG -> Python fallback."""
     _capture_lock.acquire_write()
     try:
-        cap = cv2.VideoCapture(src)
+        if isinstance(src, str):
+            os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = _ffmpeg_options_for(src)
+            cap = cv2.VideoCapture(src, cv2.CAP_FFMPEG)
+        else:
+            cap = cv2.VideoCapture(src)
         try:
             cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)   # don't queue stale frames
         except Exception:
             pass
+        # FFmpeg couldn't open an http(s) source (typical for the IP Webcam app's
+        # multipart stream). Try the tolerant Python MJPEG reader, and also the
+        # app's usual paths if the user pasted the bare address.
+        if isinstance(src, str) and src.startswith(("http://", "https://")) and not cap.isOpened():
+            cap.release()
+            candidates = [src]
+            bare = src.rstrip("/")
+            if not bare.endswith(("/video", "/videofeed", "/mjpeg", "/stream")):
+                candidates += [bare + "/video", bare + "/videofeed"]
+            for url in candidates:
+                mj = MJPEGCapture(url)
+                if mj.isOpened():
+                    return mj
+            return MJPEGCapture(src)                # dead handle; reader will retry
         return cap
     finally:
         _capture_lock.release_write()
@@ -195,10 +288,24 @@ TELEGRAM_CHAT_IDS = ""   # comma-separated chat id(s) to send alerts to
 # general 80-class model. Set from Settings → "Watch for".
 WATCH_TARGET = "phone"
 
+# --- AI "second look" (optional) -------------------------------------------
+# After YOLO flags an alert, a LOCAL vision model (via Ollama) looks at the photo
+# to (1) write a plain-English description and (2) drop obvious false alarms.
+# Off by default so installs without Ollama are unaffected. Turn on in Settings.
+VLM_ENABLED = False          # master switch for the AI second look
+VLM_MODEL   = "llava"        # Ollama vision model: llava · moondream · qwen2.5vl
+VLM_VERIFY  = True           # also DROP alerts the AI says aren't the target (#3)
+
+# Google Sign-In (optional). Paste an OAuth "Web application" client ID from
+# console.cloud.google.com and the login page grows a "Sign in with Google"
+# button. See GOOGLE-SIGNIN.md for the 5-minute setup.
+GOOGLE_CLIENT_ID = ""
+
 SETTINGS_FILE = "settings.json"
 TUNABLE = ["MODEL_NAME", "CONFIDENCE", "REQUIRED_HITS", "ALERT_COOLDOWN", "IMG_SIZE",
            "TILING", "TILE_COLS", "TILE_ROWS", "TILE_OVERLAP", "TILE_IMGSZ",
-           "TELEGRAM_TOKEN", "TELEGRAM_CHAT_IDS", "WATCH_TARGET"]
+           "TELEGRAM_TOKEN", "TELEGRAM_CHAT_IDS", "WATCH_TARGET",
+           "VLM_ENABLED", "VLM_MODEL", "VLM_VERIFY", "GOOGLE_CLIENT_ID"]
 
 
 def _apply_saved_settings():
@@ -244,8 +351,23 @@ def _apply_env_settings():
             g[k] = v
 
 
+def _sync_vlm():
+    """Push the current VLM_* settings into the vlm module (startup + on save)."""
+    g = globals()
+    vlm.configure(enabled=g["VLM_ENABLED"], model=g["VLM_MODEL"], verify=g["VLM_VERIFY"])
+
+
 _apply_saved_settings()
 _apply_env_settings()
+_sync_vlm()
+
+# Public HTTPS address other networks can reach Vigil at — set by the tunnel
+# launcher (Vigil-Public), e.g. https://xxxx.trycloudflare.com. It lets you hand
+# a camera link to someone who is NOT on your Wi-Fi: their phone/laptop opens the
+# link, allows its camera, and streams into your wall — no app install. Detection
+# still runs here, locally; the tunnel only relays the connection. Blank = camera
+# links use whatever address the browser is already on (same-network only).
+PUBLIC_URL = os.getenv("PUBLIC_URL", "").rstrip("/")
 
 print(f"Loading YOLO ({MODEL_NAME})...")
 model = YOLO(MODEL_NAME)
@@ -350,7 +472,17 @@ def _load_cameras():
         with open(CAMERAS_CONFIG) as f:
             data = json.load(f)
             if isinstance(data, list) and data:
-                return data
+                # Collapse exact duplicates (same label+location+source). Repeated
+                # "add webcam" clicks while it looked broken piled up identical
+                # entries that then fought over the device.
+                seen, out = set(), []
+                for c in data:
+                    key = (c.get("label"), c.get("location", ""), c.get("source"))
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    out.append(c)
+                return out
     except Exception:
         pass
     # Cloud deploys have no local webcam — start with no cameras there
@@ -369,6 +501,26 @@ def _save_cameras():
 
 
 cameras = _load_cameras()
+
+
+def _prewarm_webcam():
+    """macOS: the camera-permission dialog can ONLY be shown from the main
+    thread — Vigil's camera threads can never trigger it, so the webcam
+    silently failed on machines that hadn't granted permission yet. Opening
+    the webcam once HERE (import runs on the main thread) makes macOS ask
+    properly; after that, background opens are authorized and just work."""
+    if sys.platform != "darwin":
+        return
+    if not any(c.get("source", "").isdigit() for c in cameras):
+        return
+    try:
+        cap = cv2.VideoCapture(0)
+        cap.release()
+    except Exception:
+        pass
+
+
+_prewarm_webcam()
 
 
 def _resolve_source(s):
@@ -427,16 +579,29 @@ def init_db():
             c.execute("ALTER TABLE alerts ADD COLUMN thing TEXT DEFAULT 'Phone'")
         except sqlite3.OperationalError:
             pass
+        # v1.3: Google Sign-In — google accounts have an email and no password
+        for stmt in ("ALTER TABLE users ADD COLUMN email TEXT",
+                     "ALTER TABLE users ADD COLUMN auth TEXT DEFAULT 'password'"):
+            try:
+                c.execute(stmt)
+            except sqlite3.OperationalError:
+                pass
+        # v1.2: AI second-look description (older installs get the column added here)
+        try:
+            c.execute("ALTER TABLE alerts ADD COLUMN description TEXT DEFAULT ''")
+        except sqlite3.OperationalError:
+            pass
 
 
-def _store_alert(jpg_bytes, confidence, camera, status="pending", dt=None, thing="Phone"):
+def _store_alert(jpg_bytes, confidence, camera, status="pending", dt=None, thing="Phone",
+                 description=""):
     dt = dt or datetime.now()
     with _db() as c:
         cur = c.execute(
-            "INSERT INTO alerts (created_at, date, time, confidence, camera, image_file, status, thing)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO alerts (created_at, date, time, confidence, camera, image_file, status, thing, description)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (dt.isoformat(), dt.strftime("%Y-%m-%d"), dt.strftime("%H:%M:%S"),
-             round(confidence, 2), camera, "", status, thing))
+             round(confidence, 2), camera, "", status, thing, description or ""))
         alert_id = cur.lastrowid
         fname = os.path.join(EVIDENCE_DIR, f"alert_{alert_id}_{dt.strftime('%Y%m%d_%H%M%S')}.jpg")
         with open(fname, "wb") as f:
@@ -445,16 +610,37 @@ def _store_alert(jpg_bytes, confidence, camera, status="pending", dt=None, thing
     return alert_id
 
 
+def _set_alert_description(alert_id, description):
+    with _db() as c:
+        c.execute("UPDATE alerts SET description = ? WHERE id = ?", (description or "", alert_id))
+
+
+def _delete_alert(alert_id):
+    """Remove an alert the AI vetoed as a false positive (row + its photo)."""
+    with _db() as c:
+        row = c.execute("SELECT image_file FROM alerts WHERE id = ?", (alert_id,)).fetchone()
+        c.execute("DELETE FROM alerts WHERE id = ?", (alert_id,))
+    if row and row["image_file"]:
+        try:
+            os.remove(row["image_file"])
+        except OSError:
+            pass
+
+
 def _row_to_dict(r):
     try:
         thing = r["thing"] or "Phone"
     except (IndexError, KeyError):
         thing = "Phone"
+    try:
+        description = r["description"] or ""
+    except (IndexError, KeyError):
+        description = ""
     return {
         "id": r["id"], "time": r["time"], "date": r["date"],
         "confidence": r["confidence"], "camera": r["camera"],
         "status": r["status"], "image": f"/evidence/image/{r['id']}",
-        "thing": thing,
+        "thing": thing, "description": description,
     }
 
 
@@ -495,7 +681,7 @@ def user_count():
 
 def list_users():
     with _db() as c:
-        rows = c.execute("SELECT username, role, created_at FROM users ORDER BY id").fetchall()
+        rows = c.execute("SELECT username, role, created_at, auth FROM users ORDER BY id").fetchall()
     return [dict(r) for r in rows]
 
 
@@ -520,12 +706,53 @@ def delete_user(username):
         c.execute("DELETE FROM users WHERE username = ?", (username,))
 
 
+def create_google_user(email, role="invigilator"):
+    """A Google account: the email IS the identity — no password stored."""
+    email = email.strip().lower()
+    if "@" not in email:
+        return False, "That doesn't look like an email address."
+    try:
+        with _db() as c:
+            c.execute("INSERT INTO users (username, pw_hash, salt, role, created_at, email, auth)"
+                      " VALUES (?,?,?,?,?,?,?)",
+                      (email, None, None, role, datetime.now().isoformat(), email, "google"))
+        return True, None
+    except sqlite3.IntegrityError:
+        return False, "That account already exists."
+
+
+def find_user_by_email(email):
+    email = (email or "").strip().lower()
+    with _db() as c:
+        row = c.execute("SELECT username, role FROM users WHERE lower(email) = ? OR lower(username) = ?",
+                        (email, email)).fetchone()
+    return {"username": row["username"], "role": row["role"]} if row else None
+
+
 def verify_user(username, password):
     with _db() as c:
         row = c.execute("SELECT * FROM users WHERE username = ?", (username.strip(),)).fetchone()
-    if row and _hash_pw(password, row["salt"]) == row["pw_hash"]:
+    if not row or not row["pw_hash"] or not row["salt"]:   # google accounts have no password
+        return None
+    if _hash_pw(password, row["salt"]) == row["pw_hash"]:
         return {"username": row["username"], "role": row["role"]}
     return None
+
+
+def verify_google_token(credential):
+    """Check a Google ID token with Google and return its claims, or None.
+    Server-side verification — the browser can't be trusted to say who it is."""
+    try:
+        url = "https://oauth2.googleapis.com/tokeninfo?id_token=" + urllib.parse.quote(credential)
+        with urllib.request.urlopen(url, timeout=10) as r:
+            claims = json.loads(r.read().decode())
+    except Exception:
+        return None
+    if claims.get("aud") != GOOGLE_CLIENT_ID:              # token minted for another app
+        return None
+    if claims.get("email_verified") not in (True, "true"):
+        return None
+    return claims
 
 
 def _sign(username):
@@ -595,27 +822,85 @@ def send_telegram_alert(jpg_bytes, caption):
     threading.Thread(target=_worker, daemon=True).start()
 
 
-def maybe_add_alert(crop, confidence, camera_label, camera_id):
+def _alert_caption(thing, confidence, camera_label, description=""):
+    caption = (f"🚨 {thing} detected · {round(confidence * 100)}%\n"
+               f"📍 {camera_label}\n🕐 {datetime.now().strftime('%H:%M:%S')}")
+    if description:
+        caption += f"\n👁 {description}"
+    return caption
+
+
+# --- AI review queue: the vision model runs HERE, on its own thread, so it never
+#     blocks detection or the video pipeline (that was the source of the lag). The
+#     alert is saved instantly; the worker then fills in the description and drops
+#     false positives a moment later. One worker = the model runs one-at-a-time,
+#     so it can't pile up and saturate the GPU. -------------------------------
+_vlm_queue = queue.Queue(maxsize=64)
+
+
+def _vlm_worker():
+    while True:
+        try:
+            alert_id, ctx_jpg, photo_jpg, confidence, camera_label, thing = _vlm_queue.get()
+        except Exception:
+            continue
+        try:
+            verdict = vlm.describe_and_verify(ctx_jpg, thing)
+            if verdict and verdict.get("present") is False:
+                _delete_alert(alert_id)            # false positive — remove it
+                print(f"[vlm] alert #{alert_id} vetoed on {camera_label}: no {thing}")
+                continue
+            description = (verdict or {}).get("description", "") or ""
+            if description:
+                _set_alert_description(alert_id, description)
+            send_telegram_alert(photo_jpg, _alert_caption(thing, confidence, camera_label, description))
+        except Exception as e:
+            print(f"[vlm] worker error on #{alert_id}: {type(e).__name__}: {e}")
+
+
+threading.Thread(target=_vlm_worker, daemon=True).start()
+
+
+def maybe_add_alert(crop, confidence, camera_label, camera_id, context=None):
     now = time.time()
     with _cooldown_lock:
         if now - _last_alert_time.get(camera_id, 0) < ALERT_COOLDOWN or crop.size == 0:
             return
-        ok, buf = cv2.imencode(".jpg", crop)
-        if not ok:
-            return
         _last_alert_time[camera_id] = now
-        jpg = buf.tobytes()
-        thing = TARGET_NAME
-        _store_alert(jpg, confidence, camera_label, status="pending", thing=thing)
-        caption = (f"🚨 {thing} detected · {round(confidence * 100)}%\n"
-                   f"📍 {camera_label}\n🕐 {datetime.now().strftime('%H:%M:%S')}")
-        send_telegram_alert(jpg, caption)
+    ok, buf = cv2.imencode(".jpg", crop)
+    if not ok:
+        return
+    jpg = buf.tobytes()
+    thing = TARGET_NAME
+
+    # Save immediately so the alert shows with ZERO delay — the video never waits
+    # on the AI. Description starts empty and gets filled in by the worker.
+    alert_id = _store_alert(jpg, confidence, camera_label, status="pending",
+                            thing=thing, description="")
+
+    if vlm.is_enabled():
+        # Hand the heavy review to the background worker. Send the WIDER context
+        # frame (whole scene), not the tight crop — the model describes a scene
+        # reliably but returns nothing on a cropped-in phone.
+        ctx = context if (context is not None and getattr(context, "size", 0)) else crop
+        okc, cbuf = cv2.imencode(".jpg", ctx)
+        try:
+            _vlm_queue.put_nowait((alert_id, cbuf.tobytes() if okc else jpg, jpg,
+                                   confidence, camera_label, thing))
+            return                                 # worker will Telegram (with description)
+        except queue.Full:
+            pass                                   # backed up — fall through to Telegram now
+    send_telegram_alert(jpg, _alert_caption(thing, confidence, camera_label))
 
 
 def _placeholder(text):
     img = np.full((480, 640, 3), 32, dtype=np.uint8)
-    cv2.putText(img, text, (30, 240), cv2.FONT_HERSHEY_SIMPLEX,
-                0.7, (170, 170, 170), 2)
+    lines = text.split("\n")
+    y = 240 - (len(lines) - 1) * 16
+    for line in lines:
+        cv2.putText(img, line, (30, y), cv2.FONT_HERSHEY_SIMPLEX,
+                    0.6, (170, 170, 170), 2)
+        y += 32
     return img
 
 
@@ -668,19 +953,39 @@ class CameraStream:
             pass
 
 
-streams = {}                       # camera_id -> CameraStream
+streams = {}                       # source -> {"stream": CameraStream, "refs": set(camera_ids)}
 streams_lock = threading.Lock()
 
 
 def _get_stream(camera_id, source):
+    """One shared CameraStream per SOURCE. Ten tiles showing webcam '0' used to
+    open the device ten times — macOS gives the device to one handle and the
+    rest show nothing. Now they all read the same stream."""
     with streams_lock:
-        s = streams.get(camera_id)
-        if s is None or s.source != source:
-            if s is not None:
-                s.stop()
-            s = CameraStream(source)
-            streams[camera_id] = s
-        return s
+        # drop this camera from any other source it used to point at
+        for src, entry in list(streams.items()):
+            if src != source and camera_id in entry["refs"]:
+                entry["refs"].discard(camera_id)
+                if not entry["refs"]:
+                    entry["stream"].stop()
+                    del streams[src]
+        entry = streams.get(source)
+        if entry is None:
+            entry = {"stream": CameraStream(source), "refs": set()}
+            streams[source] = entry
+        entry["refs"].add(camera_id)
+        return entry["stream"]
+
+
+def _release_stream(camera_id):
+    """Detach a camera from its shared stream; stop the stream when unused."""
+    with streams_lock:
+        for src, entry in list(streams.items()):
+            if camera_id in entry["refs"]:
+                entry["refs"].discard(camera_id)
+                if not entry["refs"]:
+                    entry["stream"].stop()
+                    del streams[src]
 
 
 def _iou(a, b):
@@ -771,7 +1076,8 @@ class Detector:
                 streak += 1
                 if streak >= REQUIRED_HITS:             # persistence filter
                     x1, y1, x2, y2, cf = max(found, key=lambda b: b[4])
-                    maybe_add_alert(frame[y1:y2, x1:x2].copy(), cf, label, self.camera_id)
+                    maybe_add_alert(frame[y1:y2, x1:x2].copy(), cf, label, self.camera_id,
+                                    context=frame)
             else:
                 streak = 0
             dt = time.time() - t0                       # throttle to leave room for the video pipeline
@@ -801,6 +1107,16 @@ def _get_detector(camera_id):
 #     runs for every camera even when nobody is watching it. ---
 snapshots = {}                     # camera_id -> latest annotated JPEG bytes
 snapshots_lock = threading.Lock()
+snapshots_cond = threading.Condition(snapshots_lock)   # wakes /stream pushers
+snapshot_seq = {}                  # camera_id -> monotonically increasing frame no.
+
+
+def _store_snapshot(camera_id, jpg_bytes):
+    """Publish a camera's newest frame and wake every live /stream connection."""
+    with snapshots_cond:
+        snapshots[camera_id] = jpg_bytes
+        snapshot_seq[camera_id] = snapshot_seq.get(camera_id, 0) + 1
+        snapshots_cond.notify_all()
 # Browser cameras: any phone/laptop opens the sender page and pushes frames here.
 browser_frames = {}                # camera_id -> (np frame, seq, received_at)
 browser_frames_lock = threading.Lock()
@@ -819,8 +1135,6 @@ class Producer:
         self.thread.start()
 
     def _run(self):
-        inline_cap = None
-        inline_source = None
         last_browser_seq = -1
         while self.running:
             source, label = _find_camera(self.camera_id)
@@ -830,11 +1144,7 @@ class Producer:
             is_browser = source == "browser"
 
             if is_browser:
-                # Frames are pushed by a device's browser via POST /push/<id>
-                if inline_cap is not None:
-                    release_capture(inline_cap)
-                    inline_cap = None
-                    inline_source = None
+                # Frames are pushed by a device's browser via POST/WS /push/<id>
                 frame, fresh = None, False
                 with browser_frames_lock:
                     item = browser_frames.get(self.camera_id)
@@ -848,8 +1158,7 @@ class Producer:
                     ok, buf = cv2.imencode(".jpg", _placeholder("Open this camera's link on a device"),
                                            [cv2.IMWRITE_JPEG_QUALITY, JPEG_QUALITY])
                     if ok:
-                        with snapshots_lock:
-                            snapshots[self.camera_id] = buf.tobytes()
+                        _store_snapshot(self.camera_id, buf.tobytes())
                     time.sleep(0.15)
                     continue
                 with status_lock:
@@ -866,36 +1175,21 @@ class Producer:
                                     cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 220, 90), 2)
                 ok, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, JPEG_QUALITY])
                 if ok:
-                    with snapshots_lock:
-                        snapshots[self.camera_id] = buf.tobytes()
-                time.sleep(0.05)
+                    _store_snapshot(self.camera_id, buf.tobytes())
+                time.sleep(0.02)                        # ~50fps re-emit so the wall keeps up
                 continue
 
-            if is_webcam:
-                # Open+read the webcam in THIS one thread (the safe pattern).
-                if inline_cap is None or inline_source != source:
-                    if inline_cap is not None:
-                        release_capture(inline_cap)
-                    inline_cap = open_capture(_resolve_source(source))   # serialised FFmpeg open
-                    inline_source = source
-                frame = None
-                if inline_cap is not None and inline_cap.isOpened():
-                    ok, frame = read_capture(inline_cap)
-                    if not ok:
-                        release_capture(inline_cap)
-                        inline_cap = None
-                        frame = None
-            else:
-                if inline_cap is not None:
-                    release_capture(inline_cap)
-                    inline_cap = None
-                    inline_source = None
-                frame = _get_stream(self.camera_id, source).read()
+            # Webcams and URL cameras both read the SHARED stream for their source,
+            # so any number of tiles can show the same device without fighting over it.
+            frame = _get_stream(self.camera_id, source).read()
 
             if frame is None:
                 with status_lock:
                     camera_status[self.camera_id] = "offline"
-                msg = "Camera not connected" if is_webcam else "Connecting to camera..."
+                if is_webcam:
+                    msg = "Webcam not available\nCheck System Settings >\nPrivacy & Security > Camera"
+                else:
+                    msg = "Connecting to camera..."
                 frame = _placeholder(msg)
                 time.sleep(0.1)
             else:
@@ -913,23 +1207,19 @@ class Producer:
 
             ok, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, JPEG_QUALITY])
             if ok:
-                with snapshots_lock:
-                    snapshots[self.camera_id] = buf.tobytes()
+                _store_snapshot(self.camera_id, buf.tobytes())
             time.sleep(0.008)   # run near the camera's native frame rate (~30fps); no disk cost
 
         # cleanup when the camera is removed or stopped
-        if inline_cap is not None:
-            release_capture(inline_cap)
-        with streams_lock:
-            s = streams.pop(self.camera_id, None)
-        if s is not None:
-            s.stop()
+        _release_stream(self.camera_id)
         with detectors_lock:
             d = detectors.pop(self.camera_id, None)
         if d is not None:
             d.stop()
-        with snapshots_lock:
+        with snapshots_cond:
             snapshots.pop(self.camera_id, None)
+            snapshot_seq.pop(self.camera_id, None)
+            snapshots_cond.notify_all()          # let /stream connections notice removal
         with browser_frames_lock:
             browser_frames.pop(self.camera_id, None)
         with status_lock:
@@ -965,9 +1255,9 @@ def ensure_producers():
 app = FastAPI(title="Vigil")
 
 # Paths reachable without logging in
-_PUBLIC = {"/login", "/setup", "/logout", "/favicon.svg"}
+_PUBLIC = {"/login", "/setup", "/logout", "/favicon.svg", "/auth/google"}
 # API paths that should return 401 (not redirect) when not authed
-_API_PREFIXES = ("/alerts", "/cameras", "/evidence/list", "/evidence/image", "/snapshot", "/camera_status", "/push")
+_API_PREFIXES = ("/alerts", "/cameras", "/evidence/list", "/evidence/image", "/snapshot", "/stream", "/camera_status", "/push")
 
 
 @app.middleware("http")
@@ -975,8 +1265,9 @@ async def auth_gate(request: Request, call_next):
     path = request.url.path
 
     # First run: no accounts yet -> force the create-admin setup page
+    # (/auth/google stays reachable so "Sign in with Google" can bootstrap the admin)
     if user_count() == 0:
-        if path == "/setup":
+        if path == "/setup" or path == "/auth/google":
             return await call_next(request)
         return RedirectResponse("/setup")
 
@@ -987,6 +1278,16 @@ async def auth_gate(request: Request, call_next):
     if not user:
         if path == "/":   # visitors get the public website; the app stays behind login
             return HTMLResponse(LANDING_HTML.replace("__LOGO__", LOGO_MARK))
+        # Shared device-camera links work with NO account — that's the whole point
+        # of handing someone off your network a link. The camera id is an
+        # unguessable token, so we allow ONLY the sender page and its frame upload,
+        # and ONLY when the id maps to a real browser camera. Anything else still
+        # needs login. (Order matters: this must run before the /push 401 below.)
+        if path.startswith("/sender/") or path.startswith("/push/"):
+            cam_id = path.split("/", 2)[2] if path.count("/") >= 2 else ""
+            src, _ = _find_camera(cam_id)
+            if src == "browser":
+                return await call_next(request)
         if path.startswith(_API_PREFIXES):
             return JSONResponse({"error": "unauthorized"}, status_code=401)
         return RedirectResponse("/login")
@@ -1043,6 +1344,33 @@ def snapshot(camera_id: str):
                     headers={"Cache-Control": "no-store, max-age=0"})
 
 
+@app.get("/stream/{camera_id}")
+def stream(camera_id: str):
+    """Live MJPEG stream — ONE persistent connection that pushes each new frame
+    the instant it exists, instead of the dashboard fetching 30 snapshots/sec
+    per camera. This is what makes the wall smooth over WiFi and tunnels."""
+    _get_producer(camera_id)                            # make sure it's running
+
+    def gen():
+        last = -1
+        while True:
+            with snapshots_cond:
+                if snapshot_seq.get(camera_id, 0) == last:
+                    snapshots_cond.wait(timeout=1.0)
+                data = snapshots.get(camera_id)
+                seq = snapshot_seq.get(camera_id, 0)
+            if data is None or seq == last:             # timed out with nothing new
+                if _find_camera(camera_id)[0] is None:  # camera was removed
+                    return
+                continue
+            last = seq
+            yield (b"--vigilframe\r\nContent-Type: image/jpeg\r\nContent-Length: "
+                   + str(len(data)).encode() + b"\r\n\r\n" + data + b"\r\n")
+
+    return StreamingResponse(gen(), media_type="multipart/x-mixed-replace; boundary=vigilframe",
+                             headers={"Cache-Control": "no-store, max-age=0"})
+
+
 _push_seq = itertools.count()
 
 
@@ -1054,13 +1382,59 @@ async def push_frame(camera_id: str, request: Request):
     body = await request.body()
     if not body or len(body) > 3_000_000:
         return JSONResponse({"error": "bad frame"}, status_code=400)
+    # The sender pipelines several uploads at once, so a slower one can arrive
+    # after a newer frame. X-Seq is the sender's monotonic frame number — decode
+    # and store only if it's newer than what we already hold, so live view and
+    # detection never step backwards to an older frame.
+    try:
+        seq = int(request.headers.get("X-Seq", "0"))
+    except ValueError:
+        seq = 0
+    if seq:
+        with browser_frames_lock:
+            prev = browser_frames.get(camera_id)
+        if prev is not None and prev[1] >= seq:
+            return {"ok": True, "stale": True}
     frame = cv2.imdecode(np.frombuffer(body, np.uint8), cv2.IMREAD_COLOR)
     if frame is None:
         return JSONResponse({"error": "bad frame"}, status_code=400)
     with browser_frames_lock:
-        browser_frames[camera_id] = (frame, next(_push_seq), time.time())
+        prev = browser_frames.get(camera_id)
+        if seq and prev is not None and prev[1] >= seq:   # a newer frame won the race
+            return {"ok": True, "stale": True}
+        browser_frames[camera_id] = (frame, seq if seq else next(_push_seq), time.time())
     _get_producer(camera_id)
     return {"ok": True}
+
+
+@app.websocket("/ws/push/{camera_id}")
+async def ws_push(camera_id: str, ws: WebSocket):
+    """Sender pages push JPEG frames over ONE WebSocket instead of a POST per
+    frame — far less per-frame overhead, which is most of the shared-link lag.
+    Auth mirrors /push: the unguessable id must map to a real browser camera
+    (the HTTP auth middleware doesn't run for websockets)."""
+    if _find_camera(camera_id)[0] != "browser":
+        await ws.close(code=4404)
+        return
+    await ws.accept()
+    try:
+        while True:
+            body = await ws.receive_bytes()
+            if not body or len(body) > 3_000_000:
+                continue
+            if _find_camera(camera_id)[0] != "browser":     # camera removed mid-stream
+                break
+            frame = await run_in_threadpool(
+                cv2.imdecode, np.frombuffer(body, np.uint8), cv2.IMREAD_COLOR)
+            if frame is None:
+                continue
+            # WebSocket messages arrive in order, so the server's own counter is
+            # a valid monotonic sequence — no X-Seq dance needed.
+            with browser_frames_lock:
+                browser_frames[camera_id] = (frame, next(_push_seq), time.time())
+            _get_producer(camera_id)
+    except (WebSocketDisconnect, RuntimeError):
+        pass
 
 
 @app.get("/cameras")
@@ -1344,6 +1718,7 @@ STYLE = """
   .alert img { width:56px; height:72px; object-fit:cover; border-radius:6px; background:#000; flex-shrink:0; }
   .alert-info { flex:1; display:flex; flex-direction:column; gap:3px; min-width:0; }
   .alert-title { font-size:13px; font-weight:600; }
+  .alert-desc { font-size:12px; color:#c4ccd8; line-height:1.35; margin:2px 0; font-style:italic; }
   .alert-cam { font-size:11px; color:#3ecf8e; }
   .alert-time { font-size:12px; color:#9aa4b2; }
   .alert-actions { display:flex; gap:8px; margin-top:4px; }
@@ -1438,7 +1813,8 @@ CAMERA_MODAL = """
     <h3 id="cam-title">Add a camera</h3>
     <p>The <b>location</b> shows on every alert and in the evidence log, so staff know
        exactly where to go. Phone via the <b>IP Webcam</b> app? Put the URL it shows plus
-       <code>/video</code>. Real CCTV uses an <code>rtsp://…</code> URL. (Same WiFi required.)</p>
+       <code>/video</code>. Real CCTV? Use the <b>RTSP builder</b> below — it makes the
+       link from the camera's IP + login. (Same network required.)</p>
     <label>Camera name</label>
     <input id="cam-label" placeholder="e.g. Cam 2">
     <label>Location / place it watches</label>
@@ -1449,9 +1825,67 @@ CAMERA_MODAL = """
       <button class="btn-ghost" onclick="addWebcam()">This computer's webcam</button>
       <button class="btn-ghost" onclick="addBrowserCam()">A device's camera (via link)</button>
     </div>
+    <button class="btn-ghost" id="rtsp-toggle" style="width:100%;border:none;border-radius:8px;padding:10px 0;
+        font-size:13px;font-weight:600;cursor:pointer;margin-bottom:8px"
+        onclick="const b=document.getElementById('rtsp-builder');
+                 b.style.display = b.style.display==='none' ? 'block' : 'none';">
+      CCTV / NVR camera? Build the RTSP link ▾</button>
+    <div id="rtsp-builder" style="display:none;background:#0e1116;border:1px solid #2b3340;border-radius:10px;
+         padding:14px;margin-bottom:12px">
+      <p style="font-size:12px;color:#9aa4b2;margin-bottom:10px">Fill what the CCTV admin gives you —
+        Vigil builds the link. For an <b>NVR</b> (recorder), use the NVR's address and pick the channel.</p>
+      <label>Brand / system</label>
+      <select id="rtsp-brand" style="width:100%;background:#151a21;border:1px solid #2b3340;color:#e6e9ef;
+          padding:10px 12px;border-radius:8px;font-size:13px;margin-bottom:12px" onchange="rtspBuild()">
+        <option value="hik">Hikvision (camera or NVR)</option>
+        <option value="dahua">Dahua / Amcrest / CP Plus</option>
+        <option value="reolink">Reolink</option>
+        <option value="tapo">TP-Link / Tapo</option>
+        <option value="uniview">Uniview</option>
+        <option value="generic">Other / not sure (ONVIF generic)</option>
+        <option value="custom">Custom path…</option>
+      </select>
+      <div style="display:grid;grid-template-columns:2fr 1fr;gap:8px">
+        <div><label>Camera / NVR address (IP)</label><input id="rtsp-ip" placeholder="192.168.1.50" oninput="rtspBuild()"></div>
+        <div><label>Port</label><input id="rtsp-port" placeholder="554" oninput="rtspBuild()"></div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+        <div><label>Username</label><input id="rtsp-user" placeholder="admin" oninput="rtspBuild()"></div>
+        <div><label>Password</label><input id="rtsp-pass" placeholder="••••••" oninput="rtspBuild()"></div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+        <div><label>Channel (NVR: camera no.)</label><input id="rtsp-chan" value="1" oninput="rtspBuild()"></div>
+        <div><label>Quality</label>
+          <select id="rtsp-sub" style="width:100%;background:#151a21;border:1px solid #2b3340;color:#e6e9ef;
+              padding:10px 12px;border-radius:8px;font-size:13px;margin-bottom:12px" onchange="rtspBuild()">
+            <option value="sub" selected>Substream — smooth (recommended)</option>
+            <option value="main">Main stream — full resolution (heavy)</option>
+          </select></div>
+      </div>
+      <div id="rtsp-custom-row" style="display:none"><label>Custom path (after the address)</label>
+        <input id="rtsp-path" placeholder="/Streaming/Channels/102" oninput="rtspBuild()"></div>
+      <p style="font-size:11.5px;color:#5b6675;margin:0">The link appears in the Stream URL box above —
+        then press Add camera. Special characters in passwords are encoded automatically.</p>
+    </div>
     <div class="modal-actions">
       <button class="btn-primary" id="cam-submit" onclick="submitCam()">Add camera</button>
       <button class="btn-ghost" onclick="closeCam()">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-bg" id="share-modal" onclick="if(event.target===this) closeShare()">
+  <div class="modal">
+    <h3>Share <span id="share-name">camera</span></h3>
+    <p id="share-note"></p>
+    <label>Camera link</label>
+    <input id="share-link" readonly onclick="this.select()">
+    <div class="modal-actions" style="margin-top:12px">
+      <button class="btn-primary" id="share-copy" onclick="copyShareLink()">Copy link</button>
+      <button class="btn-ghost" onclick="openShareHere()">Open on this device</button>
+    </div>
+    <div class="modal-actions" style="margin-top:8px">
+      <button class="btn-ghost" onclick="closeShare()">Done</button>
     </div>
   </div>
 </div>
@@ -1568,6 +2002,7 @@ DASHBOARD_HTML = """<!doctype html>
 
     // ---- Camera grid ----
     const IS_ADMIN = __IS_ADMIN__;
+    const PUBLIC_URL = "__PUBLIC_URL__";   // public https address (set by Vigil-Public), else ""
     const I = {
       cam: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7.5A1.5 1.5 0 0 1 4.5 6h9A1.5 1.5 0 0 1 15 7.5v9a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 3 16.5z"/><path d="m15 10.5 4.55-2.6A1 1 0 0 1 21 8.77v6.46a1 1 0 0 1-1.45.87L15 13.5z"/></svg>',
       pin: '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 6-8 12-8 12S4 16 4 10a8 8 0 1 1 16 0"/><circle cx="12" cy="10" r="3"/></svg>'
@@ -1578,9 +2013,9 @@ DASHBOARD_HTML = """<!doctype html>
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
           <path d="M12 2v20M2 12h20M9 5l3-3 3 3M9 19l3 3 3-3M5 9 2 12l3 3M19 9l3 3-3 3"/></svg></span>` : '';
       const senderBtn = c.source === 'browser'
-        ? `<button class="icon-btn" title="Open camera link — open this on the device that films"
-             onclick="event.stopPropagation(); window.open('/sender/${c.id}','_blank')">
-             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6"/><path d="M10 14 21 3"/><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/></svg></button>`
+        ? `<button class="icon-btn" title="Share this camera — send the link to any device, on any network"
+             onclick="event.stopPropagation(); openShare('${c.id}')">
+             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m8.6 13.5 6.8 4M15.4 6.5l-6.8 4"/></svg></button>`
         : '';
       const controls = senderBtn + (IS_ADMIN
         ? `<button class="icon-btn" title="Edit camera" onclick="openEdit('${c.id}')">✎</button>
@@ -1945,6 +2380,7 @@ DASHBOARD_HTML = """<!doctype html>
         (c.location && c.location.trim()) ? c.location : c.label;
       const img = document.getElementById('focus-img');
       img.dataset.cam = id;
+      attachFeed(img);                                 // switch the live stream right away
       document.getElementById('focus-pill').dataset.cam = id;
       if (animate) { img.classList.remove('swap'); void img.offsetWidth; img.classList.add('swap'); }
     }
@@ -2004,6 +2440,35 @@ DASHBOARD_HTML = """<!doctype html>
     let editingId = null;
     function openCam(){ document.getElementById('cam-modal').classList.add('open'); }
     function closeCam(){ document.getElementById('cam-modal').classList.remove('open'); }
+
+    // ---- Share a device-camera link (works across networks via Vigil-Public) ----
+    let shareId = null;
+    function shareLinkFor(id){
+      const base = (PUBLIC_URL && PUBLIC_URL.length) ? PUBLIC_URL : location.origin;
+      return base + '/sender/' + id;
+    }
+    function openShare(id){
+      shareId = id;
+      const cam = (lastCams || []).find(x => x.id === id);
+      document.getElementById('share-name').textContent =
+        (cam && (cam.location || cam.label)) ? (cam.location || cam.label) : 'camera';
+      document.getElementById('share-link').value = shareLinkFor(id);
+      const remote = !!(PUBLIC_URL && PUBLIC_URL.length);
+      document.getElementById('share-note').innerHTML = remote
+        ? 'Send this link to anyone, on <b>any network</b>. They open it on the device that should film, allow the camera, and it appears on your wall live.'
+        : 'This link works on <b>your Wi-Fi only.</b> To let someone on another network film, start Vigil with <code>Vigil-Public</code> — it makes a secure public link.';
+      document.getElementById('share-modal').classList.add('open');
+    }
+    function closeShare(){ document.getElementById('share-modal').classList.remove('open'); }
+    async function copyShareLink(){
+      const inp = document.getElementById('share-link');
+      try { await navigator.clipboard.writeText(inp.value); }
+      catch(e){ inp.select(); try { document.execCommand('copy'); } catch(_){} }
+      const b = document.getElementById('share-copy'), t = b.textContent;
+      b.textContent = 'Copied ✓';
+      setTimeout(() => { b.textContent = t; }, 1400);
+    }
+    function openShareHere(){ if (shareId) window.open('/sender/' + shareId, '_blank'); }
     function openAdd() {
       editingId = null;
       document.getElementById('cam-title').textContent = 'Add a camera';
@@ -2028,6 +2493,33 @@ DASHBOARD_HTML = """<!doctype html>
       document.getElementById('cam-input').value = (c.source === '0') ? '' : (c.source || '');
       openCam();
     }
+    // ---- CCTV / RTSP link builder --------------------------------------
+    // Composes the correct rtsp:// URL for the common CCTV brands so nobody
+    // has to memorise stream paths. NVR channels: Hikvision channel N sub-
+    // stream = N*100+2 (102, 202...), Dahua-style = ?channel=N&subtype=1.
+    function rtspBuild() {
+      const brand = document.getElementById('rtsp-brand').value;
+      document.getElementById('rtsp-custom-row').style.display = brand === 'custom' ? 'block' : 'none';
+      const ip   = document.getElementById('rtsp-ip').value.trim();
+      if (!ip) return;
+      const port = document.getElementById('rtsp-port').value.trim() || '554';
+      const user = document.getElementById('rtsp-user').value.trim();
+      const pass = document.getElementById('rtsp-pass').value;
+      const chan = parseInt(document.getElementById('rtsp-chan').value.trim() || '1', 10) || 1;
+      const sub  = document.getElementById('rtsp-sub').value === 'sub';
+      let path;
+      if      (brand === 'hik')     path = '/Streaming/Channels/' + (chan * 100 + (sub ? 2 : 1));
+      else if (brand === 'dahua')   path = '/cam/realmonitor?channel=' + chan + '&subtype=' + (sub ? 1 : 0);
+      else if (brand === 'reolink') path = '/h264Preview_' + String(chan).padStart(2, '0') + (sub ? '_sub' : '_main');
+      else if (brand === 'tapo')    path = sub ? '/stream2' : '/stream1';
+      else if (brand === 'uniview') path = '/media/video' + (sub ? 2 : 1);
+      else if (brand === 'custom')  path = document.getElementById('rtsp-path').value.trim() || '/';
+      else                          path = sub ? '/onvif2' : '/onvif1';
+      if (path && path[0] !== '/') path = '/' + path;
+      const cred = user ? encodeURIComponent(user) + (pass ? ':' + encodeURIComponent(pass) : '') + '@' : '';
+      document.getElementById('cam-input').value = 'rtsp://' + cred + ip + ':' + port + path;
+    }
+
     async function submitCam() {
       const label = document.getElementById('cam-label').value.trim() || 'Camera';
       const location = document.getElementById('cam-location').value.trim();
@@ -2041,6 +2533,13 @@ DASHBOARD_HTML = """<!doctype html>
       closeCam(); loadCameras();
     }
     async function addWebcam() {
+      // don't silently stack up identical webcam tiles from repeat clicks
+      let cams = [];
+      try { cams = await (await fetch('/cameras')).json(); } catch (e) {}
+      if (cams.some(c => c.source === '0')) {
+        alert('This computer\\'s webcam is already added - it\\'s on your wall.');
+        closeCam(); return;
+      }
       await fetch('/cameras', { method:'POST', headers:{'Content-Type':'application/json'},
         body: JSON.stringify({ label: "Mac webcam", location: "", source: '0' }) });
       closeCam(); loadCameras();
@@ -2050,8 +2549,8 @@ DASHBOARD_HTML = """<!doctype html>
       const location = document.getElementById('cam-location').value.trim();
       const cam = await (await fetch('/cameras', { method:'POST', headers:{'Content-Type':'application/json'},
         body: JSON.stringify({ label, location, source: 'browser' }) })).json();
-      closeCam(); loadCameras();
-      window.open('/sender/' + cam.id, '_blank');   // this tab becomes the camera
+      closeCam(); await loadCameras();
+      openShare(cam.id);   // choose: send the link to a device, or open it here
     }
     async function removeCam(id) {
       await fetch('/cameras/' + id, { method:'DELETE' });
@@ -2117,6 +2616,7 @@ DASHBOARD_HTML = """<!doctype html>
           <img src="${a.image}">
           <div class="alert-info">
             <div class="alert-title">${a.thing || 'Phone'} detected · ${Math.round(a.confidence*100)}%</div>
+            ${a.description ? `<div class="alert-desc">👁 ${a.description}</div>` : ''}
             <div class="alert-cam">${I.pin}${a.camera}</div>
             <div class="alert-time">${a.time}</div>
             ${a.status === 'pending'
@@ -2135,26 +2635,48 @@ DASHBOARD_HTML = """<!doctype html>
     setInterval(loadAlerts, 1500);
     loadAlerts();
 
-    // ---- Live camera snapshots (poll — no limit on number of cameras) ----
-    function refreshSnapshots() {
-      // mid-drag: give the drag every frame; feeds resume the moment it ends
-      if (document.querySelector('.grid.reordering')) return;
-      document.querySelectorAll('img.cam-snap').forEach(img => {
-        const id = img.dataset.cam;
-        if (!id) return;
-        fetch('/snapshot/' + id + '?t=' + Date.now())
-          .then(r => r.ok ? r.blob() : null)
-          .then(blob => {
-            if (!blob) return;
+    // ---- Live camera feeds ----
+    // Each tile holds ONE open /stream connection and the server pushes every
+    // new frame down it (MJPEG). No more 30 fetches/sec per camera — smoother,
+    // lower latency, and far kinder to WiFi/tunnels. If a stream drops (server
+    // restart, proxy that can't do multipart) the tile falls back to polling.
+    function attachFeed(img) {
+      const id = img.dataset.cam;
+      if (!id) {                                       // detached (e.g. focus view closed)
+        if (img.dataset.feed) { img.dataset.feed = ''; img.removeAttribute('src'); }
+        return;
+      }
+      if (img.dataset.feed === id) return;             // already streaming this cam
+      img.dataset.feed = id;
+      img.onerror = () => {                            // stream broke → poll this tile
+        if (img.dataset.poll) return;
+        img.dataset.poll = '1';
+        img.onerror = null;
+        pollFeed(img);
+      };
+      img.src = '/stream/' + id + '?t=' + Date.now();
+    }
+    function pollFeed(img) {
+      const id = img.dataset.cam;
+      if (!id || !document.contains(img)) return;
+      fetch('/snapshot/' + id + '?t=' + Date.now())
+        .then(r => r.ok ? r.blob() : null)
+        .then(blob => {
+          if (blob) {
             const url = URL.createObjectURL(blob);
             const prev = img.dataset.url;
-            img.src = url;
-            img.dataset.url = url;
+            img.src = url; img.dataset.url = url;
             if (prev) URL.revokeObjectURL(prev);
-          }).catch(() => {});
-      });
+          }
+        }).catch(() => {})
+        .finally(() => setTimeout(() => pollFeed(img), 100));
     }
-    setInterval(refreshSnapshots, 33);
+    function refreshSnapshots() {
+      // mid-drag: give the drag every frame; streams keep flowing on their own
+      if (document.querySelector('.grid.reordering')) return;
+      document.querySelectorAll('img.cam-snap').forEach(attachFeed);
+    }
+    setInterval(refreshSnapshots, 500);
 
     // ---- Per-camera online/offline status ----
     async function refreshStatus() {
@@ -2219,7 +2741,7 @@ EVIDENCE_HTML = """<!doctype html>
     </div>
     <div class="table">
       <table>
-        <thead><tr><th>Photo</th><th>Detected</th><th>Date</th><th>Time</th><th>Location</th><th>Confidence</th><th>Status</th></tr></thead>
+        <thead><tr><th>Photo</th><th>Detected</th><th>AI description</th><th>Date</th><th>Time</th><th>Location</th><th>Confidence</th><th>Status</th></tr></thead>
         <tbody id="rows"></tbody>
       </table>
     </div>
@@ -2241,13 +2763,14 @@ EVIDENCE_HTML = """<!doctype html>
       try { rows = await (await fetch(url)).json(); } catch (e) { return; }
       const body = document.getElementById('rows');
       if (rows.length === 0) {
-        body.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#5b6675;padding:40px">No matching records.</td></tr>';
+        body.innerHTML = '<tr><td colspan="8" style="text-align:center;color:#5b6675;padding:40px">No matching records.</td></tr>';
         return;
       }
       body.innerHTML = rows.map(r => `
         <tr>
           <td><img src="${r.image}"></td>
           <td>${r.thing || 'Phone'}</td>
+          <td style="max-width:240px;color:#c4ccd8;font-style:italic">${r.description || '<span style=\"color:#5b6675;font-style:normal\">—</span>'}</td>
           <td>${r.date}</td>
           <td>${r.time}</td>
           <td>${r.camera}</td>
@@ -2290,8 +2813,19 @@ USERS_HTML = """<!doctype html>
     <div class="card add">
       <h2>Add a user</h2>
       <form method="post" action="/users">
-        <label>Username</label><input name="username" required>
-        <label>Password</label><input name="password" type="password" required>
+        <label>Sign-in type</label>
+        <select name="auth" id="u-auth" onchange="
+            const g = this.value === 'google';
+            document.getElementById('u-pw').style.display = g ? 'none' : '';
+            document.getElementById('u-pw-l').style.display = g ? 'none' : '';
+            document.getElementById('u-pw').required = !g;
+            document.getElementById('u-name-l').textContent = g ? 'Google email' : 'Username';
+            document.getElementById('u-name').placeholder = g ? 'name@gmail.com' : '';">
+          <option value="password">Password — works offline</option>
+          <option value="google">Google — signs in with their Google account</option>
+        </select>
+        <label id="u-name-l">Username</label><input name="username" id="u-name" required>
+        <label id="u-pw-l">Password</label><input name="password" id="u-pw" type="password" required>
         <label>Role</label>
         <select name="role">
           <option value="invigilator">Invigilator — receives alerts</option>
@@ -2324,6 +2858,7 @@ def dashboard(request: Request):
             .replace("__CAMERA_MODAL__", CAMERA_MODAL)
             .replace("__USERNAME__", user["username"])
             .replace("__ADMIN_NAV__", _admin_nav(user))
+            .replace("__PUBLIC_URL__", PUBLIC_URL)
             .replace("__IS_ADMIN__", "true" if user["role"] == "admin" else "false"))
     # The dashboard is inline HTML+JS that changes with every app update. Never
     # let a browser serve a stale copy from cache — always fetch the live one.
@@ -2366,7 +2901,6 @@ SENDER_HTML = """<!doctype html>
     const v = document.getElementById('v'), pill = document.getElementById('pill'),
           ptext = document.getElementById('ptext'), msg = document.getElementById('msg');
     const canvas = document.createElement('canvas');
-    let sending = false;
 
     async function start() {
       try {
@@ -2380,27 +2914,64 @@ SENDER_HTML = """<!doctype html>
         return;
       }
       try { await navigator.wakeLock.request('screen'); } catch (e) {}   // keep phone awake
-      setInterval(shoot, 400);
+      loop();
     }
-    async function shoot() {
-      if (sending || v.videoWidth === 0) return;
-      sending = true;
-      const w = Math.min(v.videoWidth, 960), h = Math.round(w * v.videoHeight / v.videoWidth);
+    // Frames go over ONE WebSocket when possible (lowest latency — no per-frame
+    // HTTP round trip). If the socket can't connect (old proxy, odd network) we
+    // fall back to the pipelined POST uploader. bufferedAmount is the backlog
+    // guard: when the link can't keep up we skip frames instead of growing lag.
+    const CAPTURE_MS = 40;         // ~25 captures/sec ceiling
+    const MAX_INFLIGHT = 3;
+    const WS_MAX_BUFFER = 300000;  // ~2 frames — beyond this, skip instead of queue
+    let inflight = 0, seq = Date.now();
+    let ws = null, wsOpen = false, wsDead = false;
+
+    function connectWS() {
+      try {
+        ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://')
+                           + location.host + '/ws/push/' + CAM_ID);
+        ws.binaryType = 'arraybuffer';
+        ws.onopen  = () => { wsOpen = true;  setLive(true); };
+        ws.onclose = ws.onerror = () => {
+          const was = wsOpen; wsOpen = false;
+          if (!was) { wsDead = true; return; }         // never connected → POST mode
+          setLive(false); setTimeout(connectWS, 1000); // drop mid-run → reconnect
+        };
+      } catch (e) { wsDead = true; }
+    }
+    function setLive(ok) {
+      pill.classList.toggle('live', ok);
+      ptext.textContent = ok ? 'LIVE' : 'RECONNECTING…';
+    }
+    function loop() {
+      if (v.videoWidth > 0) {
+        if (wsOpen) { if (ws.bufferedAmount < WS_MAX_BUFFER) shoot(); }
+        else if (wsDead && inflight < MAX_INFLIGHT) shoot();
+      }
+      setTimeout(loop, CAPTURE_MS);
+    }
+    function shoot() {
+      // 640px @ 0.6 quality = small frame that uploads fast over cellular; the
+      // detector runs at IMG_SIZE anyway, so more pixels wouldn't help accuracy.
+      const w = Math.min(v.videoWidth, 640), h = Math.round(w * v.videoHeight / v.videoWidth);
       canvas.width = w; canvas.height = h;
       canvas.getContext('2d').drawImage(v, 0, 0, w, h);
-      canvas.toBlob(async blob => {
-        try {
-          const r = await fetch('/push/' + CAM_ID, { method:'POST',
-            headers:{'Content-Type':'image/jpeg'}, body: blob });
-          const ok = r.ok;
-          pill.classList.toggle('live', ok);
-          ptext.textContent = ok ? 'LIVE' : 'RECONNECTING…';
-        } catch (e) {
-          pill.classList.remove('live'); ptext.textContent = 'RECONNECTING…';
+      const mySeq = ++seq;
+      canvas.toBlob(blob => {
+        if (!blob) return;
+        if (wsOpen) {
+          blob.arrayBuffer().then(buf => { if (wsOpen) { ws.send(buf); setLive(true); } });
+          return;
         }
-        sending = false;
-      }, 'image/jpeg', 0.75);
+        inflight++;
+        fetch('/push/' + CAM_ID, { method:'POST',
+            headers:{ 'Content-Type':'image/jpeg', 'X-Seq': String(mySeq) }, body: blob })
+          .then(r => setLive(r.ok))
+          .catch(() => setLive(false))
+          .finally(() => { inflight--; });
+      }, 'image/jpeg', 0.6);
     }
+    connectWS();
     start();
   </script>
 </body></html>"""
@@ -3011,6 +3582,8 @@ AUTH_TEMPLATE = """<!doctype html>
       <h2>__HEADING__</h2>
       <p>__HINT__</p>
       __ERROR__
+      <div class="err" id="gerr" style="display:none"></div>
+      __GOOGLE__
       <label>Username</label>
       <input name="username" autofocus autocomplete="username">
       <label>Password</label>
@@ -3020,13 +3593,46 @@ AUTH_TEMPLATE = """<!doctype html>
   </div>
 </body></html>"""
 
+# Google Sign-In block (only rendered when a client ID is configured).
+# The button comes from Google's own script; its callback hands us an ID token
+# that /auth/google verifies WITH GOOGLE server-side before opening a session.
+GOOGLE_BTN = """
+      <div id="g_id_onload" data-client_id="__GCID__" data-callback="onGoogle" data-auto_select="false"></div>
+      <div class="g_id_signin" data-type="standard" data-theme="filled_black" data-size="large"
+           data-text="__GTEXT__" data-shape="rectangular" data-logo_alignment="left" data-width="298"></div>
+      <div style="display:flex;align-items:center;gap:10px;margin:16px 0 14px;color:#5b6675;font-size:11.5px">
+        <span style="flex:1;height:1px;background:#232a34"></span>or
+        <span style="flex:1;height:1px;background:#232a34"></span></div>
+      <script src="https://accounts.google.com/gsi/client" async></script>
+      <script>
+        function onGoogle(resp) {
+          fetch('/auth/google', { method:'POST', headers:{'Content-Type':'application/json'},
+                                  body: JSON.stringify({ credential: resp.credential }) })
+            .then(r => r.json().then(j => ({ ok: r.ok, j })))
+            .then(({ ok, j }) => {
+              if (ok) { location.href = '/'; return; }
+              const e = document.getElementById('gerr');
+              e.textContent = (j && j.error) || 'Google sign-in failed.';
+              e.style.display = 'block';
+            })
+            .catch(() => {
+              const e = document.getElementById('gerr');
+              e.textContent = 'Google sign-in failed - check your connection.';
+              e.style.display = 'block';
+            });
+        }
+      </script>"""
 
-def _auth_page(title, heading, hint, action, button, error=""):
+
+def _auth_page(title, heading, hint, action, button, error="", google_text="signin_with"):
     err = f'<div class="err">{error}</div>' if error else ""
+    google = ""
+    if GOOGLE_CLIENT_ID.strip():
+        google = GOOGLE_BTN.replace("__GCID__", GOOGLE_CLIENT_ID.strip()).replace("__GTEXT__", google_text)
     return (AUTH_TEMPLATE.replace("__STYLE__", STYLE).replace("__LOGO__", LOGO_MARK).replace("__TITLE__", title)
             .replace("__HEADING__", heading).replace("__HINT__", hint)
             .replace("__ACTION__", action).replace("__BUTTON__", button)
-            .replace("__ERROR__", err))
+            .replace("__ERROR__", err).replace("__GOOGLE__", google))
 
 
 _COOKIE_KW = dict(httponly=True, samesite="lax", max_age=60 * 60 * 24 * 30)
@@ -3036,8 +3642,10 @@ _COOKIE_KW = dict(httponly=True, samesite="lax", max_age=60 * 60 * 24 * 30)
 def setup_page():
     if user_count() > 0:
         return RedirectResponse("/login")
-    return _auth_page("Setup", "Create the admin account",
-                      "This first account manages cameras and other users.", "/setup", "Create admin")
+    hint = ("This first account manages cameras and other users. "
+            + ("Use Google, or create a username and password below." if GOOGLE_CLIENT_ID.strip() else ""))
+    return _auth_page("Setup", "Create the admin account", hint,
+                      "/setup", "Create admin", google_text="continue_with")
 
 
 @app.post("/setup")
@@ -3058,7 +3666,9 @@ def setup_submit(username: str = Form(...), password: str = Form(...)):
 def login_page():
     if user_count() == 0:
         return RedirectResponse("/setup")
-    return _auth_page("Login", "Sign in to Vigil", "Enter your credentials.", "/login", "Sign in")
+    hint = "Use your Google account, or a local username." if GOOGLE_CLIENT_ID.strip() \
+           else "Enter your credentials."
+    return _auth_page("Login", "Sign in to Vigil", hint, "/login", "Sign in")
 
 
 @app.post("/login")
@@ -3069,6 +3679,38 @@ def login_submit(username: str = Form(...), password: str = Form(...)):
                             "/login", "Sign in", "Invalid username or password."), status_code=401)
     resp = RedirectResponse("/", status_code=303)
     resp.set_cookie("vigil_session", _sign(u["username"]), **_COOKIE_KW)
+    return resp
+
+
+@app.post("/auth/google")
+async def auth_google(request: Request):
+    """Google Sign-In: verify the ID token with Google, then map its email to a
+    Vigil account. First user ever becomes the admin (same rule as /setup);
+    after that an admin must add your email on the Users page first."""
+    if not GOOGLE_CLIENT_ID.strip():
+        return JSONResponse({"error": "Google Sign-In isn't configured."}, status_code=400)
+    try:
+        payload = await request.json()
+    except Exception:
+        payload = {}
+    claims = verify_google_token(str(payload.get("credential", "")))
+    if not claims:
+        return JSONResponse({"error": "Google couldn't verify that sign-in."}, status_code=401)
+    email = (claims.get("email") or "").strip().lower()
+    if not email:
+        return JSONResponse({"error": "Google returned no email address."}, status_code=401)
+    user = find_user_by_email(email)
+    if user is None:
+        if user_count() == 0:                            # bootstrap: first account = admin
+            ok, err = create_google_user(email, role="admin")
+            if not ok:
+                return JSONResponse({"error": err}, status_code=400)
+            user = find_user_by_email(email)
+        else:
+            return JSONResponse({"error": f"{email} isn't authorized yet - ask your admin "
+                                          "to add it on the Users page."}, status_code=403)
+    resp = JSONResponse({"ok": True, "username": user["username"], "role": user["role"]})
+    resp.set_cookie("vigil_session", _sign(user["username"]), **_COOKIE_KW)
     return resp
 
 
@@ -3089,7 +3731,9 @@ def _users_rows(current_username):
             action = ('<form method="post" action="/users/delete" style="margin:0">'
                       f'<input type="hidden" name="username" value="{u["username"]}">'
                       '<button class="del">Remove</button></form>')
-        out.append(f'<tr><td>{u["username"]}</td>'
+        via = ' <span style="color:#5b6675;font-size:11px">· Google</span>' \
+              if (u.get("auth") == "google") else ""
+        out.append(f'<tr><td>{u["username"]}{via}</td>'
                    f'<td><span class="badge {u["role"]}">{u["role"]}</span></td>'
                    f'<td>{action}</td></tr>')
     return "".join(out)
@@ -3104,8 +3748,13 @@ def users_page(request: Request):
 
 
 @app.post("/users")
-def users_add(username: str = Form(...), password: str = Form(...), role: str = Form("invigilator")):
-    create_user(username, password, "admin" if role == "admin" else "invigilator")
+def users_add(username: str = Form(...), password: str = Form(""), role: str = Form("invigilator"),
+              auth: str = Form("password")):
+    role = "admin" if role == "admin" else "invigilator"
+    if auth == "google":
+        create_google_user(username, role)               # username field holds the email
+    else:
+        create_user(username, password, role)
     return RedirectResponse("/users", status_code=303)
 
 
@@ -3167,6 +3816,8 @@ def settings_page(request: Request, saved: str = "", test: str = ""):
                    "That target isn't something the current models recognise — kept the previous one. "
                    'Custom targets (caps, uniforms, faces…) can be added with fine-tuning.</div>')
     checked = "checked" if g["TILING"] else ""
+    vlm_checked = "checked" if g["VLM_ENABLED"] else ""
+    vlm_verify_checked = "checked" if g["VLM_VERIFY"] else ""
     body = f"""
       <h2>Detection settings</h2>
       <div class="sub">Accuracy vs. speed. Changes apply live — no restart needed.</div>
@@ -3229,6 +3880,33 @@ def settings_page(request: Request, saved: str = "", test: str = ""):
           <input type="text" name="model_name" value="{g['MODEL_NAME']}" style="width:340px">
         </div>
 
+        <div class="sec">AI second look (optional) — smarter alerts</div>
+        <div class="field">
+          <div class="hint">After a detection, a <b>local</b> vision model looks at the photo to
+          (1) write a plain-English description of the scene and (2) drop obvious false alarms.
+          Runs 100% on this computer — nothing leaves the building. Needs
+          <a href="https://ollama.com" target="_blank">Ollama</a> running with a vision model
+          pulled: <code>ollama pull llava</code> (or <code>moondream</code> for a lighter one).</div>
+        </div>
+        <div class="field toggle">
+          <input type="checkbox" name="vlm_enabled" {vlm_checked}>
+          <label>Enable AI second look</label>
+        </div>
+        <div class="field">
+          <label>Vision model</label>
+          <div class="hint">Ollama model name: <b>llava</b> (balanced) · <b>moondream</b> (fastest, lighter) · <b>qwen2.5vl</b> (sharper). Pull it first with <code>ollama pull &lt;name&gt;</code>.</div>
+          <input type="text" name="vlm_model" value="{g['VLM_MODEL']}" style="width:340px" placeholder="llava">
+        </div>
+        <div class="field toggle">
+          <input type="checkbox" name="vlm_verify" {vlm_verify_checked}>
+          <label>Also drop false alarms the AI rejects</label>
+        </div>
+        <div class="field">
+          <div class="hint">With this on, if the AI is confident the photo is <i>not</i> a {g['WATCH_TARGET']}
+          (a remote, wallet, book…), the alert is suppressed. Turn off to only add descriptions and
+          never discard a detection.</div>
+        </div>
+
         <div class="sec">Phone alerts via Telegram (optional)</div>
         <div class="field">
           <div class="hint">Get alerts on your phone with the photo + location. Setup: in Telegram, message
@@ -3244,6 +3922,20 @@ def settings_page(request: Request, saved: str = "", test: str = ""):
           <label>Chat ID(s)</label>
           <div class="hint">One or more, comma-separated (one per person who should get alerts).</div>
           <input type="text" name="telegram_chat_ids" value="{g['TELEGRAM_CHAT_IDS']}" style="width:340px" placeholder="123456789, 987654321">
+        </div>
+
+        <div class="sec">Sign in with Google (optional)</div>
+        <div class="field">
+          <div class="hint">Adds a <b>"Sign in with Google"</b> button to the login page — no passwords to
+          manage. Create a free OAuth <b>Web application</b> client ID at
+          <a href="https://console.cloud.google.com/apis/credentials" target="_blank">console.cloud.google.com</a>
+          (full steps in <code>GOOGLE-SIGNIN.md</code>), paste it here, then add each person's
+          Gmail address on the <a href="/users">Users</a> page. Leave blank to keep password-only login.</div>
+        </div>
+        <div class="field">
+          <label>Google client ID</label>
+          <input type="text" name="google_client_id" value="{g['GOOGLE_CLIENT_ID']}" style="width:100%;max-width:520px"
+                 placeholder="1234567890-abc123.apps.googleusercontent.com">
         </div>
 
         <div class="save-row"><button type="submit">Save settings</button></div>
@@ -3276,10 +3968,17 @@ def settings_save(
     telegram_token: str = Form(""),
     telegram_chat_ids: str = Form(""),
     watch_target: str = Form("phone"),
+    vlm_enabled: str = Form(None),
+    vlm_model: str = Form("llava"),
+    vlm_verify: str = Form(None),
+    google_client_id: str = Form(""),
 ):
     old_model = MODEL_NAME
     old_watch = WATCH_TARGET
     save_settings({
+        "VLM_ENABLED": vlm_enabled is not None,
+        "VLM_MODEL": (vlm_model.strip() or "llava"),
+        "VLM_VERIFY": vlm_verify is not None,
         "CONFIDENCE": min(max(confidence, 0.05), 0.95),
         "REQUIRED_HITS": max(1, min(required_hits, 10)),
         "ALERT_COOLDOWN": max(1, min(alert_cooldown, 60)),
@@ -3293,7 +3992,9 @@ def settings_save(
         "TELEGRAM_TOKEN": telegram_token.strip(),
         "TELEGRAM_CHAT_IDS": telegram_chat_ids.strip(),
         "WATCH_TARGET": (watch_target.strip().lower() or "phone"),
+        "GOOGLE_CLIENT_ID": google_client_id.strip(),
     })
+    _sync_vlm()                                    # push VLM_* into the vlm module
     if MODEL_NAME != old_model:
         try:
             reload_model()
@@ -3403,13 +4104,25 @@ DISPLAY_HTML = """<!doctype html>
                '<span class="label"><span class="sdot offline" data-cam="' + c.id + '"></span>' + place + '</span></div>';
       }).join('');
     }
+    function pollFeed(img) {
+      if (!document.contains(img)) return;
+      fetch('/snapshot/' + img.dataset.cam + '?t=' + Date.now())
+        .then(r => r.ok ? r.blob() : null).then(b => {
+          if (b) { const u = URL.createObjectURL(b); const p = img.dataset.url;
+                   img.src = u; img.dataset.url = u; if (p) URL.revokeObjectURL(p); }
+        }).catch(()=>{})
+        .finally(() => setTimeout(() => pollFeed(img), 100));
+    }
     function refreshSnaps() {
+      // server-pushed MJPEG stream per tile; per-tile polling only as fallback
       document.querySelectorAll('img.wsnap').forEach(img => {
-        fetch('/snapshot/' + img.dataset.cam + '?t=' + Date.now())
-          .then(r => r.ok ? r.blob() : null).then(b => {
-            if (!b) return; const u = URL.createObjectURL(b); const p = img.dataset.url;
-            img.src = u; img.dataset.url = u; if (p) URL.revokeObjectURL(p);
-          }).catch(()=>{});
+        if (img.dataset.feed === img.dataset.cam) return;
+        img.dataset.feed = img.dataset.cam;
+        img.onerror = () => {
+          if (img.dataset.poll) return;
+          img.dataset.poll = '1'; img.onerror = null; pollFeed(img);
+        };
+        img.src = '/stream/' + img.dataset.cam + '?t=' + Date.now();
       });
     }
     async function refreshStatus() {
@@ -3446,8 +4159,8 @@ DISPLAY_HTML = """<!doctype html>
       first = false;
     }
 
-    loadWall().then(refreshStatus);
-    setInterval(refreshSnaps, 33);
+    loadWall().then(refreshStatus).then(refreshSnaps);
+    setInterval(refreshSnaps, 500);
     setInterval(refreshStatus, 1500);
     setInterval(pollAlerts, 1500);
     pollAlerts();
