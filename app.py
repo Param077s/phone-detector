@@ -113,7 +113,7 @@ class MJPEGCapture:
         self._buf = b""
         try:
             req = urllib.request.Request(url, headers={"User-Agent": "Vigil"})
-            self._resp = urllib.request.urlopen(req, timeout=6)
+            self._resp = urllib.request.urlopen(req, timeout=2.5)   # dead camera fails fast
             ctype = self._resp.headers.get("Content-Type", "")
             if "multipart" not in ctype and "image" not in ctype:
                 self._resp.close()
@@ -167,8 +167,8 @@ def _ffmpeg_options_for(src):
     """Per-protocol FFmpeg options. The old global env var applied RTSP options
     to every URL — harmless for RTSP, but it broke some HTTP (IP Webcam) opens."""
     if isinstance(src, str) and src.startswith("rtsp"):
-        return "rtsp_transport;tcp|stimeout;5000000|timeout;5000000"
-    return "timeout;5000000"
+        return "rtsp_transport;tcp|stimeout;2500000|timeout;2500000"
+    return "timeout;2500000"
 
 
 def open_capture(src):
@@ -204,8 +204,15 @@ def open_capture(src):
         _capture_lock.release_write()
 
 
-def read_capture(cap):
-    """Grab a frame under a shared read lock (safe against a concurrent open)."""
+def read_capture(cap, ffmpeg=True):
+    """Grab a frame. Only real FFmpeg cv2 captures walk the fragile global
+    av_option state, so ONLY they take the read lock (and thus wait during
+    another camera's open). Webcams (AVFoundation) and the pure-Python
+    MJPEGCapture never touch that state — they read WITHOUT the lock, so a dead
+    network camera reconnecting can never freeze a live webcam. This was the
+    '3-second freeze' bug: one offline camera stalled every live feed."""
+    if not ffmpeg or isinstance(cap, MJPEGCapture):
+        return cap.read()
     _capture_lock.acquire_read()
     try:
         return cap.read()
@@ -937,6 +944,10 @@ class CameraStream:
     viewer never falls behind the live action (no lag build-up)."""
     def __init__(self, source):
         self.source = source
+        # Webcams (AVFoundation) don't share FFmpeg's fragile global state, so
+        # their reads skip the capture lock and never wait on another camera's
+        # open — a dead network camera can't freeze the live webcam.
+        self.is_ffmpeg = not str(source).isdigit()
         self.frame = None
         self.running = True
         self.lock = threading.Lock()
@@ -952,16 +963,17 @@ class CameraStream:
         fails = 0
         while self.running:
             if self.cap is None or not self.cap.isOpened():
-                time.sleep(1.0)
+                time.sleep(min(15.0, 1.0 + 2.0 * fails))    # back off a dead camera fast
+                fails += 1
                 self.cap = self._open()
                 continue
-            ok, f = read_capture(self.cap)              # shared read lock
+            ok, f = read_capture(self.cap, ffmpeg=self.is_ffmpeg)
             if not ok:                                  # stream dropped / camera off
                 fails += 1
                 with self.lock:
                     self.frame = None
-                release_capture(self.cap)               # exclusive: pauses reads
-                time.sleep(min(10.0, 1.0 * fails))      # back off hard — a dead camera logs rarely
+                release_capture(self.cap)               # exclusive: pauses FFmpeg reads
+                time.sleep(min(15.0, 2.0 * fails))      # back off hard — a dead camera retries rarely
                 self.cap = self._open()
                 continue
             fails = 0
@@ -2462,7 +2474,7 @@ DASHBOARD_HTML = """<!doctype html>
         (c.location && c.location.trim()) ? c.location : c.label;
       const img = document.getElementById('focus-img');
       img.dataset.cam = id;
-      attachFeed(img);                                 // switch the live stream right away
+      if (img.dataset.looping !== '1') { img.dataset.looping = '1'; pollFeed(img); }  // start its feed loop
       document.getElementById('focus-pill').dataset.cam = id;
       if (animate) { img.classList.remove('swap'); void img.offsetWidth; img.classList.add('swap'); }
     }
@@ -2741,30 +2753,14 @@ DASHBOARD_HTML = """<!doctype html>
     setInterval(loadAlerts, 1500);
     loadAlerts();
 
-    // ---- Live camera feeds ----
-    // Each tile holds ONE open /stream connection and the server pushes every
-    // new frame down it (MJPEG). No more 30 fetches/sec per camera — smoother,
-    // lower latency, and far kinder to WiFi/tunnels. If a stream drops (server
-    // restart, proxy that can't do multipart) the tile falls back to polling.
-    function attachFeed(img) {
-      const id = img.dataset.cam;
-      if (!id) {                                       // detached (e.g. focus view closed)
-        if (img.dataset.feed) { img.dataset.feed = ''; img.removeAttribute('src'); }
-        return;
-      }
-      if (img.dataset.feed === id) return;             // already streaming this cam
-      img.dataset.feed = id;
-      img.onerror = () => {                            // stream broke → poll this tile
-        if (img.dataset.poll) return;
-        img.dataset.poll = '1';
-        img.onerror = null;
-        pollFeed(img);
-      };
-      img.src = '/stream/' + id + '?t=' + Date.now();
-    }
+    // ---- Live camera feeds (snapshot polling) ----
+    // Each tile fetches the latest annotated JPEG on a loop. Short requests that
+    // COMPLETE and free the connection — unlike a permanent MJPEG stream, which
+    // holds a socket open forever and (past the browser's ~6-per-host limit)
+    // freezes the tab on "loading". One in-flight fetch per tile = no pile-up.
     function pollFeed(img) {
       const id = img.dataset.cam;
-      if (!id || !document.contains(img)) return;
+      if (!id || !document.contains(img)) { img.dataset.looping = ''; return; }
       fetch('/snapshot/' + id + '?t=' + Date.now())
         .then(r => r.ok ? r.blob() : null)
         .then(blob => {
@@ -2775,12 +2771,16 @@ DASHBOARD_HTML = """<!doctype html>
             if (prev) URL.revokeObjectURL(prev);
           }
         }).catch(() => {})
-        .finally(() => setTimeout(() => pollFeed(img), 100));
+        .finally(() => setTimeout(() => pollFeed(img), 40));   // ~25fps, next only after this one lands
     }
     function refreshSnapshots() {
-      // mid-drag: give the drag every frame; streams keep flowing on their own
-      if (document.querySelector('.grid.reordering')) return;
-      document.querySelectorAll('img.cam-snap').forEach(attachFeed);
+      // start ONE polling loop per tile; it self-sustains until the tile is gone
+      document.querySelectorAll('img.cam-snap').forEach(img => {
+        if (img.dataset.cam && img.dataset.looping !== '1') {
+          img.dataset.looping = '1';
+          pollFeed(img);
+        }
+      });
     }
     setInterval(refreshSnapshots, 500);
 
@@ -4212,24 +4212,21 @@ DISPLAY_HTML = """<!doctype html>
       }).join('');
     }
     function pollFeed(img) {
-      if (!document.contains(img)) return;
+      if (!img.dataset.cam || !document.contains(img)) { img.dataset.looping = ''; return; }
       fetch('/snapshot/' + img.dataset.cam + '?t=' + Date.now())
         .then(r => r.ok ? r.blob() : null).then(b => {
           if (b) { const u = URL.createObjectURL(b); const p = img.dataset.url;
                    img.src = u; img.dataset.url = u; if (p) URL.revokeObjectURL(p); }
         }).catch(()=>{})
-        .finally(() => setTimeout(() => pollFeed(img), 100));
+        .finally(() => setTimeout(() => pollFeed(img), 40));
     }
     function refreshSnaps() {
-      // server-pushed MJPEG stream per tile; per-tile polling only as fallback
+      // one self-sustaining snapshot-poll loop per tile (short requests that free
+      // the socket — no permanent stream connections to exhaust the browser)
       document.querySelectorAll('img.wsnap').forEach(img => {
-        if (img.dataset.feed === img.dataset.cam) return;
-        img.dataset.feed = img.dataset.cam;
-        img.onerror = () => {
-          if (img.dataset.poll) return;
-          img.dataset.poll = '1'; img.onerror = null; pollFeed(img);
-        };
-        img.src = '/stream/' + img.dataset.cam + '?t=' + Date.now();
+        if (img.dataset.cam && img.dataset.looping !== '1') {
+          img.dataset.looping = '1'; pollFeed(img);
+        }
       });
     }
     async function refreshStatus() {
