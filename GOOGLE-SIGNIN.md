@@ -1,52 +1,44 @@
-# Sign in with Google — 5-minute setup
+# Signing in to Vigil
 
-Vigil can show a **"Sign in with Google"** button on its login page, so you and
-your staff sign in with Google accounts instead of remembering another password.
+Vigil has **two ways to sign in** — you don't set up anything, both just work:
 
-Google requires every app that uses this to have its own (free) **client ID**.
-You create it once; it takes about 5 minutes.
+## 1. Sign in with Google (on the Vigil computer)
 
-## 1. Create the client ID
+When you open Vigil on the computer it's running on (`http://localhost:8000`),
+the login page shows a **"Sign in with Google"** button. Click it, pick your
+Google account, and you're in. Nothing to configure.
 
-1. Go to <https://console.cloud.google.com/apis/credentials>
-   (sign in with your own Google account).
-2. If asked, create a project — call it `Vigil` and accept the defaults.
-3. If you see **"Configure consent screen"**, do that first:
-   - User type: **External** → Create
-   - App name `Vigil`, pick your email for the two email fields → Save through
-     the remaining steps (you can leave everything else empty).
-4. Back on **Credentials**, click **+ Create credentials → OAuth client ID**.
-5. Application type: **Web application**. Name: `Vigil`.
-6. Under **Authorized JavaScript origins**, add every address you open Vigil at:
-   - `http://localhost:8000`
-   - `http://127.0.0.1:8000`
-   - If you open the dashboard from other machines on your network, also add
-     that address, e.g. `http://192.168.1.20:8000`
-   - If you use Vigil-Public (a tunnel), add its `https://…` address too.
-7. Click **Create** and copy the **Client ID** — it looks like
-   `1234567890-abc123def456.apps.googleusercontent.com`
+- The **first person** to sign in (Google or password) becomes the **admin**.
+- After that, the admin adds each teammate on the **Users** page — for Google
+  users, just enter their Gmail address. Until an email is added, Google
+  politely refuses that person (so randoms can't get in).
 
-## 2. Paste it into Vigil
+## 2. Username + password (anywhere)
 
-1. Open Vigil → **Settings → Sign in with Google**.
-2. Paste the client ID → **Save settings**.
-3. The login page now shows the Google button.
+Every account can also have a username + password. Use this:
 
-## 3. Who can sign in?
+- **On a phone or another device** (opening Vigil over WiFi at
+  `http://<computer-ip>:8000`). Google's button only works on the Vigil
+  computer itself — a Google rule we can't change — so phones use the
+  password you were given.
+- **When the internet is down.** Password sign-in needs no internet; Google
+  sign-in does. Always keep at least one admin **password** account as a
+  backup.
 
-- **The very first account ever created** (on a fresh install) becomes the
-  admin — whether it's made with Google or a password.
-- After that, an admin adds people on the **Users** page:
-  choose **Google** as the sign-in type and enter their Gmail address.
-  Until their email is added, Google sign-in politely refuses them.
+## Why is there a login at all? (it's local!)
 
-## Notes
+Because the **evidence log holds photos of people**. The login keeps that
+private — especially the moment you view Vigil from a phone or share a link,
+which puts it on the network. Vigil records **nothing about you**: accounts
+live in a local file on that computer, passwords are stored only as a one-way
+hash, and nothing is ever sent anywhere.
 
-- Password accounts keep working — Google is an *extra* way in, and the only
-  way that works if the venue's internet is down is a password account, so
-  keep at least one admin password account.
-- Nothing about your cameras or evidence goes to Google. The button only
-  verifies **who is signing in**.
-- If the button shows an error like `origin not allowed`, the address in your
-  browser's URL bar isn't in the **Authorized JavaScript origins** list — add
-  it exactly (scheme + host + port) and try again after a minute.
+---
+
+### For developers / self-hosting on your own domain
+
+Google Sign-In is pre-configured with a built-in client ID that authorizes
+`localhost`. If you host Vigil on a public domain and want the Google button
+to work there too, set your own OAuth **Web application** client ID via the
+`GOOGLE_CLIENT_ID` environment variable (authorize your domain as a JavaScript
+origin in the Google Cloud console). Everyone else can ignore this.

@@ -103,6 +103,8 @@ fi
 
 # --- 4) Launch Vigil (browser opens locally) -------------------------------
 echo "  Vigil is starting at  http://localhost:$PORT"
+LAN_IP=$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null)
+[ -n "$LAN_IP" ] && echo "  On a phone (same WiFi):  http://$LAN_IP:$PORT"
 echo "  ▶ Keep this window open while you use Vigil."
 echo "  ▶ To stop Vigil AND the public link: close this window."
 echo ""
@@ -112,4 +114,4 @@ cleanup() { kill "$CF_PID" 2>/dev/null; rm -f "$CF_LOG"; }
 trap cleanup EXIT INT TERM
 
 ( sleep 5; open "http://localhost:$PORT" >/dev/null 2>&1 ) &
-./venv/bin/python -m uvicorn app:app --host 127.0.0.1 --port "$PORT"
+./venv/bin/python -m uvicorn app:app --host 0.0.0.0 --port "$PORT"

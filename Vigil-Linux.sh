@@ -35,7 +35,9 @@ if [ ! -f ".vigil-installed" ]; then
 fi
 
 echo "  Vigil is starting at  http://localhost:$PORT  (opening browser)…"
+LAN_IP=$(hostname -I 2>/dev/null | awk '{print $1}')
+[ -n "$LAN_IP" ] && echo "  On a phone (same WiFi):  http://$LAN_IP:$PORT"
 echo "  Keep this terminal open while using Vigil. Press Control-C to stop."
 echo ""
 ( sleep 5; xdg-open "http://localhost:$PORT" >/dev/null 2>&1 ) &
-./venv/bin/python -m uvicorn app:app --host 127.0.0.1 --port "$PORT"
+./venv/bin/python -m uvicorn app:app --host 0.0.0.0 --port "$PORT"

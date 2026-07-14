@@ -81,6 +81,8 @@ export MODEL_NAME="$RES/yolo11m.pt"
 export PYTHONPATH="$RES"
 
 echo "  Vigil is running at  http://localhost:$PORT"
+LAN_IP=$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null)
+[ -n "$LAN_IP" ] && echo "  On a phone (same WiFi):  http://$LAN_IP:$PORT"
 echo "  Your browser will open in a few seconds."
 echo ""
 echo "  ▶ Keep this window open while you use Vigil."
@@ -88,7 +90,7 @@ echo "  ▶ To stop Vigil: close this window (or press Control-C)."
 echo "  ------------------------------------------------------------"
 echo ""
 ( sleep 5; open "http://localhost:$PORT" >/dev/null 2>&1 ) &
-exec ./venv/bin/python -m uvicorn app:app --host 127.0.0.1 --port "$PORT"
+exec ./venv/bin/python -m uvicorn app:app --host 0.0.0.0 --port "$PORT"
 LAUNCH
 chmod +x "$RES/launch.command"
 

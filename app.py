@@ -296,16 +296,21 @@ VLM_ENABLED = False          # master switch for the AI second look
 VLM_MODEL   = "llava"        # Ollama vision model: llava · moondream · qwen2.5vl
 VLM_VERIFY  = True           # also DROP alerts the AI says aren't the target (#3)
 
-# Google Sign-In (optional). Paste an OAuth "Web application" client ID from
-# console.cloud.google.com and the login page grows a "Sign in with Google"
-# button. See GOOGLE-SIGNIN.md for the 5-minute setup.
-GOOGLE_CLIENT_ID = ""
+# Google Sign-In — baked in so every download shows a working "Sign in with
+# Google" button with ZERO setup. A web client ID is public by design (it ships
+# in the page anyway), so embedding it is safe. Self-hosters on their own domain
+# can override with the GOOGLE_CLIENT_ID env var. NOTE: Google only trusts
+# localhost/127.0.0.1 origins for a local app — so the button works on the Vigil
+# computer, and phones/other devices use password login (that's why both exist).
+GOOGLE_CLIENT_ID = os.getenv(
+    "GOOGLE_CLIENT_ID",
+    "260397873178-9nba8p04abo4vmnnthtd82dfkp97t3lo.apps.googleusercontent.com")
 
 SETTINGS_FILE = "settings.json"
 TUNABLE = ["MODEL_NAME", "CONFIDENCE", "REQUIRED_HITS", "ALERT_COOLDOWN", "IMG_SIZE",
            "TILING", "TILE_COLS", "TILE_ROWS", "TILE_OVERLAP", "TILE_IMGSZ",
            "TELEGRAM_TOKEN", "TELEGRAM_CHAT_IDS", "WATCH_TARGET",
-           "VLM_ENABLED", "VLM_MODEL", "VLM_VERIFY", "GOOGLE_CLIENT_ID"]
+           "VLM_ENABLED", "VLM_MODEL", "VLM_VERIFY"]
 
 
 def _apply_saved_settings():
@@ -541,6 +546,16 @@ def _find_camera(cam_id):
     return None, None
 
 
+def _camera_enabled(cam_id):
+    """Paused cameras keep ALL their details but don't connect or detect —
+    so 50 exam cameras don't auto-start tomorrow when there's no exam."""
+    with cameras_lock:
+        for c in cameras:
+            if c["id"] == cam_id:
+                return c.get("enabled", True)
+    return False
+
+
 # ---------------------------------------------------------------------------
 # DATABASE (SQLite)
 # ---------------------------------------------------------------------------
@@ -582,6 +597,13 @@ def init_db():
         # v1.3: Google Sign-In — google accounts have an email and no password
         for stmt in ("ALTER TABLE users ADD COLUMN email TEXT",
                      "ALTER TABLE users ADD COLUMN auth TEXT DEFAULT 'password'"):
+            try:
+                c.execute(stmt)
+            except sqlite3.OperationalError:
+                pass
+        # v1.4: audit trail — WHO confirmed/dismissed each alert, and when
+        for stmt in ("ALTER TABLE alerts ADD COLUMN reviewed_by TEXT DEFAULT ''",
+                     "ALTER TABLE alerts ADD COLUMN reviewed_at TEXT DEFAULT ''"):
             try:
                 c.execute(stmt)
             except sqlite3.OperationalError:
@@ -636,11 +658,16 @@ def _row_to_dict(r):
         description = r["description"] or ""
     except (IndexError, KeyError):
         description = ""
+    try:
+        reviewed_by, reviewed_at = r["reviewed_by"] or "", r["reviewed_at"] or ""
+    except (IndexError, KeyError):
+        reviewed_by, reviewed_at = "", ""
     return {
         "id": r["id"], "time": r["time"], "date": r["date"],
         "confidence": r["confidence"], "camera": r["camera"],
         "status": r["status"], "image": f"/evidence/image/{r['id']}",
         "thing": thing, "description": description,
+        "reviewed_by": reviewed_by, "reviewed_at": reviewed_at,
     }
 
 
@@ -1136,10 +1163,28 @@ class Producer:
 
     def _run(self):
         last_browser_seq = -1
+        was_paused = False
         while self.running:
             source, label = _find_camera(self.camera_id)
             if source is None:                          # camera removed
                 break
+
+            # Paused: release the camera/network connection, skip detection, and
+            # idle cheaply. All details stay saved; resume picks up instantly.
+            if not _camera_enabled(self.camera_id):
+                if not was_paused:
+                    _release_stream(self.camera_id)
+                    with status_lock:
+                        camera_status[self.camera_id] = "paused"
+                    ok, buf = cv2.imencode(".jpg", _placeholder("Paused\nPress the play button to resume"),
+                                           [cv2.IMWRITE_JPEG_QUALITY, JPEG_QUALITY])
+                    if ok:
+                        _store_snapshot(self.camera_id, buf.tobytes())
+                    was_paused = True
+                time.sleep(0.3)
+                continue
+            was_paused = False
+
             is_webcam = source.isdigit()
             is_browser = source == "browser"
 
@@ -1467,9 +1512,31 @@ def edit_camera(cam_id: str, payload: dict):
                     c["location"] = str(payload["location"]).strip()
                 if "source" in payload:
                     c["source"] = str(payload["source"]).strip() or c["source"]
+                if "enabled" in payload:
+                    c["enabled"] = bool(payload["enabled"])
                 _save_cameras()
                 return c
     return {"ok": False}
+
+
+@app.post("/cameras/pause_all")
+def pause_all_cameras():
+    """After the exams: one click parks every camera (details kept) so nothing
+    auto-connects or detects until you resume. Survives restarts."""
+    with cameras_lock:
+        for c in cameras:
+            c["enabled"] = False
+        _save_cameras()
+        return list(cameras)
+
+
+@app.post("/cameras/resume_all")
+def resume_all_cameras():
+    with cameras_lock:
+        for c in cameras:
+            c["enabled"] = True
+        _save_cameras()
+        return list(cameras)
 
 
 @app.post("/cameras/reorder")
@@ -1528,12 +1595,17 @@ def evidence_image(alert_id: int):
 
 
 @app.post("/alerts/{alert_id}/{action}")
-def update_alert(alert_id: int, action: str):
+def update_alert(alert_id: int, action: str, request: Request):
     if action not in ("confirm", "dismiss"):
         return {"ok": False}
     new_status = "confirmed" if action == "confirm" else "dismissed"
+    # Audit trail: stamp WHO decided and WHEN — this is what makes the evidence
+    # log defensible when a student disputes an alert later.
+    user = getattr(request.state, "user", None) or {}
     with _db() as c:
-        c.execute("UPDATE alerts SET status = ? WHERE id = ?", (new_status, alert_id))
+        c.execute("UPDATE alerts SET status = ?, reviewed_by = ?, reviewed_at = ? WHERE id = ?",
+                  (new_status, user.get("username", ""),
+                   datetime.now().strftime("%H:%M:%S"), alert_id))
     return {"ok": True}
 
 
@@ -1686,6 +1758,9 @@ STYLE = """
   .status-pill.online .sdot { background:#3ecf8e; box-shadow:0 0 6px #3ecf8e; animation: pulse 1.4s infinite; }
   .status-pill.offline { color:#94a3b8; background:rgba(148,163,184,.12); }
   .status-pill.offline .sdot { background:#7a8595; }
+  .status-pill.paused { color:#eab308; background:rgba(234,179,8,.12); }
+  .status-pill.paused .sdot { background:#eab308; }
+  .panel.paused .panel-body { opacity:.55; }
   .icon-btn { background:transparent; border:none; color:#7a8595; font-size:15px;
     cursor:pointer; line-height:1; padding:0 3px; transition: color .12s; }
   .icon-btn:hover { color:#e6e9ef; }
@@ -1962,6 +2037,7 @@ DASHBOARD_HTML = """<!doctype html>
     __LOGO__
     <span class="logo">Vig<span>i</span>l</span>
     <nav class="nav"><a href="/" class="active">Live Monitor</a><a href="/evidence">Evidence Log</a><a href="/display">Display</a>__ADMIN_NAV__<a href="#" class="guide-link" onclick="openOnboard();return false;">Setup guide</a></nav>
+    <button class="cam-btn" id="pause-all-btn" style="background:#2b3340;color:#c4ccd8;display:none">⏸ Pause all</button>
     <button class="cam-btn" id="cam-btn">+ Add camera</button>
     <span class="userchip"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>__USERNAME__</span>
     <a class="logout" href="/logout">Log out</a>
@@ -2017,11 +2093,16 @@ DASHBOARD_HTML = """<!doctype html>
              onclick="event.stopPropagation(); openShare('${c.id}')">
              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><path d="m8.6 13.5 6.8 4M15.4 6.5l-6.8 4"/></svg></button>`
         : '';
-      const controls = senderBtn + (IS_ADMIN
+      const on = c.enabled !== false;
+      const pauseBtn = IS_ADMIN
+        ? `<button class="icon-btn" title="${on ? 'Pause — keeps all details, stops connecting & detecting' : 'Resume this camera'}"
+             onclick="event.stopPropagation(); toggleCam('${c.id}', ${on ? 'false' : 'true'})">${on ? '⏸' : '▶'}</button>`
+        : '';
+      const controls = senderBtn + pauseBtn + (IS_ADMIN
         ? `<button class="icon-btn" title="Edit camera" onclick="openEdit('${c.id}')">✎</button>
            <button class="icon-btn remove" title="Remove camera" onclick="removeCam('${c.id}')">×</button>`
         : '');
-      return `<div class="panel enter" data-cam="${c.id}" style="--i:${i}">
+      return `<div class="panel enter${on ? '' : ' paused'}" data-cam="${c.id}" style="--i:${i}">
         <div class="panel-head">${handle}${I.cam} ${place}<span class="status-pill offline" data-cam="${c.id}"><span class="sdot"></span><span class="stext">…</span></span>${controls}</div>
         <div class="panel-body" onclick="openFocus('${c.id}')"><img class="cam-snap" data-cam="${c.id}" alt="feed"></div>
       </div>`;
@@ -2043,6 +2124,7 @@ DASHBOARD_HTML = """<!doctype html>
       // drop the entrance class once played, so drag re-parenting never replays it
       grid.querySelectorAll('.panel.enter').forEach(p =>
         p.addEventListener('animationend', () => p.classList.remove('enter'), { once:true }));
+      updatePauseAllBtn();
       if (IS_ADMIN && cams.length > 1) initSortable();
       // First run: the first time an admin opens the dashboard, walk them through setup
       if (IS_ADMIN && !localStorage.getItem('vigil_onboarded') && !obShownThisLoad
@@ -2556,10 +2638,34 @@ DASHBOARD_HTML = """<!doctype html>
       await fetch('/cameras/' + id, { method:'DELETE' });
       loadCameras();
     }
+    async function toggleCam(id, enable) {
+      await fetch('/cameras/' + id, { method:'PUT', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({ enabled: enable }) });
+      loadCameras();
+    }
+    async function toggleAll() {
+      // pause everything if anything is running; otherwise resume everything
+      const anyOn = lastCams.some(c => c.enabled !== false);
+      await fetch(anyOn ? '/cameras/pause_all' : '/cameras/resume_all', { method:'POST' });
+      loadCameras();
+    }
+    function updatePauseAllBtn() {
+      const b = document.getElementById('pause-all-btn');
+      if (!b) return;
+      if (!lastCams.length) { b.style.display = 'none'; return; }
+      b.style.display = '';
+      const anyOn = lastCams.some(c => c.enabled !== false);
+      b.textContent = anyOn ? '⏸ Pause all' : '▶ Resume all';
+      b.title = anyOn
+        ? 'Exams over? Park every camera — details are kept, nothing connects or detects until you resume.'
+        : 'Reconnect and resume detection on every camera.';
+    }
     if (IS_ADMIN) {
       document.getElementById('cam-btn').onclick = openAdd;
+      document.getElementById('pause-all-btn').onclick = toggleAll;
     } else {
       document.getElementById('cam-btn').style.display = 'none';
+      document.getElementById('pause-all-btn').style.display = 'none';
     }
     loadCameras();
 
@@ -2624,7 +2730,7 @@ DASHBOARD_HTML = """<!doctype html>
                    <button class="confirm" onclick="act(${a.id},'confirm')">Confirm</button>
                    <button class="dismiss" onclick="act(${a.id},'dismiss')">Dismiss</button>
                  </div>`
-              : `<div class="badge ${a.status}">${a.status}</div>`}
+              : `<div class="badge ${a.status}">${a.status}${a.reviewed_by ? ' · ' + a.reviewed_by : ''}</div>`}
           </div>
         </div>`).join('');
     }
@@ -2686,10 +2792,12 @@ DASHBOARD_HTML = """<!doctype html>
       let st = {};
       try { st = await (await fetch('/camera_status')).json(); } catch (e) { return; }
       document.querySelectorAll('.status-pill').forEach(p => {
-        const online = st[p.dataset.cam] === 'online';
-        p.classList.toggle('online', online);
-        p.classList.toggle('offline', !online);
-        const el = p.querySelector('.stext'), txt = online ? 'LIVE' : 'OFFLINE';
+        const s = st[p.dataset.cam];
+        p.classList.toggle('online', s === 'online');
+        p.classList.toggle('paused', s === 'paused');
+        p.classList.toggle('offline', s !== 'online' && s !== 'paused');
+        const el = p.querySelector('.stext'),
+              txt = s === 'online' ? 'LIVE' : (s === 'paused' ? 'PAUSED' : 'OFFLINE');
         if (el.textContent !== txt) el.textContent = txt;   // write only on change
       });
     }
@@ -2775,7 +2883,8 @@ EVIDENCE_HTML = """<!doctype html>
           <td>${r.time}</td>
           <td>${r.camera}</td>
           <td>${Math.round(r.confidence*100)}%</td>
-          <td><span class="badge ${r.status}">${r.status}</span></td>
+          <td><span class="badge ${r.status}">${r.status}</span>
+            ${r.reviewed_by ? `<div style="font-size:11px;color:#5b6675;margin-top:4px">by <b style="color:#9aa4b2">${r.reviewed_by}</b> · ${r.reviewed_at}</div>` : ''}</td>
         </tr>`).join('');
     }
     setInterval(load, 3000);
@@ -3624,10 +3733,21 @@ GOOGLE_BTN = """
       </script>"""
 
 
-def _auth_page(title, heading, hint, action, button, error="", google_text="signin_with"):
+def _google_ok_for(request):
+    """Google only trusts localhost/127.0.0.1 origins for this app, so the button
+    would just error on a phone opening Vigil over WiFi (a LAN IP). Show it only
+    where it actually works; everyone else sees clean password login."""
+    if not GOOGLE_CLIENT_ID.strip():
+        return False
+    host = (request.headers.get("host") or "").split(":")[0].lower()
+    return host in ("localhost", "127.0.0.1")
+
+
+def _auth_page(title, heading, hint, action, button, error="", google_text="signin_with",
+               allow_google=False):
     err = f'<div class="err">{error}</div>' if error else ""
     google = ""
-    if GOOGLE_CLIENT_ID.strip():
+    if allow_google and GOOGLE_CLIENT_ID.strip():
         google = GOOGLE_BTN.replace("__GCID__", GOOGLE_CLIENT_ID.strip()).replace("__GTEXT__", google_text)
     return (AUTH_TEMPLATE.replace("__STYLE__", STYLE).replace("__LOGO__", LOGO_MARK).replace("__TITLE__", title)
             .replace("__HEADING__", heading).replace("__HINT__", hint)
@@ -3639,44 +3759,47 @@ _COOKIE_KW = dict(httponly=True, samesite="lax", max_age=60 * 60 * 24 * 30)
 
 
 @app.get("/setup", response_class=HTMLResponse)
-def setup_page():
+def setup_page(request: Request):
     if user_count() > 0:
         return RedirectResponse("/login")
+    g = _google_ok_for(request)
     hint = ("This first account manages cameras and other users. "
-            + ("Use Google, or create a username and password below." if GOOGLE_CLIENT_ID.strip() else ""))
+            + ("Use Google, or create a username and password below." if g else ""))
     return _auth_page("Setup", "Create the admin account", hint,
-                      "/setup", "Create admin", google_text="continue_with")
+                      "/setup", "Create admin", google_text="continue_with", allow_google=g)
 
 
 @app.post("/setup")
-def setup_submit(username: str = Form(...), password: str = Form(...)):
+def setup_submit(request: Request, username: str = Form(...), password: str = Form(...)):
     if user_count() > 0:
         return RedirectResponse("/login", status_code=303)
     ok, err = create_user(username, password, role="admin")
     if not ok:
         return HTMLResponse(_auth_page("Setup", "Create the admin account",
                             "This first account manages cameras and other users.",
-                            "/setup", "Create admin", err), status_code=400)
+                            "/setup", "Create admin", err,
+                            allow_google=_google_ok_for(request)), status_code=400)
     resp = RedirectResponse("/", status_code=303)
     resp.set_cookie("vigil_session", _sign(username.strip()), **_COOKIE_KW)
     return resp
 
 
 @app.get("/login", response_class=HTMLResponse)
-def login_page():
+def login_page(request: Request):
     if user_count() == 0:
         return RedirectResponse("/setup")
-    hint = "Use your Google account, or a local username." if GOOGLE_CLIENT_ID.strip() \
-           else "Enter your credentials."
-    return _auth_page("Login", "Sign in to Vigil", hint, "/login", "Sign in")
+    g = _google_ok_for(request)
+    hint = "Use your Google account, or a local username." if g else "Enter your credentials."
+    return _auth_page("Login", "Sign in to Vigil", hint, "/login", "Sign in", allow_google=g)
 
 
 @app.post("/login")
-def login_submit(username: str = Form(...), password: str = Form(...)):
+def login_submit(request: Request, username: str = Form(...), password: str = Form(...)):
     u = verify_user(username, password)
     if not u:
         return HTMLResponse(_auth_page("Login", "Sign in to Vigil", "Enter your credentials.",
-                            "/login", "Sign in", "Invalid username or password."), status_code=401)
+                            "/login", "Sign in", "Invalid username or password.",
+                            allow_google=_google_ok_for(request)), status_code=401)
     resp = RedirectResponse("/", status_code=303)
     resp.set_cookie("vigil_session", _sign(u["username"]), **_COOKIE_KW)
     return resp
@@ -3924,20 +4047,6 @@ def settings_page(request: Request, saved: str = "", test: str = ""):
           <input type="text" name="telegram_chat_ids" value="{g['TELEGRAM_CHAT_IDS']}" style="width:340px" placeholder="123456789, 987654321">
         </div>
 
-        <div class="sec">Sign in with Google (optional)</div>
-        <div class="field">
-          <div class="hint">Adds a <b>"Sign in with Google"</b> button to the login page — no passwords to
-          manage. Create a free OAuth <b>Web application</b> client ID at
-          <a href="https://console.cloud.google.com/apis/credentials" target="_blank">console.cloud.google.com</a>
-          (full steps in <code>GOOGLE-SIGNIN.md</code>), paste it here, then add each person's
-          Gmail address on the <a href="/users">Users</a> page. Leave blank to keep password-only login.</div>
-        </div>
-        <div class="field">
-          <label>Google client ID</label>
-          <input type="text" name="google_client_id" value="{g['GOOGLE_CLIENT_ID']}" style="width:100%;max-width:520px"
-                 placeholder="1234567890-abc123.apps.googleusercontent.com">
-        </div>
-
         <div class="save-row"><button type="submit">Save settings</button></div>
       </form>
       <form method="post" action="/settings/telegram-test" style="margin-top:12px;display:flex;gap:12px;align-items:center">
@@ -3971,7 +4080,6 @@ def settings_save(
     vlm_enabled: str = Form(None),
     vlm_model: str = Form("llava"),
     vlm_verify: str = Form(None),
-    google_client_id: str = Form(""),
 ):
     old_model = MODEL_NAME
     old_watch = WATCH_TARGET
@@ -3992,7 +4100,6 @@ def settings_save(
         "TELEGRAM_TOKEN": telegram_token.strip(),
         "TELEGRAM_CHAT_IDS": telegram_chat_ids.strip(),
         "WATCH_TARGET": (watch_target.strip().lower() or "phone"),
-        "GOOGLE_CLIENT_ID": google_client_id.strip(),
     })
     _sync_vlm()                                    # push VLM_* into the vlm module
     if MODEL_NAME != old_model:

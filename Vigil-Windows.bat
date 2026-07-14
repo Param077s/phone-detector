@@ -50,8 +50,9 @@ if not exist ".vigil-installed" (
 
 REM --- 3) Launch + open browser ---
 echo   Vigil is starting at http://localhost:8000
+echo   On a phone (same WiFi): use this PC's IP, e.g. http://YOUR-PC-IP:8000 (run "ipconfig" to find it)
 echo   Keep this window open while using Vigil. Close it to stop.
 echo.
 start "" http://localhost:8000
-venv\Scripts\python -m uvicorn app:app --host 127.0.0.1 --port 8000
+venv\Scripts\python -m uvicorn app:app --host 0.0.0.0 --port 8000
 pause
