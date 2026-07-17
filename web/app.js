@@ -118,14 +118,33 @@ function confirmDialog({ title, body, confirmText = "Confirm", danger = false })
   });
 }
 
+/* Keep Tab focus inside an overlay; returns a detach fn. */
+const FOCUSABLE = 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
+function trapFocus(container) {
+  const onKey = (e) => {
+    if (e.key !== "Tab") return;
+    const items = [...container.querySelectorAll(FOCUSABLE)].filter(el => el.offsetParent !== null && !el.disabled);
+    if (!items.length) return;
+    const first = items[0], last = items[items.length - 1];
+    if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+    else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+  };
+  container.addEventListener("keydown", onKey);
+  return () => container.removeEventListener("keydown", onKey);
+}
+
 function openModal(node) {
+  const prevFocus = document.activeElement;
   const scrim = h(`<div class="scrim"></div>`);
   scrim.appendChild(node);
-  const close = () => { scrim.remove(); document.removeEventListener("keydown", onKey); };
+  const untrap = trapFocus(scrim);
+  const close = () => { untrap(); scrim.remove(); document.removeEventListener("keydown", onKey); if (prevFocus && prevFocus.focus) try { prevFocus.focus(); } catch {} };
   const onKey = (e) => { if (e.key === "Escape") close(); };
   scrim.addEventListener("click", (e) => { if (e.target === scrim) close(); });
   document.addEventListener("keydown", onKey);
   $("#overlays").appendChild(scrim);
+  // focus the first sensible control
+  setTimeout(() => { const f = scrim.querySelector("input, textarea, button.btn--primary, [data-save], button"); if (f) try { f.focus(); } catch {} }, 0);
   return close;
 }
 
@@ -431,7 +450,7 @@ const Live = {
 
     // actions
     const actions = $(".cam__actions", el);
-    const btn = (ic, title, fn) => { const b = h(`<button class="cam__btn" title="${title}">${icon(ic)}</button>`); b.onclick = (e) => { e.stopPropagation(); fn(); }; return b; };
+    const btn = (ic, title, fn) => { const b = h(`<button class="cam__btn" title="${title}" aria-label="${title} — ${esc(c.label)}">${icon(ic)}</button>`); b.onclick = (e) => { e.stopPropagation(); fn(); }; return b; };
     actions.appendChild(btn("maximize", "Fullscreen", () => Focus.open(c)));
     if (isAdmin()) {
       actions.appendChild(btn("edit", "Edit", () => CameraForm.open(c)));
@@ -1073,9 +1092,9 @@ const ROUTES = {
 let current = null;
 
 function shell() {
-  const nav = (id, ic, label, badge) => `<div class="nav__item ${state.route===id?"is-active":""}" data-route="${id}">${icon(ic)}<span>${label}</span>${badge?`<span class="nav__badge" id="navBadge">${badge}</span>`:""}</div>`;
+  const nav = (id, ic, label, badge) => `<div class="nav__item ${state.route===id?"is-active":""}" data-route="${id}" role="link" tabindex="0" ${state.route===id?'aria-current="page"':""}>${icon(ic)}<span>${label}</span>${badge?`<span class="nav__badge" id="navBadge">${badge}</span>`:""}</div>`;
   $("#app").innerHTML = `
-    <aside class="nav">
+    <aside class="nav" role="navigation" aria-label="Primary">
       <div class="nav__brand">${LOGO}<span class="nav__brand-name">Vigil</span></div>
       <div class="nav__section">Monitor</div>
       ${nav("live","live","Live Footage")}
@@ -1092,12 +1111,12 @@ function shell() {
     <header class="topbar">
       <div><div class="topbar__title" id="tbTitle"></div></div>
       <div class="topbar__spacer"></div>
-      <button class="btn btn--icon btn--ghost btn--sm bell" id="bellBtn" title="Notifications">${icon("bell")}<span class="bell__count hidden" id="bellCount">0</span></button>
-      <button class="btn btn--icon btn--ghost btn--sm" id="themeBtn" title="Toggle theme">${icon(state.theme==="dark"?"sun":"moon")}</button>
+      <button class="btn btn--icon btn--ghost btn--sm bell" id="bellBtn" title="Notifications" aria-label="Notifications">${icon("bell")}<span class="bell__count hidden" id="bellCount">0</span></button>
+      <button class="btn btn--icon btn--ghost btn--sm" id="themeBtn" title="Toggle theme" aria-label="Toggle light or dark theme">${icon(state.theme==="dark"?"sun":"moon")}</button>
       <span class="topbar__clock tnum" id="clock"></span>
     </header>
     <main class="content" id="view"></main>`;
-  $$("[data-route]").forEach(n => n.onclick = () => go(n.dataset.route));
+  $$("[data-route]").forEach(n => { n.onclick = () => go(n.dataset.route); n.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); go(n.dataset.route); } }; });
   $("#navUser").onclick = (e) => { const r = e.currentTarget.getBoundingClientRect();
     contextMenu(r.left, r.top - 8, [
       { label: state.me.username, header: true },
@@ -1136,7 +1155,7 @@ async function mount() {
   $("#overlays").innerHTML = "";
   if (current && current.destroy) current.destroy();
   // update nav active + title without full reflow of feeds
-  $$("[data-route]").forEach(n => n.classList.toggle("is-active", n.dataset.route === state.route));
+  $$("[data-route]").forEach(n => { const on = n.dataset.route === state.route; n.classList.toggle("is-active", on); on ? n.setAttribute("aria-current", "page") : n.removeAttribute("aria-current"); });
   const r = ROUTES[state.route];
   $("#tbTitle") && ($("#tbTitle").textContent = r.title);
   const view = $("#view");
@@ -1173,7 +1192,8 @@ const Palette = {
     };
     const run = (i) => { const c = filtered[i]; if (!c) return; close(); c.run(); };
     const filter = () => { const q = input.value.toLowerCase().trim(); filtered = q ? cmds.filter(c => (c.label + " " + (c.keywords || "")).toLowerCase().includes(q)) : cmds; active = 0; render(); };
-    const close = () => { scrim.remove(); document.removeEventListener("keydown", onKey, true); };
+    const untrap = trapFocus(scrim);
+    const close = () => { untrap(); scrim.remove(); document.removeEventListener("keydown", onKey, true); };
     const onKey = (e) => {
       if (e.key === "Escape") { e.preventDefault(); close(); }
       else if (e.key === "ArrowDown") { e.preventDefault(); active = Math.min(active + 1, filtered.length - 1); paintActive(); scrollActive(); }
