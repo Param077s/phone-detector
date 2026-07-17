@@ -408,6 +408,31 @@ svg[viewBox="0 0 24 24"] { width: 16px; height: 16px; flex: none; }
 }
 
 /* ==========================================================================
+   COMMAND PALETTE (⌘K)
+   ========================================================================== */
+.cmdk-scrim { align-items: flex-start; padding-top: 12vh; }
+.cmdk {
+  width: min(560px, 92vw);
+  background: var(--surface); border: 1px solid var(--border-strong);
+  border-radius: var(--r-xl); box-shadow: var(--shadow-3); overflow: hidden;
+  animation: modalIn var(--t-slow) var(--ease);
+}
+.cmdk__head { display: flex; align-items: center; gap: var(--s3); padding: var(--s4) var(--s5); border-bottom: 1px solid var(--border); }
+.cmdk__head svg { width: 18px; height: 18px; color: var(--text-3); flex: none; }
+.cmdk__input { flex: 1; border: none; background: none; font-size: var(--fs-lg); color: var(--text); }
+.cmdk__input::placeholder { color: var(--text-4); }
+.cmdk__list { max-height: 52vh; overflow: auto; padding: var(--s2); }
+.cmdk__item {
+  display: flex; align-items: center; gap: var(--s3);
+  padding: 9px var(--s3); border-radius: var(--r-md);
+  color: var(--text-2); cursor: pointer;
+}
+.cmdk__item svg { width: 16px; height: 16px; opacity: .85; flex: none; }
+.cmdk__item.is-active { background: var(--surface-3); color: var(--text); }
+.cmdk__hint { margin-left: auto; }
+.cmdk__empty { padding: var(--s8) var(--s4); text-align: center; color: var(--text-3); }
+
+/* ==========================================================================
    MODAL / DIALOG
    ========================================================================== */
 .scrim {

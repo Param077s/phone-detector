@@ -1111,8 +1111,62 @@ function startClock() {
   tick(); clearInterval(window.__clk); window.__clk = setInterval(tick, 1000);
 }
 
+/* Command palette (⌘K / Ctrl-K) — quick nav + actions, Raycast-style. */
+const Palette = {
+  open() {
+    if ($(".cmdk")) return;
+    const cmds = Palette.commands();
+    const scrim = h(`<div class="scrim cmdk-scrim"><div class="cmdk" role="dialog" aria-modal="true" aria-label="Command palette">
+      <div class="cmdk__head">${icon("search")}<input class="cmdk__input" placeholder="Search commands…" aria-label="Search commands" autocomplete="off"></div>
+      <div class="cmdk__list" id="cmdkList" role="listbox"></div></div></div>`);
+    $("#overlays").appendChild(scrim);
+    const input = $(".cmdk__input", scrim), list = $("#cmdkList", scrim);
+    let active = 0, filtered = cmds;
+    const paintActive = () => $$(".cmdk__item", list).forEach(n => n.classList.toggle("is-active", +n.dataset.i === active));
+    const scrollActive = () => { const n = $(".cmdk__item.is-active", list); if (n) n.scrollIntoView({ block: "nearest" }); };
+    const render = () => {
+      list.innerHTML = filtered.length
+        ? filtered.map((c, i) => `<div class="cmdk__item ${i === active ? "is-active" : ""}" data-i="${i}" role="option">${icon(c.icon)}<span>${esc(c.label)}</span>${c.hint ? `<span class="cmdk__hint kbd">${esc(c.hint)}</span>` : ""}</div>`).join("")
+        : `<div class="cmdk__empty">No matching commands</div>`;
+      $$(".cmdk__item", list).forEach(n => { n.onmousemove = () => { active = +n.dataset.i; paintActive(); }; n.onclick = () => run(+n.dataset.i); });
+    };
+    const run = (i) => { const c = filtered[i]; if (!c) return; close(); c.run(); };
+    const filter = () => { const q = input.value.toLowerCase().trim(); filtered = q ? cmds.filter(c => (c.label + " " + (c.keywords || "")).toLowerCase().includes(q)) : cmds; active = 0; render(); };
+    const close = () => { scrim.remove(); document.removeEventListener("keydown", onKey, true); };
+    const onKey = (e) => {
+      if (e.key === "Escape") { e.preventDefault(); close(); }
+      else if (e.key === "ArrowDown") { e.preventDefault(); active = Math.min(active + 1, filtered.length - 1); paintActive(); scrollActive(); }
+      else if (e.key === "ArrowUp") { e.preventDefault(); active = Math.max(active - 1, 0); paintActive(); scrollActive(); }
+      else if (e.key === "Enter") { e.preventDefault(); run(active); }
+    };
+    scrim.addEventListener("click", (e) => { if (e.target === scrim) close(); });
+    input.oninput = filter;
+    document.addEventListener("keydown", onKey, true);
+    render(); input.focus();
+  },
+  commands() {
+    const admin = isAdmin(), out = [];
+    out.push({ label: "Go to Live Footage", icon: "live", hint: "1", run: () => go("live") });
+    out.push({ label: "Go to Evidence", icon: "evidence", hint: "2", run: () => go("evidence") });
+    if (admin) out.push({ label: "Go to Users", icon: "users", hint: "3", run: () => go("users") });
+    out.push({ label: "Go to Settings", icon: "settings", hint: "4", run: () => go("settings") });
+    if (admin) out.push(
+      { label: "Add camera", icon: "plus", keywords: "new camera", run: () => { go("live"); setTimeout(() => CameraForm.open(), 60); } },
+      { label: "Pause all cameras", icon: "pause", keywords: "stop", run: () => api.pauseAll().then(() => { toast("All cameras paused", { kind: "ok" }); if (state.route === "live") Live.refresh(true); }) },
+      { label: "Resume all cameras", icon: "play", keywords: "start", run: () => api.resumeAll().then(() => { toast("All cameras resumed", { kind: "ok" }); if (state.route === "live") Live.refresh(true); }) },
+    );
+    out.push(
+      { label: `Switch to ${state.theme === "dark" ? "light" : "dark"} theme`, icon: state.theme === "dark" ? "sun" : "moon", keywords: "theme appearance dark light", run: () => { setTheme(state.theme === "dark" ? "light" : "dark"); const tb = $("#themeBtn"); if (tb) tb.innerHTML = icon(state.theme === "dark" ? "sun" : "moon"); } },
+      { label: "Check for updates", icon: "download", keywords: "version upgrade", run: () => { Settings.section = "updates"; go("settings"); } },
+      { label: "Sign out", icon: "logout", keywords: "logout exit", run: () => location.href = "/logout" },
+    );
+    return out;
+  },
+};
+
 /* Global keyboard shortcuts */
 function shortcuts(e) {
+  if ((e.key === "k" || e.key === "K") && (e.metaKey || e.ctrlKey)) { e.preventDefault(); Palette.open(); return; }
   if (e.target.matches("input, textarea, select")) { if (e.key === "Escape") e.target.blur(); return; }
   const map = { "1": "live", "2": "evidence", "3": "users", "4": "settings" };
   if (map[e.key]) { go(map[e.key]); return; }
@@ -1139,6 +1193,6 @@ async function boot() {
   Notify.start();               // app-wide detection awareness (bell + toasts)
 }
 // Dev hook — only exposed in mock mode (?mock=1), never in the real app.
-if (MOCK) window.__vigil = { recoverNode, RECOVER, Live, Evidence, Settings, Notify, state };
+if (MOCK) window.__vigil = { recoverNode, RECOVER, Live, Evidence, Settings, Notify, Palette, state };
 boot();
 })();
