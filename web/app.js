@@ -106,14 +106,14 @@ const skel = {
 /* -------------------------------------------------------------------------
    3. Toasts / confirm / menu
    ------------------------------------------------------------------------- */
-function toast(title, { msg = "", kind = "info", timeout = 3600 } = {}) {
+function toast(title, { msg = "", kind = "info", timeout = 3600, onClick = null } = {}) {
   const iconName = kind === "ok" ? "check" : kind === "danger" ? "alert" : "info";
   const color = kind === "ok" ? "var(--ok)" : kind === "danger" ? "var(--danger)" : "var(--info)";
-  const el = h(`<div class="toast"><span class="toast__icon" style="color:${color}">${icon(iconName)}</span>
+  const el = h(`<div class="toast"${onClick ? ' style="cursor:pointer"' : ""}><span class="toast__icon" style="color:${color}">${icon(iconName)}</span>
     <div class="toast__body"><div class="toast__title">${esc(title)}</div>${msg ? `<div class="toast__msg">${esc(msg)}</div>` : ""}</div></div>`);
   $("#toasts").appendChild(el);
   const kill = () => { el.classList.add("is-leaving"); setTimeout(() => el.remove(), 200); };
-  el.addEventListener("click", kill);
+  el.addEventListener("click", () => { if (onClick) onClick(); kill(); });
   if (timeout) setTimeout(kill, timeout);
 }
 
@@ -1079,9 +1079,11 @@ const Notify = {
     if (state.route === "live") Live.syncBadges();
     // Awareness, not interruption: a brief toast per fresh detection, unless snoozed.
     if (Date.now() > state.snoozeUntil) {
-      fresh.slice(0, 3).forEach(a => {
-        const t = toast(`Phone detected · ${a.camera}`, { msg: `${Math.round((a.confidence || 0) * 100)}% confidence · click to review`, kind: "danger", timeout: 6500 });
-      });
+      fresh.slice(0, 3).forEach(a => toast(`Phone detected · ${a.camera}`, {
+        msg: `${Math.round((a.confidence || 0) * 100)}% confidence · click to review`,
+        kind: "danger", timeout: 6500,
+        onClick: () => { Evidence.pendingOpen = a.id; go("evidence"); },
+      }));
     }
   },
   paintBell() {
@@ -1319,6 +1321,6 @@ async function boot() {
   Notify.start();               // app-wide detection awareness (bell + toasts)
 }
 // Dev hook — only exposed in mock mode (?mock=1), never in the real app.
-if (MOCK) window.__vigil = { recoverNode, RECOVER, Live, Evidence, Settings, Notify, Palette, ShortcutsHelp, state };
+if (MOCK) window.__vigil = { recoverNode, RECOVER, Live, Evidence, Settings, Notify, Palette, ShortcutsHelp, toast, go, state };
 boot();
 })();
