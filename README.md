@@ -5,20 +5,28 @@ phone, or CCTV), flags phones in real time, and alerts a person — with a cropp
 photo and the location — for them to confirm. Everything runs on your own computer;
 your video never leaves the building.
 
+Vigil is a **native desktop app** — it opens in its own window. No Terminal, no
+browser, no `localhost` to type.
+
 ## Install (no coding needed)
 
-**Just double-click the launcher for your system** — it installs everything the
-first time, then opens Vigil in your browser:
+**Download it and open it:**
 
-- **Mac:** `Vigil.command`
-- **Windows:** `Vigil-Windows.bat`
-- **Linux:** `./Vigil-Linux.sh`
+- **macOS** — download `Vigil.dmg`, open it, drag **Vigil** into **Applications**.
+  First launch: **System Settings → Privacy & Security → Open Anyway** (a one-time
+  step for unsigned apps).
+- **Windows** — download `Vigil.zip`, unzip, run **Vigil.exe** (SmartScreen:
+  **More info → Run anyway**).
 
-First launch asks you to create an **admin account**. Full step-by-step: see
-[INSTALL.md](INSTALL.md).
+First launch prepares the AI on-device, then asks you to create an **admin
+account**. Full step-by-step: see [INSTALL.md](INSTALL.md).
 
-> Want to hand Vigil to someone else? Run `make-release.command` to build a
-> shareable `Vigil.zip` — they unzip it and double-click the launcher.
+**Check for updates** any time from **Settings → Updates**.
+
+> Running from source instead? The `Vigil.command` (macOS) / `Vigil-Windows.bat` /
+> `Vigil-Linux.sh` launchers set up a venv and run the server. To build the native
+> app locally, see `desktop.py` + `vigil.spec` (PyInstaller). CI builds and signs
+> installers in `.github/workflows/release.yml`.
 
 ## What it does
 
@@ -29,7 +37,10 @@ First launch asks you to create an **admin account**. Full step-by-step: see
 - **Evidence log** — a searchable, timestamped history for disputes.
 - **Accounts & roles** — admins manage cameras and users; invigilators just
   receive alerts.
-- **Notifications** — a beep + desktop notification on each new detection.
+- **Notifications** — an in-app notification centre groups new detections; alerts
+  never interrupt the live view.
+- **Fast to drive** — command palette (⌘K / Ctrl-K), keyboard shortcuts (press
+  `?`), evidence multi-select + CSV export, light/dark themes.
 
 ## Cameras
 
