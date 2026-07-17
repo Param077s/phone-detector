@@ -1128,6 +1128,7 @@ let current = null;
 function shell() {
   const nav = (id, ic, label, badge) => `<div class="nav__item ${state.route===id?"is-active":""}" data-route="${id}" role="link" tabindex="0" ${state.route===id?'aria-current="page"':""}>${icon(ic)}<span>${label}</span>${badge?`<span class="nav__badge" id="navBadge">${badge}</span>`:""}</div>`;
   $("#app").innerHTML = `
+    <a href="#view" class="skip-link" id="skipLink">Skip to content</a>
     <aside class="nav" role="navigation" aria-label="Primary">
       <div class="nav__brand">${LOGO}<span class="nav__brand-name">Vigil</span></div>
       <div class="nav__section">Monitor</div>
@@ -1150,7 +1151,8 @@ function shell() {
       <button class="btn btn--icon btn--ghost btn--sm" id="themeBtn" title="Toggle theme" aria-label="Toggle light or dark theme">${icon(state.theme==="dark"?"sun":"moon")}</button>
       <span class="topbar__clock tnum" id="clock"></span>
     </header>
-    <main class="content" id="view"></main>`;
+    <main class="content" id="view" tabindex="-1"></main>`;
+  $("#skipLink").onclick = (e) => { e.preventDefault(); const v = $("#view"); if (v) { v.focus(); v.scrollIntoView(); } };
   $$("[data-route]").forEach(n => { n.onclick = () => go(n.dataset.route); n.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); go(n.dataset.route); } }; });
   $("#navUser").onclick = (e) => { const r = e.currentTarget.getBoundingClientRect();
     contextMenu(r.left, r.top - 8, [

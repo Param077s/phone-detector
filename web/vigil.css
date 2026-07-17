@@ -123,6 +123,16 @@ a { color: inherit; text-decoration: none; }
 }
 .tnum { font-variant-numeric: tabular-nums; }
 
+/* Skip-to-content — hidden until keyboard-focused */
+.skip-link {
+  position: fixed; top: 10px; left: 10px; z-index: 300;
+  padding: 8px 14px; background: var(--surface); color: var(--text);
+  border: 1px solid var(--border-strong); border-radius: var(--r-md);
+  box-shadow: var(--shadow-2); transform: translateY(-160%);
+  transition: transform var(--t) var(--ease);
+}
+.skip-link:focus { transform: none; }
+
 /* Default icon size (icon() SVGs use viewBox 0 0 24 24). Component rules
    below — .btn svg, .nav__item svg, .empty__icon svg, etc. — override this. */
 svg[viewBox="0 0 24 24"] { width: 16px; height: 16px; flex: none; }
