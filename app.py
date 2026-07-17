@@ -3825,6 +3825,12 @@ def _google_ok_for(request):
     where it actually works; everyone else sees clean password login."""
     if not GOOGLE_CLIENT_ID.strip():
         return False
+    # The packaged desktop app runs on a random loopback port inside an embedded
+    # WebKit view — Google rejects both (unregistered origin + embedded-webview
+    # OAuth block), so the button can never work there. Hide it; password login
+    # is the reliable path in the desktop app.
+    if os.environ.get("VIGIL_DESKTOP") == "1":
+        return False
     host = (request.headers.get("host") or "").split(":")[0].lower()
     return host in ("localhost", "127.0.0.1")
 
