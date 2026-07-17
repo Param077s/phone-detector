@@ -3727,40 +3727,58 @@ LANDING_HTML = """<!doctype html>
 
 # ---- Login / Setup / Logout ----------------------------------------------
 AUTH_TEMPLATE = """<!doctype html>
-<html lang="en"><head><meta charset="utf-8">
+<html lang="en" data-theme="dark"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Vigil — __TITLE__</title>__STYLE__
+<title>Vigil — __TITLE__</title>
+<link rel="icon" href="/favicon.svg">
 <style>
-  .auth-wrap { flex:1; display:flex; align-items:center; justify-content:center; }
-  .auth { background:#151a21; border:1px solid #232a34; border-radius:14px; padding:30px; width:360px; max-width:92vw; }
-  .auth h2 { font-size:19px; margin-bottom:6px; }
-  .auth p { font-size:13px; color:#9aa4b2; margin-bottom:18px; }
-  .auth label { display:block; font-size:12px; color:#9aa4b2; margin:0 0 5px 2px; }
-  .auth input { width:100%; background:#0e1116; border:1px solid #2b3340; color:#e6e9ef;
-    padding:11px 12px; border-radius:8px; font-size:14px; margin-bottom:14px; }
-  .auth button { width:100%; background:#3ecf8e; color:#0e1116; border:none; padding:12px;
-    border-radius:8px; font-size:14px; font-weight:700; cursor:pointer; }
-  .auth .err { background:rgba(239,68,68,.15); color:#f87171; font-size:13px;
-    padding:9px 12px; border-radius:8px; margin-bottom:14px; }
+  :root{--bg:#0B0D10;--surface:#111419;--surface-2:#161A20;--border:#21262E;
+    --border-strong:#2C333D;--text:#E8EBEF;--text-2:#A4ADB8;--text-3:#6C7580;
+    --text-4:#464E58;--accent:#2FB37D;--accent-hover:#38C489;--danger:#E05D4A;
+    --font:-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",Roboto,sans-serif;}
+  *{box-sizing:border-box;margin:0}
+  html,body{height:100%}
+  body{background:var(--bg);color:var(--text);font-family:var(--font);font-size:13px;
+    display:flex;flex-direction:column;align-items:center;justify-content:center;
+    -webkit-font-smoothing:antialiased}
+  .brand{display:flex;align-items:center;gap:10px;margin-bottom:26px;animation:in .5s cubic-bezier(.2,.6,.2,1)}
+  .brand svg{width:30px;height:30px}
+  .brand b{font-size:20px;font-weight:600;letter-spacing:-.01em}
+  .auth{background:var(--surface);border:1px solid var(--border);border-radius:16px;
+    padding:28px;width:372px;max-width:92vw;box-shadow:0 18px 48px rgba(0,0,0,.5);
+    animation:in .5s cubic-bezier(.2,.6,.2,1) .05s backwards}
+  @keyframes in{from{opacity:0;transform:translateY(8px)}}
+  .auth h2{font-size:18px;font-weight:600;letter-spacing:-.01em}
+  .auth .sub{font-size:13px;color:var(--text-3);margin:6px 0 20px;line-height:1.5}
+  .auth label{display:block;font-size:12px;font-weight:500;color:var(--text-2);margin:0 0 6px 2px}
+  .auth input{width:100%;background:var(--surface-2);border:1px solid var(--border-strong);
+    color:var(--text);padding:0 12px;height:38px;border-radius:8px;font-size:14px;margin-bottom:14px;
+    transition:border-color .15s,box-shadow .15s}
+  .auth input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px rgba(47,179,125,.14)}
+  .auth input::placeholder{color:var(--text-4)}
+  .auth button.primary{width:100%;background:var(--accent);color:#04120C;border:none;height:40px;
+    border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;margin-top:2px;transition:background .15s}
+  .auth button.primary:hover{background:var(--accent-hover)}
+  .err{background:rgba(224,93,74,.12);color:var(--danger);font-size:13px;
+    padding:9px 12px;border-radius:8px;margin-bottom:14px}
+  .foot{margin-top:22px;color:var(--text-3);font-size:12px;display:flex;align-items:center;gap:7px}
+  .foot .d{width:6px;height:6px;border-radius:50%;background:var(--accent)}
 </style></head>
 <body>
-  <header>__LOGO__<span class="logo">Vig<span>i</span>l</span>
-    <span style="color:#5b6675;font-size:12.5px;margin-left:4px">AI phone detection for exams &amp; secure areas</span>
-  </header>
-  <div class="auth-wrap">
-    <form class="auth" method="post" action="__ACTION__">
-      <h2>__HEADING__</h2>
-      <p>__HINT__</p>
-      __ERROR__
-      <div class="err" id="gerr" style="display:none"></div>
-      __GOOGLE__
-      <label>Username</label>
-      <input name="username" autofocus autocomplete="username">
-      <label>Password</label>
-      <input name="password" type="password" autocomplete="current-password">
-      <button type="submit">__BUTTON__</button>
-    </form>
-  </div>
+  <div class="brand"><svg viewBox="0 0 24 24" fill="none"><rect width="24" height="24" rx="7" fill="#161A20"/><path d="M6 10V7.5A1.5 1.5 0 0 1 7.5 6H10M14 6h2.5A1.5 1.5 0 0 1 18 7.5V10M18 14v2.5a1.5 1.5 0 0 1-1.5 1.5H14M10 18H7.5A1.5 1.5 0 0 1 6 16.5V14" stroke="#6C7580" stroke-width="1.8" stroke-linecap="round"/><circle cx="12" cy="12" r="2.6" fill="#2FB37D"/></svg><b>Vigil</b></div>
+  <form class="auth" method="post" action="__ACTION__">
+    <h2>__HEADING__</h2>
+    <div class="sub">__HINT__</div>
+    __ERROR__
+    <div class="err" id="gerr" style="display:none"></div>
+    __GOOGLE__
+    <label>Username</label>
+    <input name="username" autofocus autocomplete="username" placeholder="Your username">
+    <label>Password</label>
+    <input name="password" type="password" autocomplete="current-password" placeholder="••••••••">
+    <button class="primary" type="submit">__BUTTON__</button>
+  </form>
+  <div class="foot"><span class="d"></span> On-device AI · runs entirely on this machine</div>
 </body></html>"""
 
 # Google Sign-In block (only rendered when a client ID is configured).
@@ -3770,9 +3788,9 @@ GOOGLE_BTN = """
       <div id="g_id_onload" data-client_id="__GCID__" data-callback="onGoogle" data-auto_select="false"></div>
       <div class="g_id_signin" data-type="standard" data-theme="filled_black" data-size="large"
            data-text="__GTEXT__" data-shape="rectangular" data-logo_alignment="left" data-width="298"></div>
-      <div style="display:flex;align-items:center;gap:10px;margin:16px 0 14px;color:#5b6675;font-size:11.5px">
-        <span style="flex:1;height:1px;background:#232a34"></span>or
-        <span style="flex:1;height:1px;background:#232a34"></span></div>
+      <div style="display:flex;align-items:center;gap:10px;margin:16px 0 14px;color:var(--text-3);font-size:11.5px">
+        <span style="flex:1;height:1px;background:var(--border)"></span>or
+        <span style="flex:1;height:1px;background:var(--border)"></span></div>
       <script src="https://accounts.google.com/gsi/client" async></script>
       <script>
         function onGoogle(resp) {

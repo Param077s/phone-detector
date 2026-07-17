@@ -216,8 +216,19 @@ const state = {
   recentAlerts: [], selected: new Set(),
   density: localStorage.getItem("vigil.density") || "cozy",
   theme: localStorage.getItem("vigil.theme") || "dark",
-  evFilter: { status: "all", camera: "all", date: "" },
+  evFilter: { status: "all", camera: "all", date: "", bookmarked: false },
+  seenAlerts: new Set(),          // alert ids we've already notified about
+  alertsSeeded: false,            // don't toast the backlog on first load
+  notifications: [],              // recent detections for the bell
+  snoozeUntil: 0,                 // epoch ms; suppress toasts until then
+  bookmarks: new Set(JSON.parse(localStorage.getItem("vigil.bookmarks") || "[]")),
 };
+function saveBookmarks() { localStorage.setItem("vigil.bookmarks", JSON.stringify([...state.bookmarks])); }
+function toggleBookmark(id) { if (state.bookmarks.has(id)) state.bookmarks.delete(id); else state.bookmarks.add(id); saveBookmarks(); }
+function alertEpoch(a) {           // best-effort timestamp from date + "HH:MM:SS"
+  const t = Date.parse(`${a.date}T${(a.time || "00:00:00")}`);
+  return isNaN(t) ? 0 : t;
+}
 const isAdmin = () => state.me.role === "admin";
 
 /* =========================================================================
@@ -264,10 +275,12 @@ const Live = {
   destroy() { clearInterval(Live.pollTimer); Live.feeds.forEach(stop => stop()); Live.feeds.clear(); },
 
   async refresh(first) {
-    let cams, status, stats, alerts;
-    try { [cams, status, stats, alerts] = await Promise.all([api.cameras(), api.cameraStatus(), api.stats(), api.evidence("?status=all")]); }
+    let cams, status;
+    // Stats + detections come from the app-wide Notify poller, so Live only
+    // needs the fast-changing camera list and per-camera status here.
+    try { [cams, status] = await Promise.all([api.cameras(), api.cameraStatus()]); }
     catch { return; }
-    state.cameras = cams; state.status = status; state.stats = stats; state.recentAlerts = alerts.slice(0, 40);
+    state.cameras = cams; state.status = status;
     Live.renderStats();
     if (first) Live.buildGrid();
     Live.syncGrid();
@@ -291,6 +304,59 @@ const Live = {
     if (!state.cameras.length) { grid.innerHTML = ""; grid.appendChild(Live.empty()); return; }
     grid.innerHTML = "";
     state.cameras.forEach((c, i) => grid.appendChild(Live.tile(c, i)));
+    if (isAdmin()) Live.enableDrag(grid);
+    Live.syncBadges();
+  },
+
+  enableDrag(grid) {
+    grid.ondragover = (e) => {
+      if (!Live._drag) return;
+      e.preventDefault();
+      const after = Live.afterEl(grid, e.clientX, e.clientY);
+      if (after == null) grid.appendChild(Live._drag);
+      else if (after !== Live._drag) grid.insertBefore(Live._drag, after);
+    };
+  },
+  afterEl(grid, x, y) {
+    const els = $$(".cam:not(.dragging)", grid).filter(el => !el.classList.contains("hidden"));
+    let best = null, bestD = Infinity;
+    for (const el of els) {
+      const b = el.getBoundingClientRect();
+      const cx = b.left + b.width / 2, cy = b.top + b.height / 2;
+      const after = cy > y + 1 || (Math.abs(cy - y) < b.height / 2 && cx > x);
+      if (!after) continue;
+      const d = Math.hypot(cx - x, cy - y);
+      if (d < bestD) { bestD = d; best = el; }
+    }
+    return best;
+  },
+  persistOrder() {
+    const grid = $("#camGrid"); if (!grid) return;
+    const order = $$(".cam", grid).map(t => t.dataset.id);
+    state.cameras.sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id));
+    api.reorder(order).catch(() => {});
+  },
+
+  syncBadges() {
+    const grid = $("#camGrid"); if (!grid) return;
+    const now = Date.now(), recent = {};
+    state.recentAlerts.forEach(a => {
+      if (a.status === "dismissed") return;
+      if (now - alertEpoch(a) > 20000) return;         // only the last ~20s counts as "live"
+      if (!recent[a.camera] || alertEpoch(a) > alertEpoch(recent[a.camera])) recent[a.camera] = a;
+    });
+    state.cameras.forEach(c => {
+      const el = $(`.cam[data-id="${c.id}"]`, grid); if (!el) return;
+      const a = recent[c.label];                        // alerts are keyed by camera label
+      let det = $(".cam__det", el);
+      if (a && !el.classList.contains("is-offline")) {
+        el.classList.add("is-alerting");
+        if (!det) el.appendChild(h(`<div class="cam__det">${icon("alert")} Phone ${Math.round((a.confidence || 0) * 100)}%</div>`));
+      } else {
+        el.classList.remove("is-alerting");
+        if (det) det.remove();
+      }
+    });
   },
 
   empty() {
@@ -328,6 +394,12 @@ const Live = {
     }
     el.onclick = () => Focus.open(c);
     el.oncontextmenu = (e) => { e.preventDefault(); Live.tileMenu(c, el, e.clientX, e.clientY); };
+
+    if (isAdmin()) {
+      el.draggable = true;
+      el.addEventListener("dragstart", (e) => { Live._drag = el; el.classList.add("dragging"); e.dataTransfer.effectAllowed = "move"; try { e.dataTransfer.setData("text/plain", c.id); } catch {} });
+      el.addEventListener("dragend", () => { el.classList.remove("dragging"); Live._drag = null; Live.persistOrder(); });
+    }
 
     Live.applyStatus(el, c, st);
     return el;
@@ -371,16 +443,13 @@ const Live = {
     const ids = state.cameras.map(c => c.id);
     const present = $$(".cam", grid).map(t => t.dataset.id);
     if (ids.length !== present.length || ids.some((id, i) => id !== present[i])) return Live.buildGrid();
-    // detection badges: any alert in the last 10s for a camera
-    const now = Date.now();
-    const recentByCam = {};
-    state.recentAlerts.forEach(a => { recentByCam[a.camera] = recentByCam[a.camera] || a; });
     state.cameras.forEach(c => {
       const el = $(`.cam[data-id="${c.id}"]`, grid); if (!el) return;
       const st = state.status[c.id] || (c.enabled === false ? "paused" : "offline");
       Live.applyStatus(el, c, st);
       $(".cam__name", el).textContent = c.label;
     });
+    Live.syncBadges();
     $("#onlineCount").textContent = `${state.cameras.filter(c => state.status[c.id]==="online").length}/${state.cameras.length} online`;
   },
 
@@ -424,9 +493,37 @@ function mockFrame(id) {
     `<svg xmlns="http://www.w3.org/2000/svg" width="320" height="180"><rect width="320" height="180" fill="hsl(${hue},18%,14%)"/><circle cx="160" cy="80" r="34" fill="hsl(${hue},20%,20%)"/><rect x="70" y="128" width="180" height="10" rx="5" fill="hsl(${hue},18%,22%)"/></svg>`);
 }
 
+/* Scroll-to-zoom + drag-to-pan on an image inside a stage. Returns detach(). */
+function attachZoom(stage, img) {
+  let scale = 1, ox = 0, oy = 0, drag = false, sx = 0, sy = 0;
+  const apply = () => { img.style.transform = `translate(${ox}px,${oy}px) scale(${scale})`; img.style.cursor = scale > 1 ? "grab" : ""; };
+  const onWheel = (e) => { e.preventDefault(); scale = Math.min(6, Math.max(1, scale + (e.deltaY < 0 ? 0.25 : -0.25))); if (scale === 1) { ox = oy = 0; } apply(); };
+  const onDown = (e) => { if (scale === 1) return; drag = true; sx = e.clientX - ox; sy = e.clientY - oy; img.style.cursor = "grabbing"; e.preventDefault(); };
+  const onMove = (e) => { if (!drag) return; ox = e.clientX - sx; oy = e.clientY - sy; apply(); };
+  const onUp = () => { drag = false; apply(); };
+  stage.addEventListener("wheel", onWheel, { passive: false });
+  img.addEventListener("mousedown", onDown);
+  addEventListener("mousemove", onMove); addEventListener("mouseup", onUp);
+  return () => { stage.removeEventListener("wheel", onWheel); img.removeEventListener("mousedown", onDown); removeEventListener("mousemove", onMove); removeEventListener("mouseup", onUp); };
+}
+
+/* A static image lightbox (evidence snapshots) with zoom/pan. */
+function lightbox(src) {
+  const node = h(`<div class="focus"><div class="focus__bar">
+    <button class="btn btn--icon" data-close title="Close (Esc)">${icon("minimize")}</button>
+    <div class="spacer"></div><span class="muted" style="font-size:var(--fs-sm)">Scroll to zoom · drag to pan</span></div>
+    <div class="focus__stage"><img class="focus__img" src="${src}" alt=""></div></div>`);
+  $("#overlays").appendChild(node);
+  const detach = attachZoom($(".focus__stage", node), $(".focus__img", node));
+  const close = () => { detach(); node.remove(); document.removeEventListener("keydown", onKey); };
+  const onKey = (e) => { if (e.key === "Escape") close(); };
+  $("[data-close]", node).onclick = close;
+  document.addEventListener("keydown", onKey);
+}
+
 /* Fullscreen focus */
 const Focus = {
-  stop: null,
+  stop: null, detach: null,
   open(c) {
     const st = state.status[c.id] || "offline";
     const node = h(`<div class="focus">
@@ -435,14 +532,15 @@ const Focus = {
         <div><div class="strong">${esc(c.label)}</div>${c.location ? `<div class="muted" style="font-size:var(--fs-sm)">${esc(c.location)}</div>` : ""}</div>
         <span class="badge ${st==="online"?"badge--ok":st==="paused"?"badge--warn":"badge--danger"}"><span class="dot ${st==="online"?"dot--live":""}"></span>${st==="online"?"Live":st==="paused"?"Paused":"Offline"}</span>
         <div class="spacer"></div>
+        <span class="muted" style="font-size:var(--fs-sm)">Scroll to zoom</span>
         <span class="cam__ai" style="position:static">${icon("shield")} AI detection on</span>
       </div>
       <div class="focus__stage"><img class="focus__img" alt="${esc(c.label)}"></div></div>`);
     $("#overlays").appendChild(node);
     const img = $(".focus__img", node);
-    if (st === "online") Focus.stop = startFeed(img, c.id);
+    if (st === "online") { Focus.stop = startFeed(img, c.id); Focus.detach = attachZoom($(".focus__stage", node), img); }
     else img.replaceWith(h(`<div class="empty"><div class="empty__icon">${icon("camoff")}</div><div class="empty__title">${st==="paused"?"Camera paused":"Camera offline"}</div></div>`));
-    const close = () => { if (Focus.stop) Focus.stop(); Focus.stop = null; node.remove(); document.removeEventListener("keydown", onKey); };
+    const close = () => { if (Focus.stop) Focus.stop(); if (Focus.detach) Focus.detach(); Focus.stop = Focus.detach = null; node.remove(); document.removeEventListener("keydown", onKey); };
     const onKey = (e) => { if (e.key === "Escape") close(); };
     $("[data-close]", node).onclick = close;
     document.addEventListener("keydown", onKey);
@@ -482,7 +580,7 @@ const CameraForm = {
    7. EVIDENCE
    ========================================================================= */
 const Evidence = {
-  all: [],
+  all: [], pendingOpen: null,
   async render(root) {
     root.className = "content content--flush";
     root.innerHTML = `<div class="evidence">
@@ -504,6 +602,16 @@ const Evidence = {
     const q = "?status=all" + (state.evFilter.date ? "&date=" + state.evFilter.date : "");
     try { Evidence.all = await api.evidence(q); } catch { Evidence.all = []; }
     Evidence.renderSide(); Evidence.paint();
+    if (Evidence.pendingOpen != null) { const id = Evidence.pendingOpen; Evidence.pendingOpen = null; Evidence.detail(id); }
+  },
+
+  filtered() {
+    const f = state.evFilter, q = ($("#evSearch")?.value || "").toLowerCase();
+    return Evidence.all.filter(a =>
+      (f.status === "all" || a.status === f.status) &&
+      (f.camera === "all" || a.camera === f.camera) &&
+      (!f.bookmarked || state.bookmarks.has(a.id)) &&
+      (!q || (a.camera + " " + a.thing + " " + (a.description || "")).toLowerCase().includes(q)));
   },
 
   renderSide() {
@@ -511,25 +619,24 @@ const Evidence = {
     Evidence.all.forEach(a => counts[a.status] !== undefined && counts[a.status]++);
     const cams = [...new Set(Evidence.all.map(a => a.camera))];
     const f = state.evFilter;
+    const bmCount = Evidence.all.filter(a => state.bookmarks.has(a.id)).length;
     $("#evSide").innerHTML = `
       <div class="filtergroup"><div class="filtergroup__label">Status</div>
         ${[["all","All events"],["pending","Pending review"],["confirmed","Confirmed"],["dismissed","Dismissed"]].map(([k,l]) =>
-          `<div class="filter-item ${f.status===k?"is-active":""}" data-status="${k}"><span class="dot ${k==="pending"?"dot--warn":k==="confirmed"?"dot--ok":k==="dismissed"?"":""}"></span>${l}<span class="count">${counts[k]??""}</span></div>`).join("")}
+          `<div class="filter-item ${f.status===k && !f.bookmarked?"is-active":""}" data-status="${k}"><span class="dot ${k==="pending"?"dot--warn":k==="confirmed"?"dot--ok":k==="dismissed"?"":""}"></span>${l}<span class="count">${counts[k]??""}</span></div>`).join("")}
+        <div class="filter-item ${f.bookmarked?"is-active":""}" data-bm>${icon("star")} Bookmarked<span class="count">${bmCount||""}</span></div>
       </div>
       <div class="filtergroup"><div class="filtergroup__label">Camera</div>
         <div class="filter-item ${f.camera==="all"?"is-active":""}" data-cam="all">All cameras<span class="count">${Evidence.all.length}</span></div>
         ${cams.map(c => `<div class="filter-item ${f.camera===c?"is-active":""}" data-cam="${esc(c)}">${esc(c)}<span class="count">${Evidence.all.filter(a=>a.camera===c).length}</span></div>`).join("")}
       </div>`;
-    $$("[data-status]").forEach(n => n.onclick = () => { state.evFilter.status = n.dataset.status; Evidence.renderSide(); Evidence.paint(); });
+    $$("[data-status]").forEach(n => n.onclick = () => { state.evFilter.status = n.dataset.status; state.evFilter.bookmarked = false; Evidence.renderSide(); Evidence.paint(); });
+    $("[data-bm]").onclick = () => { state.evFilter.bookmarked = !state.evFilter.bookmarked; Evidence.renderSide(); Evidence.paint(); };
     $$("[data-cam]").forEach(n => n.onclick = () => { state.evFilter.camera = n.dataset.cam; Evidence.renderSide(); Evidence.paint(); });
   },
 
   paint() {
-    const f = state.evFilter, q = ($("#evSearch")?.value || "").toLowerCase();
-    let rows = Evidence.all.filter(a =>
-      (f.status === "all" || a.status === f.status) &&
-      (f.camera === "all" || a.camera === f.camera) &&
-      (!q || (a.camera + " " + a.thing + " " + (a.description||"")).toLowerCase().includes(q)));
+    const rows = Evidence.filtered();
     const body = $("#evBody");
     if (!rows.length) { body.innerHTML = ""; body.appendChild(Evidence.empty()); return; }
     body.innerHTML = `<div class="ev-grid">${rows.map((a, i) => Evidence.card(a, i)).join("")}</div>`;
@@ -541,8 +648,9 @@ const Evidence = {
       : a.status === "confirmed" ? `<span class="badge badge--danger">Confirmed</span>`
       : `<span class="badge">Dismissed</span>`;
     const img = MOCK ? mockFrame("e" + a.id) : (a.image || `/evidence/image/${a.id}`);
+    const star = state.bookmarks.has(a.id) ? `<span class="ev-card__star" style="color:var(--warn);opacity:1">${icon("star")}</span>` : "";
     return `<div class="ev-card" data-id="${a.id}" style="animation-delay:${Math.min(i*24,300)}ms">
-      <div class="ev-card__thumb"><img loading="lazy" src="${img}" alt=""><div class="ev-card__badge">${badge}</div></div>
+      <div class="ev-card__thumb"><img loading="lazy" src="${img}" alt=""><div class="ev-card__badge">${badge}</div>${star}</div>
       <div class="ev-card__meta">
         <div class="ev-card__title">${esc(a.thing || "Phone")} <span class="muted" style="font-weight:400">· ${Math.round((a.confidence||0)*100)}%</span></div>
         <div class="ev-card__sub">${icon("live")} ${esc(a.camera)}</div>
@@ -569,9 +677,9 @@ const Evidence = {
     const node = h(`<div class="drawer" role="dialog" aria-modal="true">
       <div class="drawer__head"><button class="btn btn--icon btn--ghost" data-x>${icon("x")}</button>
         <div class="strong">Evidence #${a.id}</div><div class="spacer"></div>
-        <button class="btn btn--icon btn--ghost" title="Bookmark">${icon("star")}</button></div>
+        <button class="btn btn--icon btn--ghost" data-star title="Bookmark">${icon("star")}</button></div>
       <div class="drawer__body">
-        <img class="drawer__img" src="${img}" alt="">
+        <img class="drawer__img" src="${img}" alt="" data-zoom style="cursor:zoom-in">
         <div><span class="badge ${a.status==="pending"?"badge--warn":a.status==="confirmed"?"badge--danger":""}">${a.status[0].toUpperCase()+a.status.slice(1)}</span></div>
         <dl class="kv">
           <dt>Detected</dt><dd>${esc(a.thing || "Phone")}</dd>
@@ -590,13 +698,28 @@ const Evidence = {
       </div></div>`);
     const close = openModal(node);
     $$("[data-x]", node).forEach(b => b.onclick = close);
+    const starBtn = $("[data-star]", node);
+    const paintStar = () => starBtn.style.color = state.bookmarks.has(id) ? "var(--warn)" : "";
+    paintStar();
+    starBtn.onclick = () => { toggleBookmark(id); paintStar(); toast(state.bookmarks.has(id) ? "Bookmarked" : "Bookmark removed", { kind: "ok" }); };
+    $("[data-zoom]", node).onclick = () => lightbox(img);
     if (canReview) {
-      $("[data-confirm]", node).onclick = async () => { await api.reviewAlert(id, "confirm"); toast("Marked as confirmed incident", { kind: "ok" }); close(); Evidence.load(); };
-      $("[data-dismiss]", node).onclick = async () => { await api.reviewAlert(id, "dismiss"); toast("Dismissed", { kind: "ok" }); close(); Evidence.load(); };
+      $("[data-confirm]", node).onclick = async () => { await api.reviewAlert(id, "confirm"); toast("Marked as confirmed incident", { kind: "ok" }); close(); Notify.poll(); Evidence.load(); };
+      $("[data-dismiss]", node).onclick = async () => { await api.reviewAlert(id, "dismiss"); toast("Dismissed", { kind: "ok" }); close(); Notify.poll(); Evidence.load(); };
     }
   },
 
-  export() { toast("Export ready", { msg: "Evidence list prepared for export.", kind: "ok" }); },
+  export() {
+    const rows = Evidence.filtered();
+    if (!rows.length) { toast("Nothing to export", { msg: "No events match the current filters.", kind: "info" }); return; }
+    const cols = ["id", "date", "time", "camera", "thing", "confidence", "status", "reviewed_by", "reviewed_at"];
+    const csv = [cols.join(",")].concat(rows.map(a => cols.map(k => `"${String(a[k] ?? "").replace(/"/g, '""')}"`).join(","))).join("\n");
+    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+    const a = document.createElement("a");
+    a.href = url; a.download = `vigil-evidence-${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url);
+    toast("Evidence exported", { msg: `${rows.length} events → CSV`, kind: "ok" });
+  },
 };
 
 /* =========================================================================
@@ -753,6 +876,71 @@ function noAccess() {
 }
 
 /* =========================================================================
+   9b. NOTIFICATIONS  (app-wide detection awareness — bell, toasts, nav badge)
+   ========================================================================= */
+const Notify = {
+  timer: null,
+  async start() { await Notify.poll(); Notify.timer = setInterval(Notify.poll, 3000); },
+  async poll() {
+    let alerts, stats;
+    try { [alerts, stats] = await Promise.all([api.evidence("?status=all"), api.stats()]); }
+    catch { return; }
+    state.recentAlerts = alerts.slice(0, 60);
+    state.stats = stats;
+    const fresh = [];
+    alerts.forEach(a => {
+      if (!state.seenAlerts.has(a.id)) {
+        state.seenAlerts.add(a.id);
+        if (state.alertsSeeded && a.status === "pending") fresh.push(a);
+      }
+    });
+    state.alertsSeeded = true;
+    state.notifications = alerts.filter(a => a.status === "pending").slice(0, 30);
+    Notify.paintBell();
+    if (state.route === "live") Live.syncBadges();
+    // Awareness, not interruption: a brief toast per fresh detection, unless snoozed.
+    if (Date.now() > state.snoozeUntil) {
+      fresh.slice(0, 3).forEach(a => {
+        const t = toast(`Phone detected · ${a.camera}`, { msg: `${Math.round((a.confidence || 0) * 100)}% confidence · click to review`, kind: "danger", timeout: 6500 });
+      });
+    }
+  },
+  paintBell() {
+    const count = state.notifications.length;
+    const b = $("#bellCount");
+    if (b) { b.textContent = count > 99 ? "99+" : count; b.classList.toggle("hidden", count === 0); }
+    const nb = $("#navBadge");
+    if (nb) { nb.textContent = state.stats.pending || ""; nb.classList.toggle("hidden", !state.stats.pending); }
+  },
+  openPanel(anchor) {
+    $$(".menu").forEach(m => m.remove());
+    const r = anchor.getBoundingClientRect();
+    const groups = {};
+    state.notifications.forEach(a => (groups[a.camera] = groups[a.camera] || []).push(a));
+    const snoozed = Date.now() < state.snoozeUntil;
+    const panel = h(`<div class="menu notif">
+      <div class="notif__head"><span class="strong">Notifications</span>
+        <button class="btn btn--ghost btn--sm" data-snooze>${snoozed ? "Snoozed" : "Snooze 15m"}</button></div>
+      ${state.notifications.length ? Object.entries(groups).map(([cam, list]) => `
+        <div class="menu__label">${esc(cam)} · ${list.length}</div>
+        ${list.slice(0, 4).map(a => `<div class="notif__item" data-id="${a.id}">
+          <img class="notif__thumb" src="${MOCK ? mockFrame("e" + a.id) : (a.image || `/evidence/image/${a.id}`)}" alt="">
+          <div style="min-width:0"><div class="truncate">Phone · ${Math.round((a.confidence || 0) * 100)}%</div>
+          <div class="muted" style="font-size:var(--fs-xs)">${relDate(a.date)} · ${esc(a.time)}</div></div></div>`).join("")}`).join("")
+        : `<div class="empty" style="padding:var(--s8) var(--s4)"><div class="empty__icon">${icon("check")}</div><div class="empty__title" style="font-size:var(--fs-md)">All clear</div><div class="empty__text" style="font-size:var(--fs-sm)">No detections waiting for review.</div></div>`}</div>`);
+    document.body.appendChild(panel);
+    panel.style.left = Math.min(r.left - 120, innerWidth - 336) + "px";
+    panel.style.top = (r.bottom + 6) + "px";
+    const close = () => { panel.remove(); document.removeEventListener("click", onDoc); };
+    const onDoc = (e) => { if (!panel.contains(e.target) && e.target !== anchor && !anchor.contains(e.target)) close(); };
+    setTimeout(() => document.addEventListener("click", onDoc), 0);
+    addEventListener("hashchange", close, { once: true });
+    $("[data-snooze]", panel).onclick = (e) => { e.stopPropagation(); state.snoozeUntil = Date.now() + 15 * 60 * 1000; toast("Notifications snoozed for 15 minutes", { kind: "ok" }); close(); };
+    $$("[data-id]", panel).forEach(n => n.onclick = () => { close(); Evidence.pendingOpen = +n.dataset.id; go("evidence"); });
+  },
+};
+
+/* =========================================================================
    10. SHELL + ROUTER
    ========================================================================= */
 const ROUTES = {
@@ -783,6 +971,7 @@ function shell() {
     <header class="topbar">
       <div><div class="topbar__title" id="tbTitle"></div></div>
       <div class="topbar__spacer"></div>
+      <button class="btn btn--icon btn--ghost btn--sm bell" id="bellBtn" title="Notifications">${icon("bell")}<span class="bell__count hidden" id="bellCount">0</span></button>
       <button class="btn btn--icon btn--ghost btn--sm" id="themeBtn" title="Toggle theme">${icon(state.theme==="dark"?"sun":"moon")}</button>
       <span class="topbar__clock tnum" id="clock"></span>
     </header>
@@ -796,6 +985,8 @@ function shell() {
       { label: "Sign out", icon: "logout", onClick: () => location.href = "/logout" },
     ]); };
   $("#themeBtn").onclick = () => { setTheme(state.theme === "dark" ? "light" : "dark"); $("#themeBtn").innerHTML = icon(state.theme==="dark"?"sun":"moon"); };
+  $("#bellBtn").onclick = (e) => { e.stopPropagation(); Notify.openPanel($("#bellBtn")); };
+  Notify.paintBell();
   startClock();
 }
 
@@ -845,6 +1036,7 @@ async function boot() {
   addEventListener("hashchange", mount);
   document.addEventListener("keydown", shortcuts);
   await mount();
+  Notify.start();               // app-wide detection awareness (bell + toasts)
 }
 boot();
 })();

@@ -186,6 +186,34 @@
 .setting__control .input, .setting__control .select { width: 180px; }
 
 /* ==========================================================================
+   NOTIFICATIONS (topbar bell + panel)
+   ========================================================================== */
+.bell { position: relative; overflow: visible; }
+.bell__count {
+  position: absolute; top: -4px; right: -4px;
+  min-width: 15px; height: 15px; padding: 0 4px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 10px; font-weight: var(--w-semi); line-height: 1;
+  background: var(--danger); color: #fff; border-radius: var(--r-full);
+  border: 1.5px solid var(--surface);
+}
+.notif { width: 320px; max-height: 72vh; overflow: auto; padding: var(--s1) var(--s1) var(--s2); }
+.notif__head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: var(--s2) var(--s2) var(--s2) var(--s3);
+  position: sticky; top: 0; background: var(--surface); z-index: 1;
+}
+.notif__item {
+  display: flex; align-items: center; gap: var(--s3);
+  padding: var(--s2); border-radius: var(--r-sm); cursor: pointer;
+}
+.notif__item:hover { background: var(--surface-2); }
+.notif__thumb { width: 46px; height: 30px; object-fit: cover; border-radius: 5px; background: var(--surface-inset); flex: none; }
+
+/* Drag-to-reorder cameras (admin) */
+.cam.dragging { opacity: .35; }
+
+/* ==========================================================================
    ONBOARDING / SETUP  (first-launch)
    ========================================================================== */
 .setup { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: var(--bg); z-index: var(--z-modal); }
