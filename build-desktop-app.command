@@ -14,6 +14,17 @@ cd "$(dirname "$0")"
 PROJ="$(pwd)"
 APP="$PROJ/dist/Vigil.app"
 
+# Pre-install the native-window component now, so the built app opens cleanly
+# the very first time instead of pausing to install on first click.
+if [ -x venv/bin/python ]; then
+  if ! venv/bin/python -c "import webview" >/dev/null 2>&1; then
+    echo "  Preparing the native window component (one-time)…"
+    venv/bin/pip install -r requirements-desktop.txt || echo "  (will install on first launch instead)"
+  fi
+else
+  echo "  Note: run Vigil.command once first so the app has its components."
+fi
+
 echo "  Building Vigil.app → $APP"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
