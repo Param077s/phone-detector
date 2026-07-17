@@ -86,6 +86,16 @@ function initials(name) {
   return s.slice(0, 2).toUpperCase();
 }
 
+/* Human-readable camera source type. */
+function sourceLabel(s) {
+  s = String(s || "").trim();
+  if (s === "0" || s === "") return "Built-in webcam";
+  if (s === "browser") return "Phone / browser camera";
+  if (/^rtsp/i.test(s)) return "CCTV (RTSP)";
+  if (/^https?:/i.test(s)) return "IP camera";
+  return "Custom source";
+}
+
 /* Loading skeletons — shown immediately, replaced when data arrives. */
 const skel = {
   tiles: (n = 6) => Array.from({ length: n }, () => `<div class="cam skeleton" style="aspect-ratio:16/9;border:none"></div>`).join(""),
@@ -478,7 +488,9 @@ const Live = {
 
   tileMenu(c, el, x, y) {
     const r = el.getBoundingClientRect();
+    const st = state.status[c.id] || (c.enabled === false ? "paused" : "offline");
     const items = [
+      { label: `${sourceLabel(c.source)} · ${st.charAt(0).toUpperCase() + st.slice(1)}`, header: true },
       { label: "Open fullscreen", icon: "maximize", onClick: () => Focus.open(c) },
     ];
     if (isAdmin()) {
@@ -600,7 +612,7 @@ const Focus = {
     const node = h(`<div class="focus">
       <div class="focus__bar">
         <button class="btn btn--icon" data-close title="Close (Esc)">${icon("minimize")}</button>
-        <div><div class="strong">${esc(c.label)}</div>${c.location ? `<div class="muted" style="font-size:var(--fs-sm)">${esc(c.location)}</div>` : ""}</div>
+        <div><div class="strong">${esc(c.label)}</div><div class="muted" style="font-size:var(--fs-sm)">${c.location ? esc(c.location) + " · " : ""}${sourceLabel(c.source)}</div></div>
         <span class="badge ${st==="online"?"badge--ok":st==="paused"?"badge--warn":"badge--danger"}"><span class="dot ${st==="online"?"dot--live":""}"></span>${st==="online"?"Live":st==="paused"?"Paused":"Offline"}</span>
         <div class="spacer"></div>
         <span class="muted" style="font-size:var(--fs-sm)">Scroll to zoom</span>
