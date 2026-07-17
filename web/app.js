@@ -753,13 +753,17 @@ const Evidence = {
 
   renderBulk(body) {
     const n = Evidence.selected.size;
+    const total = Evidence.filtered().length;
     const bar = h(`<div class="bulkbar">
-      <span class="strong">${n} selected</span><div class="spacer"></div>
+      <span class="strong">${n} selected</span>
+      ${n < total ? `<button class="btn btn--ghost btn--sm" data-bulk="all">Select all ${total}</button>` : ""}
+      <div class="spacer"></div>
       <button class="btn btn--danger btn--sm" data-bulk="confirm">${icon("alert")} Confirm</button>
       <button class="btn btn--sm" data-bulk="dismiss">${icon("x")} Dismiss</button>
       <button class="btn btn--sm" data-bulk="export">${icon("download")} Export</button>
       <button class="btn btn--ghost btn--sm" data-bulk="clear">Clear</button></div>`);
     body.appendChild(bar);
+    const allBtn = $("[data-bulk=all]", bar); if (allBtn) allBtn.onclick = () => { Evidence.filtered().forEach(a => Evidence.selected.add(a.id)); Evidence.paint(); };
     $("[data-bulk=confirm]", bar).onclick = () => Evidence.bulkReview("confirm");
     $("[data-bulk=dismiss]", bar).onclick = () => Evidence.bulkReview("dismiss");
     $("[data-bulk=export]", bar).onclick = () => { Evidence.exportRows(Evidence.all.filter(a => Evidence.selected.has(a.id))); };
@@ -1118,6 +1122,7 @@ function shell() {
     <header class="topbar">
       <div><div class="topbar__title" id="tbTitle"></div></div>
       <div class="topbar__spacer"></div>
+      <button class="btn btn--ghost btn--sm" id="cmdkBtn" title="Command palette" aria-label="Open command palette">${icon("search")}<span class="kbd" style="margin:0 0 0 4px">${/mac/i.test(navigator.platform) ? "⌘K" : "Ctrl K"}</span></button>
       <button class="btn btn--icon btn--ghost btn--sm bell" id="bellBtn" title="Notifications" aria-label="Notifications">${icon("bell")}<span class="bell__count hidden" id="bellCount">0</span></button>
       <button class="btn btn--icon btn--ghost btn--sm" id="themeBtn" title="Toggle theme" aria-label="Toggle light or dark theme">${icon(state.theme==="dark"?"sun":"moon")}</button>
       <span class="topbar__clock tnum" id="clock"></span>
@@ -1133,6 +1138,7 @@ function shell() {
     ]); };
   $("#themeBtn").onclick = () => { setTheme(state.theme === "dark" ? "light" : "dark"); $("#themeBtn").innerHTML = icon(state.theme==="dark"?"sun":"moon"); };
   $("#bellBtn").onclick = (e) => { e.stopPropagation(); Notify.openPanel($("#bellBtn")); };
+  $("#cmdkBtn").onclick = () => Palette.open();
   Notify.paintBell();
   // Frameless macOS window: draw our own traffic-light controls, wired to the
   // pywebview bridge. Cmd-Q/W/M remain as a fallback if the bridge is absent.
