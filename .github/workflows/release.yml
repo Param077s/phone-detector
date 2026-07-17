@@ -1,19 +1,31 @@
 name: Build desktop apps
 
-# Builds the no-Terminal Vigil app for macOS and Windows on native runners
-# (this is how we build Windows without a Windows machine), then attaches the
-# installers to the GitHub Release.
+# Builds the no-Terminal Vigil app for macOS and Windows on native runners,
+# code-signs + notarizes them WHEN the signing secrets are configured (and
+# quietly falls back to unsigned when they aren't), then attaches the installers
+# to the GitHub Release.
 #
-# Trigger:
-#   • push a tag like  v1.0.0   -> builds + attaches to that release
-#   • or run manually from the Actions tab (workflow_dispatch) to just test
+# To enable signing, add these repo secrets (Settings > Secrets and variables >
+# Actions). Until they exist, builds stay unsigned and everything still works.
+#
+#   macOS (Developer ID + notarization):
+#     MACOS_CERTIFICATE        base64 of your "Developer ID Application" .p12
+#     MACOS_CERTIFICATE_PWD    password for that .p12
+#     MACOS_SIGNING_IDENTITY   e.g. "Developer ID Application: Name (TEAMID)"
+#     MACOS_NOTARY_APPLE_ID    your Apple ID email
+#     MACOS_NOTARY_PASSWORD    an app-specific password for that Apple ID
+#     MACOS_NOTARY_TEAM_ID     your 10-char Apple Team ID
+#
+#   Windows (Authenticode):
+#     WINDOWS_CERTIFICATE      base64 of your code-signing .pfx
+#     WINDOWS_CERTIFICATE_PWD  password for that .pfx
 on:
   push:
     tags: ["v*"]
   workflow_dispatch:
 
 permissions:
-  contents: write            # needed to upload assets to the release
+  contents: write
 
 jobs:
   build:
@@ -43,20 +55,95 @@ jobs:
       - name: Build app
         run: pyinstaller vigil.spec --noconfirm
 
-      # ---- macOS: ad-hoc sign (avoids the "app is damaged" block on Apple
-      #      Silicon for unsigned downloads) then wrap in a .dmg ----
+      # ---------------------------------------------------------------- macOS
+      - name: Sign app (macOS)
+        if: runner.os == 'macOS'
+        env:
+          MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
+          MACOS_CERTIFICATE_PWD: ${{ secrets.MACOS_CERTIFICATE_PWD }}
+          MACOS_SIGNING_IDENTITY: ${{ secrets.MACOS_SIGNING_IDENTITY }}
+        run: |
+          set -e
+          if [ -z "$MACOS_CERTIFICATE" ]; then
+            echo "No MACOS_CERTIFICATE secret — ad-hoc signing (unsigned build)."
+            codesign --force --deep --sign - "dist/Vigil.app" || true
+            exit 0
+          fi
+          echo "Importing Developer ID certificate…"
+          KEYCHAIN="$RUNNER_TEMP/vigil.keychain-db"
+          KP="$(openssl rand -base64 24)"
+          security create-keychain -p "$KP" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KP" "$KEYCHAIN"
+          echo "$MACOS_CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security import "$RUNNER_TEMP/cert.p12" -k "$KEYCHAIN" -P "$MACOS_CERTIFICATE_PWD" \
+            -T /usr/bin/codesign -T /usr/bin/security
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KP" "$KEYCHAIN"
+          security list-keychains -d user -s "$KEYCHAIN" login.keychain-db
+          rm -f "$RUNNER_TEMP/cert.p12"
+          echo "Signing (hardened runtime)…"
+          codesign --force --deep --options runtime --timestamp \
+            --sign "$MACOS_SIGNING_IDENTITY" "dist/Vigil.app"
+          codesign --verify --deep --strict --verbose=2 "dist/Vigil.app"
+
       - name: Package macOS (.dmg)
         if: runner.os == 'macOS'
         run: |
-          codesign --force --deep --sign - "dist/Vigil.app" || true
           hdiutil create -volname "Vigil" -srcfolder "dist/Vigil.app" \
             -ov -format UDZO "Vigil.dmg"
 
-      # ---- Windows: zip the app folder ----
+      - name: Notarize (macOS)
+        if: runner.os == 'macOS'
+        env:
+          MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
+          MACOS_SIGNING_IDENTITY: ${{ secrets.MACOS_SIGNING_IDENTITY }}
+          MACOS_NOTARY_APPLE_ID: ${{ secrets.MACOS_NOTARY_APPLE_ID }}
+          MACOS_NOTARY_PASSWORD: ${{ secrets.MACOS_NOTARY_PASSWORD }}
+          MACOS_NOTARY_TEAM_ID: ${{ secrets.MACOS_NOTARY_TEAM_ID }}
+        run: |
+          set -e
+          if [ -z "$MACOS_CERTIFICATE" ] || [ -z "$MACOS_NOTARY_APPLE_ID" ]; then
+            echo "Signing/notary secrets not set — skipping notarization."
+            exit 0
+          fi
+          echo "Signing the .dmg…"
+          codesign --force --timestamp --sign "$MACOS_SIGNING_IDENTITY" "Vigil.dmg"
+          echo "Submitting to Apple notary (this can take a few minutes)…"
+          xcrun notarytool submit "Vigil.dmg" \
+            --apple-id "$MACOS_NOTARY_APPLE_ID" \
+            --password "$MACOS_NOTARY_PASSWORD" \
+            --team-id "$MACOS_NOTARY_TEAM_ID" --wait
+          echo "Stapling the ticket…"
+          xcrun stapler staple "Vigil.dmg"
+          xcrun stapler validate "Vigil.dmg"
+
+      # -------------------------------------------------------------- Windows
+      - name: Sign app (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          WINDOWS_CERTIFICATE_PWD: ${{ secrets.WINDOWS_CERTIFICATE_PWD }}
+        run: |
+          if (-not $env:WINDOWS_CERTIFICATE) {
+            Write-Host "No WINDOWS_CERTIFICATE secret — leaving the app unsigned."
+            exit 0
+          }
+          $pfx = Join-Path $env:RUNNER_TEMP "vigil.pfx"
+          [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE))
+          $signtool = (Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin\*\x64\signtool.exe" |
+                       Sort-Object FullName | Select-Object -Last 1).FullName
+          Write-Host "Signing Vigil.exe with $signtool"
+          & $signtool sign /f $pfx /p $env:WINDOWS_CERTIFICATE_PWD /fd SHA256 `
+            /tr http://timestamp.digicert.com /td SHA256 "dist\Vigil\Vigil.exe"
+          if ($LASTEXITCODE -ne 0) { throw "signtool failed" }
+          Remove-Item $pfx
+
       - name: Package Windows (.zip)
         if: runner.os == 'Windows'
         run: Compress-Archive -Path dist\Vigil\* -DestinationPath Vigil.zip -Force
 
+      # -------------------------------------------------------------- Publish
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
