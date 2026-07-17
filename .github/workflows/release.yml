@@ -90,8 +90,38 @@ jobs:
       - name: Package macOS (.dmg)
         if: runner.os == 'macOS'
         run: |
-          hdiutil create -volname "Vigil" -srcfolder "dist/Vigil.app" \
-            -ov -format UDZO "Vigil.dmg"
+          set -e
+          python -m pip install --quiet pillow || true
+          python make_dmg_background.py || true
+          brew install create-dmg
+          rm -f Vigil.dmg
+          ok=0
+          # Judge success by the OUTPUT, not create-dmg's exit code (it can
+          # return non-zero on newer macOS even after producing a good .dmg).
+          for attempt in 1 2 3; do
+            create-dmg \
+              --volname "Vigil" \
+              --background "build/dmg-bg.png" \
+              --window-pos 200 120 \
+              --window-size 640 420 \
+              --icon-size 128 \
+              --icon "Vigil.app" 170 200 \
+              --app-drop-link 470 200 \
+              --hide-extension "Vigil.app" \
+              --no-internet-enable \
+              "Vigil.dmg" "dist/Vigil.app" || true
+            if [ -f Vigil.dmg ] && [ "$(stat -f%z Vigil.dmg)" -gt 50000000 ]; then ok=1; break; fi
+            echo "create-dmg attempt $attempt didn't produce a valid dmg; retrying…"
+            sleep 5; rm -f Vigil.dmg
+          done
+          if [ "$ok" != "1" ]; then
+            echo "create-dmg failed — building a plain drag-install dmg instead"
+            rm -rf dmgroot && mkdir dmgroot
+            cp -R "dist/Vigil.app" dmgroot/
+            ln -s /Applications dmgroot/Applications
+            hdiutil create -volname "Vigil" -srcfolder dmgroot -ov -format UDZO "Vigil.dmg"
+          fi
+          echo "DMG: $(du -h Vigil.dmg | cut -f1)"
 
       - name: Notarize (macOS)
         if: runner.os == 'macOS'
