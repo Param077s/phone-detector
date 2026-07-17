@@ -463,7 +463,11 @@ svg[viewBox="0 0 24 24"] { width: 16px; height: 16px; flex: none; }
 }
 .empty__icon svg { width: 24px; height: 24px; }
 .empty__title { font-size: var(--fs-lg); font-weight: var(--w-semi); color: var(--text); }
-.empty__text { max-width: 380px; }
+.empty__text { max-width: 400px; }
+.empty__actions { display: flex; gap: var(--s2); margin-top: var(--s3); flex-wrap: wrap; justify-content: center; }
+.empty--alert .empty__icon { background: var(--danger-quiet); border-color: transparent; color: var(--danger); }
+.empty--warn .empty__icon  { background: var(--warn-quiet);   border-color: transparent; color: var(--warn); }
+.empty--info .empty__icon  { background: var(--info-quiet);   border-color: transparent; color: var(--info); }
 
 .skeleton {
   position: relative; overflow: hidden;

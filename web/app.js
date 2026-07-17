@@ -230,6 +230,37 @@ function openExternal(url) {
   if (papi && typeof papi.open_external === "function") papi.open_external(url);
   else window.open(url, "_blank", "noopener");
 }
+
+/* -------------------------------------------------------------------------
+   Recovery states — every failure gets a calm explanation + a next step.
+   ------------------------------------------------------------------------- */
+const RECOVER = {
+  network:   { tone: "alert", icon: "wifioff", title: "Can't reach Vigil's engine",
+    text: "The app lost its connection to the detection service. This usually clears in a moment." },
+  offline:   { tone: "warn", icon: "camoff", title: "All cameras are offline",
+    text: "Vigil can't reach any camera feed right now. Check the cameras are powered on and on the same network." },
+  model:     { tone: "warn", icon: "cpu", title: "AI model not ready",
+    text: "The detection model is missing or still preparing. Vigil keeps retrying automatically — this can take a minute on first run." },
+  storage:   { tone: "alert", icon: "db", title: "Storage is full",
+    text: "There's no room left to save new evidence. Free up disk space, or clear events you've already dismissed." },
+  permission:{ tone: "warn", icon: "lock", title: "Camera access is blocked",
+    text: "Your system is blocking camera access. Grant it in System Settings → Privacy & Security → Camera, then reopen Vigil." },
+  corrupted: { tone: "alert", icon: "alert", title: "This file can't be opened",
+    text: "The snapshot is unreadable — it may be corrupted or was removed from disk." },
+};
+/* Build a recovery panel. actions: [{label, primary?, onClick}] */
+function recoverNode(kind, actions = []) {
+  const r = RECOVER[kind] || RECOVER.network;
+  const el = h(`<div class="empty empty--${r.tone}" role="alert" style="grid-column:1/-1">
+    <div class="empty__icon">${icon(r.icon)}</div>
+    <div class="empty__title">${esc(r.title)}</div>
+    <div class="empty__text">${esc(r.text)}</div>
+    ${actions.length ? `<div class="empty__actions">${actions.map((a, i) =>
+      `<button class="btn ${a.primary ? "btn--primary" : ""}" data-a="${i}">${a.icon ? icon(a.icon) : ""}${esc(a.label)}</button>`).join("")}</div>` : ""}
+  </div>`);
+  actions.forEach((a, i) => { const b = $(`[data-a="${i}"]`, el); if (b && a.onClick) b.onclick = a.onClick; });
+  return el;
+}
 function alertEpoch(a) {           // best-effort timestamp from date + "HH:MM:SS"
   const t = Date.parse(`${a.date}T${(a.time || "00:00:00")}`);
   return isNaN(t) ? 0 : t;
@@ -283,8 +314,17 @@ const Live = {
     let cams, status;
     // Stats + detections come from the app-wide Notify poller, so Live only
     // needs the fast-changing camera list and per-camera status here.
-    try { [cams, status] = await Promise.all([api.cameras(), api.cameraStatus()]); }
-    catch { return; }
+    try { [cams, status] = await Promise.all([api.cameras(), api.cameraStatus()]); Live._netFail = 0; }
+    catch {
+      Live._netFail = (Live._netFail || 0) + 1;
+      // Only take over the grid if we have nothing good to show — a transient
+      // blip while cameras are already on screen shouldn't wipe the wall.
+      if ((first || !state.cameras.length) && $("#camGrid")) {
+        const g = $("#camGrid"); g.innerHTML = "";
+        g.appendChild(recoverNode("network", [{ label: "Retry", primary: true, icon: "wifi", onClick: () => Live.refresh(true) }]));
+      }
+      return;
+    }
     state.cameras = cams; state.status = status;
     Live.renderStats();
     if (first) Live.buildGrid();
@@ -605,7 +645,12 @@ const Evidence = {
 
   async load() {
     const q = "?status=all" + (state.evFilter.date ? "&date=" + state.evFilter.date : "");
-    try { Evidence.all = await api.evidence(q); } catch { Evidence.all = []; }
+    try { Evidence.all = await api.evidence(q); }
+    catch {
+      const body = $("#evBody");
+      if (body) { body.innerHTML = ""; body.appendChild(recoverNode("network", [{ label: "Retry", primary: true, icon: "wifi", onClick: () => Evidence.load() }])); }
+      return;
+    }
     Evidence.renderSide(); Evidence.paint();
     if (Evidence.pendingOpen != null) { const id = Evidence.pendingOpen; Evidence.pendingOpen = null; Evidence.detail(id); }
   },
@@ -708,6 +753,8 @@ const Evidence = {
     paintStar();
     starBtn.onclick = () => { toggleBookmark(id); paintStar(); toast(state.bookmarks.has(id) ? "Bookmarked" : "Bookmark removed", { kind: "ok" }); };
     $("[data-zoom]", node).onclick = () => lightbox(img);
+    const di = $("[data-zoom]", node);
+    di.onerror = () => { const rec = recoverNode("corrupted"); rec.style.gridColumn = ""; di.replaceWith(rec); };
     if (canReview) {
       $("[data-confirm]", node).onclick = async () => { await api.reviewAlert(id, "confirm"); toast("Marked as confirmed incident", { kind: "ok" }); close(); Notify.poll(); Evidence.load(); };
       $("[data-dismiss]", node).onclick = async () => { await api.reviewAlert(id, "dismiss"); toast("Dismissed", { kind: "ok" }); close(); Notify.poll(); Evidence.load(); };
@@ -1091,5 +1138,7 @@ async function boot() {
   await mount();
   Notify.start();               // app-wide detection awareness (bell + toasts)
 }
+// Dev hook — only exposed in mock mode (?mock=1), never in the real app.
+if (MOCK) window.__vigil = { recoverNode, RECOVER, Live, Evidence, Settings, Notify, state };
 boot();
 })();
