@@ -1684,7 +1684,8 @@ def api_me(request: Request):
     if not u:
         return JSONResponse({"error": "unauthorized"}, status_code=401)
     return {"username": u["username"], "role": u["role"],
-            "desktop": os.environ.get("VIGIL_DESKTOP") == "1"}
+            "desktop": os.environ.get("VIGIL_DESKTOP") == "1",
+            "version": VIGIL_VERSION}
 
 
 @app.get("/api/users")
@@ -1705,6 +1706,44 @@ def api_settings(request: Request):
     if err:
         return err
     return current_settings()
+
+
+# ---- Updates --------------------------------------------------------------
+# Bump this on every release (it's what Check for updates compares against).
+VIGIL_VERSION = "1.1.2"
+_UPDATE_REPO = "Param077s/vigil"
+
+
+def _version_tuple(v):
+    nums, cur = [], ""
+    for ch in str(v):
+        if ch.isdigit():
+            cur += ch
+        elif cur:
+            nums.append(int(cur)); cur = ""
+    if cur:
+        nums.append(int(cur))
+    return tuple(nums) or (0,)
+
+
+@app.get("/api/update-check")
+def api_update_check():
+    """Ask GitHub for the latest release and compare to this build. Done
+    server-side so it isn't blocked by the page's Content-Security-Policy."""
+    try:
+        req = urllib.request.Request(
+            "https://api.github.com/repos/%s/releases/latest" % _UPDATE_REPO,
+            headers={"Accept": "application/vnd.github+json", "User-Agent": "Vigil"})
+        with urllib.request.urlopen(req, timeout=10) as r:
+            data = json.loads(r.read().decode())
+    except Exception:
+        return JSONResponse(
+            {"error": "Couldn't reach the update server. Check your connection."},
+            status_code=502)
+    latest = (data.get("tag_name") or "").lstrip("vV")
+    url = data.get("html_url") or "https://github.com/%s/releases/latest" % _UPDATE_REPO
+    return {"current": VIGIL_VERSION, "latest": latest, "url": url,
+            "update_available": bool(latest) and _version_tuple(latest) > _version_tuple(VIGIL_VERSION)}
 
 
 # Serve the redesigned app. html=True makes /app -> web/index.html; hash

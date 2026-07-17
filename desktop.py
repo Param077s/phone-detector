@@ -176,6 +176,15 @@ class _WinControls:
         except Exception:
             pass
 
+    def open_external(self, url):
+        """Open a link (e.g. the update download page) in the real browser."""
+        import webbrowser
+        try:
+            if isinstance(url, str) and url.startswith(("http://", "https://")):
+                webbrowser.open(url)
+        except Exception:
+            pass
+
 
 def main():
     global _win

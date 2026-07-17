@@ -181,7 +181,7 @@ const api = {
 };
 
 const MOCKDATA = {
-  me: { username: "diljot", role: "admin" },
+  me: { username: "diljot", role: "admin", version: "1.1.1" },
   stats: { cameras: 6, alerts_today: 4, pending: 2 },
   cameras: [
     { id: "a1", label: "Main Entrance", location: "Building A · Lobby", source: "rtsp://…", enabled: true },
@@ -225,6 +225,11 @@ const state = {
 };
 function saveBookmarks() { localStorage.setItem("vigil.bookmarks", JSON.stringify([...state.bookmarks])); }
 function toggleBookmark(id) { if (state.bookmarks.has(id)) state.bookmarks.delete(id); else state.bookmarks.add(id); saveBookmarks(); }
+function openExternal(url) {
+  const papi = window.pywebview && window.pywebview.api;   // desktop: real browser
+  if (papi && typeof papi.open_external === "function") papi.open_external(url);
+  else window.open(url, "_blank", "noopener");
+}
 function alertEpoch(a) {           // best-effort timestamp from date + "HH:MM:SS"
   const t = Date.parse(`${a.date}T${(a.time || "00:00:00")}`);
   return isNaN(t) ? 0 : t;
@@ -799,7 +804,8 @@ const Settings = {
     ["general", "General", "info"], ["appearance", "Appearance", "sun"],
     ["ai", "AI Models", "cpu"], ["notifications", "Notifications", "bell"],
     ["cameras", "Cameras", "live"], ["storage", "Storage", "db"],
-    ["privacy", "Privacy", "lock"], ["account", "Account", "users"],
+    ["privacy", "Privacy", "lock"], ["updates", "Updates", "download"],
+    ["account", "Account", "users"],
   ],
   async render(root) {
     root.className = "content content--flush";
@@ -846,6 +852,10 @@ const Settings = {
     else if (Settings.section === "privacy") html = `<div class="settings__group"><h2>Privacy</h2><p>Vigil runs entirely on this device.</p>
       ${Settings.row("On-device processing", "Video never leaves this machine. No cloud, no third parties.", `<span class="badge badge--ok">${icon("check")} On-device</span>`)}
       ${Settings.row("Audit trail", "Every confirm/dismiss records who decided and when.", `<span class="badge badge--ok">Enabled</span>`)}</div>`;
+    else if (Settings.section === "updates") html = `<div class="settings__group"><h2>Updates</h2><p>Keep Vigil up to date.</p>
+      ${Settings.row("Current version", "The version of Vigil running on this device.", `<span class="badge">v${esc(state.me.version||"—")}</span>`)}
+      ${Settings.row("Check for updates", "See if a newer version is available to download.", `<button class="btn" id="checkUpdate">${icon("download")} Check now</button>`)}
+      <div id="updateResult"></div></div>`;
     else if (Settings.section === "account") html = `<div class="settings__group"><h2>Account</h2><p>Your Vigil sign-in.</p>
       ${Settings.row("Signed in as", "", `<span class="strong">${esc(state.me.username)}</span>`)}
       ${Settings.row("Sign out", "End this session on this device.", `<a class="btn" href="/logout">${icon("logout")} Sign out</a>`)}</div>`;
@@ -857,6 +867,29 @@ const Settings = {
     const tp = $("#themePick"); if (tp) tp.onclick = (e) => { const b = e.target.closest("[data-t]"); if (!b) return; setTheme(b.dataset.t); $$("#themePick button").forEach(x => x.classList.toggle("is-active", x === b)); };
     const dp = $("[data-k='_density']"); if (dp) dp.onchange = () => { state.density = dp.value; localStorage.setItem("vigil.density", state.density); toast("Default density updated", { kind: "ok" }); };
     const save = $("#setSave"); if (save) save.onclick = () => Settings.save();
+    const cu = $("#checkUpdate"); if (cu) cu.onclick = () => Settings.checkUpdate(cu);
+  },
+
+  async checkUpdate(btn) {
+    const box = $("#updateResult");
+    btn.disabled = true; btn.innerHTML = "Checking…";
+    box.innerHTML = "";
+    try {
+      let d;
+      if (MOCK) { await new Promise(r => setTimeout(r, 500)); d = { current: "1.1.1", latest: "1.2.0", update_available: true, url: "https://github.com/Param077s/vigil/releases/latest" }; }
+      else { const r = await fetch("/api/update-check"); d = await r.json(); if (!r.ok) throw new Error(d.error || "failed"); }
+      if (d.update_available) {
+        box.innerHTML = `<div class="card" style="margin-top:var(--s4)"><div class="card__body row" style="justify-content:space-between;gap:var(--s4)">
+          <div><div class="strong">Update available — v${esc(d.latest)}</div><div class="muted" style="font-size:var(--fs-sm)">You're on v${esc(d.current)}.</div></div>
+          <button class="btn btn--primary" id="dlUpdate">${icon("download")} Download</button></div></div>`;
+        $("#dlUpdate").onclick = () => openExternal(d.url);
+      } else {
+        box.innerHTML = `<div class="row" style="margin-top:var(--s4);color:var(--ok)">${icon("check")} <span>You're on the latest version (v${esc(d.current)}).</span></div>`;
+      }
+    } catch (e) {
+      box.innerHTML = `<div class="row" style="margin-top:var(--s4);color:var(--danger)">${icon("alert")} <span>${esc(e.message || "Couldn't check for updates.")}</span></div>`;
+    }
+    btn.disabled = false; btn.innerHTML = `${icon("download")} Check now`;
   },
   async save() {
     const form = new FormData();
