@@ -47,6 +47,7 @@ import numpy as np
 from ultralytics import YOLO
 import vlm                                   # optional AI "second look" (Ollama)
 from fastapi import FastAPI, Response, Request, Form, WebSocket, WebSocketDisconnect
+from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool
 from fastapi.responses import (StreamingResponse, HTMLResponse, FileResponse,
                                RedirectResponse, JSONResponse)
@@ -1314,7 +1315,7 @@ app = FastAPI(title="Vigil")
 # Paths reachable without logging in
 _PUBLIC = {"/login", "/setup", "/logout", "/favicon.svg", "/auth/google"}
 # API paths that should return 401 (not redirect) when not authed
-_API_PREFIXES = ("/alerts", "/cameras", "/evidence/list", "/evidence/image", "/snapshot", "/stream", "/camera_status", "/push")
+_API_PREFIXES = ("/alerts", "/cameras", "/evidence/list", "/evidence/image", "/snapshot", "/stream", "/camera_status", "/push", "/api")
 
 
 @app.middleware("http")
@@ -1619,6 +1620,60 @@ def update_alert(alert_id: int, action: str, request: Request):
                   (new_status, user.get("username", ""),
                    datetime.now().strftime("%H:%M:%S"), alert_id))
     return {"ok": True}
+
+
+# ---------------------------------------------------------------------------
+# PREMIUM DESKTOP UI  (additive — the original UI at "/" is untouched)
+#
+# The redesigned interface lives in ./web and is served at /app as static
+# files that call the SAME JSON APIs defined above. No detection/AI code is
+# involved. These three read-only JSON endpoints back the new Users/Settings
+# screens (the old HTML pages remain the source of truth for writes).
+# Auth is enforced by the same middleware; "/api" is in _API_PREFIXES so an
+# unauthenticated call returns 401 JSON (the SPA then bounces to /login).
+# ---------------------------------------------------------------------------
+def _require_admin(request):
+    u = getattr(request.state, "user", None) or current_user(request)
+    if not u:
+        return None, JSONResponse({"error": "unauthorized"}, status_code=401)
+    if u["role"] != "admin":
+        return None, JSONResponse({"error": "admin only"}, status_code=403)
+    return u, None
+
+
+@app.get("/api/me")
+def api_me(request: Request):
+    u = getattr(request.state, "user", None) or current_user(request)
+    if not u:
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    return {"username": u["username"], "role": u["role"]}
+
+
+@app.get("/api/users")
+def api_users(request: Request):
+    _, err = _require_admin(request)
+    if err:
+        return err
+    with _db() as c:
+        rows = c.execute(
+            "SELECT username, role, created_at, auth, email FROM users ORDER BY id"
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+@app.get("/api/settings")
+def api_settings(request: Request):
+    _, err = _require_admin(request)
+    if err:
+        return err
+    return current_settings()
+
+
+# Serve the redesigned app. html=True makes /app -> web/index.html; hash
+# routing keeps every screen under /app/ (no server routes to add per screen).
+_WEB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "web")
+if os.path.isdir(_WEB_DIR):
+    app.mount("/app", StaticFiles(directory=_WEB_DIR, html=True), name="app")
 
 
 # ---- Shared look ----------------------------------------------------------
