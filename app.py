@@ -788,6 +788,8 @@ def verify_google_token(credential):
             claims = json.loads(r.read().decode())
     except Exception:
         return None
+    if claims.get("iss") not in ("accounts.google.com", "https://accounts.google.com"):
+        return None                                        # not actually issued by Google
     if claims.get("aud") != GOOGLE_CLIENT_ID:              # token minted for another app
         return None
     if claims.get("email_verified") not in (True, "true"):
@@ -1365,6 +1367,36 @@ async def auth_gate(request: Request, call_next):
 
     request.state.user = user
     return await call_next(request)
+
+
+# Security response headers on every response. Added after auth_gate, so it is
+# the OUTERMOST middleware and stamps headers even on the auth gate's early
+# returns (redirects, 401s). CSP keeps 'unsafe-inline' because the UI relies on
+# inline styles/handlers, but still blocks arbitrary external script/resource
+# loads; the allow-listed origins are only what Google Sign-In and the landing
+# fonts need.
+_CSP = (
+    "default-src 'self'; "
+    "script-src 'self' 'unsafe-inline' https://accounts.google.com https://apis.google.com; "
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+    "img-src 'self' data: blob:; "
+    "font-src 'self' data: https://fonts.gstatic.com; "
+    "connect-src 'self' https://accounts.google.com https://oauth2.googleapis.com; "
+    "frame-src https://accounts.google.com; "
+    "frame-ancestors 'none'; object-src 'none'; base-uri 'self'; form-action 'self'"
+)
+
+
+@app.middleware("http")
+async def security_headers(request: Request, call_next):
+    resp = await call_next(request)
+    h = resp.headers
+    h.setdefault("X-Frame-Options", "DENY")
+    h.setdefault("X-Content-Type-Options", "nosniff")
+    h.setdefault("Referrer-Policy", "no-referrer")
+    h.setdefault("Permissions-Policy", "camera=(self), microphone=(), geolocation=()")
+    h.setdefault("Content-Security-Policy", _CSP)
+    return resp
 
 
 @app.get("/favicon.svg")
@@ -3885,13 +3917,53 @@ def login_page(request: Request):
     return _auth_page("Login", "Sign in to Vigil", hint, "/login", "Sign in", allow_google=g)
 
 
+# --- Brute-force throttle -------------------------------------------------
+# In-memory per-IP failure counter. Matters most when Vigil is shared over a
+# LAN (--host 0.0.0.0): PBKDF2 already makes each guess expensive; this caps
+# the rate so an attacker on the same WiFi can't grind the login.
+_login_fails = {}                      # ip -> [failure timestamps]
+_login_lock = threading.Lock()
+_LOGIN_WINDOW = 300                    # seconds
+_LOGIN_MAX = 8                         # failures allowed per window per IP
+
+
+def _client_ip(request):
+    fwd = (request.headers.get("x-forwarded-for") or "").split(",")[0].strip()
+    return fwd or (request.client.host if request.client else "?")
+
+
+def _login_throttled(ip):
+    now = time.time()
+    with _login_lock:
+        recent = [t for t in _login_fails.get(ip, []) if now - t < _LOGIN_WINDOW]
+        _login_fails[ip] = recent
+        return len(recent) >= _LOGIN_MAX
+
+
+def _note_login_fail(ip):
+    with _login_lock:
+        _login_fails.setdefault(ip, []).append(time.time())
+
+
+def _clear_login_fails(ip):
+    with _login_lock:
+        _login_fails.pop(ip, None)
+
+
 @app.post("/login")
 def login_submit(request: Request, username: str = Form(...), password: str = Form(...)):
+    ip = _client_ip(request)
+    if _login_throttled(ip):
+        return HTMLResponse(_auth_page("Login", "Sign in to Vigil", "Enter your credentials.",
+                            "/login", "Sign in", "Too many attempts. Wait a few minutes and try again.",
+                            allow_google=_google_ok_for(request)), status_code=429)
     u = verify_user(username, password)
     if not u:
+        _note_login_fail(ip)
         return HTMLResponse(_auth_page("Login", "Sign in to Vigil", "Enter your credentials.",
                             "/login", "Sign in", "Invalid username or password.",
                             allow_google=_google_ok_for(request)), status_code=401)
+    _clear_login_fails(ip)
     resp = RedirectResponse("/", status_code=303)
     resp.set_cookie("vigil_session", _sign(u["username"]), **_COOKIE_KW)
     return resp
