@@ -81,8 +81,9 @@ jobs:
           security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KP" "$KEYCHAIN"
           security list-keychains -d user -s "$KEYCHAIN" login.keychain-db
           rm -f "$RUNNER_TEMP/cert.p12"
-          echo "Signing (hardened runtime)…"
+          echo "Signing (hardened runtime + entitlements)…"
           codesign --force --deep --options runtime --timestamp \
+            --entitlements entitlements.plist \
             --sign "$MACOS_SIGNING_IDENTITY" "dist/Vigil.app"
           codesign --verify --deep --strict --verbose=2 "dist/Vigil.app"
 
