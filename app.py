@@ -278,9 +278,14 @@ TILE_ROWS      = 2      # tiles down   (2x2 = 4 tiles + 1 full-frame pass)
 TILE_OVERLAP   = 0.15   # overlap so a phone on a tile seam isn't cut in half
 TILE_IMGSZ     = 768    # detail per tile
 
-DB_PATH        = "evidence.db"
-EVIDENCE_DIR   = "evidence"
-CAMERAS_CONFIG = "cameras.json"
+# Writable data lives in VIGIL_DATA_DIR when set (used by the packaged desktop
+# app, which can't write inside its own read-only bundle). Defaults to "." so
+# running from source behaves exactly as before.
+_DATA_DIR      = os.environ.get("VIGIL_DATA_DIR", "").strip() or "."
+os.makedirs(_DATA_DIR, exist_ok=True)
+DB_PATH        = os.path.join(_DATA_DIR, "evidence.db")
+EVIDENCE_DIR   = os.path.join(_DATA_DIR, "evidence")
+CAMERAS_CONFIG = os.path.join(_DATA_DIR, "cameras.json")
 
 os.makedirs(EVIDENCE_DIR, exist_ok=True)
 
@@ -685,7 +690,7 @@ init_db()
 # ---------------------------------------------------------------------------
 # ACCOUNTS & LOGIN
 # ---------------------------------------------------------------------------
-SECRET_FILE = "secret.key"
+SECRET_FILE = os.path.join(_DATA_DIR, "secret.key")
 
 
 def _load_secret():
@@ -1671,7 +1676,9 @@ def api_settings(request: Request):
 
 # Serve the redesigned app. html=True makes /app -> web/index.html; hash
 # routing keeps every screen under /app/ (no server routes to add per screen).
-_WEB_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "web")
+# VIGIL_WEB_DIR lets the packaged app point at web/ inside its bundle.
+_WEB_DIR = os.environ.get("VIGIL_WEB_DIR", "").strip() or \
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "web")
 if os.path.isdir(_WEB_DIR):
     app.mount("/app", StaticFiles(directory=_WEB_DIR, html=True), name="app")
 

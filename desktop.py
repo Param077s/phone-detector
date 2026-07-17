@@ -20,8 +20,40 @@ import time
 import socket
 import threading
 
-HERE = os.path.dirname(os.path.abspath(__file__))
-os.chdir(HERE)
+FROZEN = getattr(sys, "frozen", False)
+# Resource dir holds bundled web/, splash and model. In a PyInstaller build
+# that's the unpack dir (sys._MEIPASS); from source it's this folder.
+RES = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
+HERE = RES
+
+
+def _user_data_dir():
+    if sys.platform == "darwin":
+        base = os.path.expanduser("~/Library/Application Support")
+    elif os.name == "nt":
+        base = os.environ.get("APPDATA", os.path.expanduser("~"))
+    else:
+        base = os.environ.get("XDG_DATA_HOME", os.path.expanduser("~/.local/share"))
+    return os.path.join(base, "Vigil")
+
+
+if FROZEN:
+    # A packaged app can't write inside its own read-only bundle, so all
+    # config/evidence goes to a per-user data folder; web/ and the model are
+    # read from the bundle.
+    DATA = _user_data_dir()
+    os.makedirs(DATA, exist_ok=True)
+    os.environ["VIGIL_DATA_DIR"] = DATA
+    os.environ["VIGIL_WEB_DIR"] = os.path.join(RES, "web")
+    for _m in ("yolo11m.pt", "yolo11n.pt"):        # bundled default model, if present
+        _p = os.path.join(RES, _m)
+        if os.path.exists(_p):
+            os.environ.setdefault("MODEL_NAME", _p)
+            break
+    os.chdir(DATA)
+else:
+    os.chdir(os.path.dirname(os.path.abspath(__file__)))
+
 # Makes app.py treat the redesigned /app as home, so every login path
 # (password, Google, first-run setup) lands inside the new UI.
 os.environ["VIGIL_DESKTOP"] = "1"
