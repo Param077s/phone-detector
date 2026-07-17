@@ -473,7 +473,9 @@ const Live = {
       actions.appendChild(btn("edit", "Edit", () => CameraForm.open(c)));
       actions.appendChild(btn("more", "More", (ev) => Live.tileMenu(c, el)));
     }
+    el.tabIndex = 0; el.setAttribute("role", "button"); el.setAttribute("aria-label", `${c.label} — open fullscreen`);
     el.onclick = () => Focus.open(c);
+    el.onkeydown = (e) => { if ((e.key === "Enter" || e.key === " ") && e.target === el) { e.preventDefault(); Focus.open(c); } };
     el.oncontextmenu = (e) => { e.preventDefault(); Live.tileMenu(c, el, e.clientX, e.clientY); };
 
     if (isAdmin()) {
