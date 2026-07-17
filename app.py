@@ -1683,7 +1683,8 @@ def api_me(request: Request):
     u = getattr(request.state, "user", None) or current_user(request)
     if not u:
         return JSONResponse({"error": "unauthorized"}, status_code=401)
-    return {"username": u["username"], "role": u["role"]}
+    return {"username": u["username"], "role": u["role"],
+            "desktop": os.environ.get("VIGIL_DESKTOP") == "1"}
 
 
 @app.get("/api/users")

@@ -987,6 +987,21 @@ function shell() {
   $("#themeBtn").onclick = () => { setTheme(state.theme === "dark" ? "light" : "dark"); $("#themeBtn").innerHTML = icon(state.theme==="dark"?"sun":"moon"); };
   $("#bellBtn").onclick = (e) => { e.stopPropagation(); Notify.openPanel($("#bellBtn")); };
   Notify.paintBell();
+  // Frameless macOS window: draw our own traffic-light controls, wired to the
+  // pywebview bridge. Cmd-Q/W/M remain as a fallback if the bridge is absent.
+  if (document.documentElement.classList.contains("is-frameless")) {
+    $("#winctl")?.remove();
+    const wc = h(`<div class="winctl" id="winctl">
+      <button class="winctl__btn winctl__close" data-wc="close" title="Close"><span>×</span></button>
+      <button class="winctl__btn winctl__min" data-wc="minimize" title="Minimize"><span>–</span></button>
+      <button class="winctl__btn winctl__zoom" data-wc="zoom" title="Zoom"><span>+</span></button></div>`);
+    document.body.appendChild(wc);
+    wc.addEventListener("click", (e) => {
+      const b = e.target.closest("[data-wc]"); if (!b) return;
+      const papi = window.pywebview && window.pywebview.api;
+      if (papi && typeof papi[b.dataset.wc] === "function") papi[b.dataset.wc]();
+    });
+  }
   startClock();
 }
 
@@ -1031,6 +1046,11 @@ function shortcuts(e) {
 async function boot() {
   setTheme(state.theme);
   try { state.me = await api.me(); } catch { /* redirected to /login by api._get */ return; }
+  if (state.me.desktop) {
+    document.documentElement.classList.add("is-desktop");
+    if (/mac/i.test(navigator.platform) || /mac/i.test(navigator.userAgent))
+      document.documentElement.classList.add("is-frameless");
+  }
   try { state.stats = await api.stats(); } catch {}
   shell();
   addEventListener("hashchange", mount);

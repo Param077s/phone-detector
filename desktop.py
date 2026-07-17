@@ -152,14 +152,49 @@ def _boot(window):
         _js(window, "vigilSetup.set(0, null, 'Could not start Vigil: %s')" % msg)
 
 
+_win = None
+
+
+class _WinControls:
+    """Exposed to the page as window.pywebview.api.* so the frameless window's
+    custom traffic-light controls can drive the real OS window."""
+    def minimize(self):
+        try:
+            _win and _win.minimize()
+        except Exception:
+            pass
+
+    def close(self):
+        try:
+            _win and _win.destroy()
+        except Exception:
+            pass
+
+    def zoom(self):
+        try:
+            _win and _win.toggle_fullscreen()
+        except Exception:
+            pass
+
+
 def main():
-    window = webview.create_window(
+    global _win
+    # macOS: frameless + easy_drag = the flush-to-top, no-titlebar native look;
+    # the UI draws its own traffic-light controls (wired to _WinControls), and
+    # Cmd-Q / Cmd-W / Cmd-M still work as a fallback. Windows keeps its standard
+    # (already native) frame — safer, and it still gets all the UI polish.
+    frameless = sys.platform == "darwin"
+    _win = webview.create_window(
         "Vigil",
         url="file://%s" % SPLASH,
         width=1180, height=760, min_size=(920, 600),
         background_color="#0B0D10",
+        frameless=frameless,
+        easy_drag=frameless,
+        resizable=True,
+        js_api=_WinControls(),
     )
-    webview.start(_boot, window)
+    webview.start(_boot, _win)
 
 
 if __name__ == "__main__":
