@@ -1164,10 +1164,32 @@ const Palette = {
   },
 };
 
+/* Keyboard-shortcuts help overlay (press ?). */
+const ShortcutsHelp = {
+  open() {
+    if ($(".sc-help")) return;
+    const mod = /mac/i.test(navigator.platform) ? "⌘" : "Ctrl";
+    const groups = [
+      ["Navigation", [[["1"], "Live Footage"], [["2"], "Evidence"], [["3"], "Users"], [["4"], "Settings"], [[mod, "K"], "Command palette"], [["/"], "Focus search"]]],
+      ["Actions", [[["N"], "Add camera"]]],
+      ["General", [[["Esc"], "Close / dismiss"], [["?"], "This help"]]],
+    ];
+    const node = h(`<div class="modal sc-help" role="dialog" aria-modal="true">
+      <div class="modal__head"><div class="modal__title">Keyboard shortcuts</div><div class="spacer"></div><button class="btn btn--icon btn--ghost" data-x aria-label="Close">${icon("x")}</button></div>
+      <div class="modal__body">${groups.map(([g, items]) => `
+        <div><div class="stat__label" style="margin-bottom:6px">${g}</div>
+        ${items.map(([keys, label]) => `<div class="row" style="justify-content:space-between;padding:5px 0"><span>${esc(label)}</span><span class="row" style="gap:4px">${keys.map(k => `<span class="kbd" style="margin:0">${esc(k)}</span>`).join("")}</span></div>`).join("")}</div>`).join("")}
+      </div></div>`);
+    const close = openModal(node);
+    $("[data-x]", node).onclick = close;
+  },
+};
+
 /* Global keyboard shortcuts */
 function shortcuts(e) {
   if ((e.key === "k" || e.key === "K") && (e.metaKey || e.ctrlKey)) { e.preventDefault(); Palette.open(); return; }
   if (e.target.matches("input, textarea, select")) { if (e.key === "Escape") e.target.blur(); return; }
+  if (e.key === "?") { e.preventDefault(); ShortcutsHelp.open(); return; }
   const map = { "1": "live", "2": "evidence", "3": "users", "4": "settings" };
   if (map[e.key]) { go(map[e.key]); return; }
   if (e.key === "/" ) { const s = $("#camSearch, #evSearch, #uSearch"); if (s) { e.preventDefault(); s.focus(); } }
@@ -1193,6 +1215,6 @@ async function boot() {
   Notify.start();               // app-wide detection awareness (bell + toasts)
 }
 // Dev hook — only exposed in mock mode (?mock=1), never in the real app.
-if (MOCK) window.__vigil = { recoverNode, RECOVER, Live, Evidence, Settings, Notify, Palette, state };
+if (MOCK) window.__vigil = { recoverNode, RECOVER, Live, Evidence, Settings, Notify, Palette, ShortcutsHelp, state };
 boot();
 })();
