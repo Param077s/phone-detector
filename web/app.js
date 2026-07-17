@@ -796,6 +796,11 @@ const Evidence = {
   async bulkReview(action) {
     const ids = [...Evidence.selected].filter(id => { const a = Evidence.all.find(x => x.id === id); return a && a.status === "pending"; });
     if (!ids.length) { toast("No pending events selected", { kind: "info" }); return; }
+    const verb = action === "confirm" ? "Confirm" : "Dismiss";
+    const plural = ids.length > 1 ? "s" : "";
+    if (!await confirmDialog({ title: `${verb} ${ids.length} event${plural}?`,
+        body: `${ids.length} pending event${plural} will be marked as ${action === "confirm" ? "confirmed incidents" : "dismissed"}. Each keeps an audit record of who decided.`,
+        confirmText: verb, danger: action === "confirm" })) return;
     await Promise.all(ids.map(id => api.reviewAlert(id, action)));
     toast(`${ids.length} event${ids.length > 1 ? "s" : ""} ${action === "confirm" ? "confirmed" : "dismissed"}`, { kind: "ok" });
     Evidence.selected.clear(); Notify.poll(); Evidence.load();
