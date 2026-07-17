@@ -625,7 +625,7 @@ const CameraForm = {
    7. EVIDENCE
    ========================================================================= */
 const Evidence = {
-  all: [], pendingOpen: null,
+  all: [], pendingOpen: null, selected: new Set(), _lastSel: null,
   async render(root) {
     root.className = "content content--flush";
     root.innerHTML = `<div class="evidence">
@@ -644,6 +644,7 @@ const Evidence = {
   destroy() {},
 
   async load() {
+    Evidence.selected.clear(); Evidence._lastSel = null;
     const q = "?status=all" + (state.evFilter.date ? "&date=" + state.evFilter.date : "");
     try { Evidence.all = await api.evidence(q); }
     catch {
@@ -689,8 +690,11 @@ const Evidence = {
     const rows = Evidence.filtered();
     const body = $("#evBody");
     if (!rows.length) { body.innerHTML = ""; body.appendChild(Evidence.empty()); return; }
+    body.classList.toggle("has-sel", Evidence.selected.size > 0);
     body.innerHTML = `<div class="ev-grid">${rows.map((a, i) => Evidence.card(a, i)).join("")}</div>`;
-    $$(".ev-card", body).forEach(c => c.onclick = () => Evidence.detail(+c.dataset.id));
+    $$(".ev-card", body).forEach(c => c.onclick = (e) => { if (e.target.closest(".ev-card__check")) return; Evidence.detail(+c.dataset.id); });
+    $$("[data-check]", body).forEach(cb => cb.onclick = (e) => { e.stopPropagation(); Evidence.toggleSelect(+cb.dataset.check, e.shiftKey); });
+    if (Evidence.selected.size) Evidence.renderBulk(body);
   },
 
   card(a, i) {
@@ -698,14 +702,50 @@ const Evidence = {
       : a.status === "confirmed" ? `<span class="badge badge--danger">Confirmed</span>`
       : `<span class="badge">Dismissed</span>`;
     const img = MOCK ? mockFrame("e" + a.id) : (a.image || `/evidence/image/${a.id}`);
-    const star = state.bookmarks.has(a.id) ? `<span class="ev-card__star" style="color:var(--warn);opacity:1">${icon("star")}</span>` : "";
-    return `<div class="ev-card" data-id="${a.id}" style="animation-delay:${Math.min(i*24,300)}ms">
-      <div class="ev-card__thumb"><img loading="lazy" src="${img}" alt=""><div class="ev-card__badge">${badge}</div>${star}</div>
+    const sel = Evidence.selected.has(a.id);
+    const star = state.bookmarks.has(a.id) ? `<span style="margin-left:auto;color:var(--warn)">${icon("star")}</span>` : "";
+    return `<div class="ev-card ${sel ? "is-selected" : ""}" data-id="${a.id}" style="animation-delay:${Math.min(i*24,300)}ms">
+      <div class="ev-card__thumb"><img loading="lazy" src="${img}" alt=""><div class="ev-card__badge">${badge}</div>
+        <label class="ev-card__check"><input type="checkbox" data-check="${a.id}" ${sel ? "checked" : ""} aria-label="Select event"></label></div>
       <div class="ev-card__meta">
-        <div class="ev-card__title">${esc(a.thing || "Phone")} <span class="muted" style="font-weight:400">· ${Math.round((a.confidence||0)*100)}%</span></div>
+        <div class="ev-card__title">${esc(a.thing || "Phone")} <span class="muted" style="font-weight:400">· ${Math.round((a.confidence||0)*100)}%</span>${star}</div>
         <div class="ev-card__sub">${icon("live")} ${esc(a.camera)}</div>
         <div class="ev-card__sub">${icon("clock")} ${relDate(a.date)} · ${fmtTime(a.time)}</div>
       </div></div>`;
+  },
+
+  toggleSelect(id, shift) {
+    const rows = Evidence.filtered().map(a => a.id);
+    if (shift && Evidence._lastSel != null) {
+      const a = rows.indexOf(Evidence._lastSel), b = rows.indexOf(id);
+      if (a > -1 && b > -1) { const lo = Math.min(a, b), hi = Math.max(a, b); for (let k = lo; k <= hi; k++) Evidence.selected.add(rows[k]); }
+    } else if (Evidence.selected.has(id)) { Evidence.selected.delete(id); }
+    else { Evidence.selected.add(id); }
+    Evidence._lastSel = id;
+    Evidence.paint();
+  },
+
+  renderBulk(body) {
+    const n = Evidence.selected.size;
+    const bar = h(`<div class="bulkbar">
+      <span class="strong">${n} selected</span><div class="spacer"></div>
+      <button class="btn btn--danger btn--sm" data-bulk="confirm">${icon("alert")} Confirm</button>
+      <button class="btn btn--sm" data-bulk="dismiss">${icon("x")} Dismiss</button>
+      <button class="btn btn--sm" data-bulk="export">${icon("download")} Export</button>
+      <button class="btn btn--ghost btn--sm" data-bulk="clear">Clear</button></div>`);
+    body.appendChild(bar);
+    $("[data-bulk=confirm]", bar).onclick = () => Evidence.bulkReview("confirm");
+    $("[data-bulk=dismiss]", bar).onclick = () => Evidence.bulkReview("dismiss");
+    $("[data-bulk=export]", bar).onclick = () => { Evidence.exportRows(Evidence.all.filter(a => Evidence.selected.has(a.id))); };
+    $("[data-bulk=clear]", bar).onclick = () => { Evidence.selected.clear(); Evidence.paint(); };
+  },
+
+  async bulkReview(action) {
+    const ids = [...Evidence.selected].filter(id => { const a = Evidence.all.find(x => x.id === id); return a && a.status === "pending"; });
+    if (!ids.length) { toast("No pending events selected", { kind: "info" }); return; }
+    await Promise.all(ids.map(id => api.reviewAlert(id, action)));
+    toast(`${ids.length} event${ids.length > 1 ? "s" : ""} ${action === "confirm" ? "confirmed" : "dismissed"}`, { kind: "ok" });
+    Evidence.selected.clear(); Notify.poll(); Evidence.load();
   },
 
   empty() {
@@ -761,9 +801,10 @@ const Evidence = {
     }
   },
 
-  export() {
-    const rows = Evidence.filtered();
-    if (!rows.length) { toast("Nothing to export", { msg: "No events match the current filters.", kind: "info" }); return; }
+  export() { Evidence.exportRows(Evidence.filtered()); },
+
+  exportRows(rows) {
+    if (!rows.length) { toast("Nothing to export", { msg: "No events selected or matching filters.", kind: "info" }); return; }
     const cols = ["id", "date", "time", "camera", "thing", "confidence", "status", "reviewed_by", "reviewed_at"];
     const csv = [cols.join(",")].concat(rows.map(a => cols.map(k => `"${String(a[k] ?? "").replace(/"/g, '""')}"`).join(","))).join("\n");
     const url = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
