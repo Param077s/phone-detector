@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<title>Vigil</title>
+<style>
+  /* Self-contained (no external files) so it renders instantly inside the
+     native window over file:// — before the server or design system exist. */
+  :root{
+    --bg:#0B0D10; --surface:#111419; --surface-2:#161A20; --border:#21262E;
+    --text:#E8EBEF; --text-2:#A4ADB8; --text-3:#6C7580; --accent:#2FB37D;
+    --font:-apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI",Roboto,sans-serif;
+    --ease:cubic-bezier(.2,.6,.2,1);
+  }
+  *{box-sizing:border-box;margin:0}
+  html,body{height:100%}
+  body{background:var(--bg);color:var(--text);font-family:var(--font);
+    font-size:13px;display:flex;align-items:center;justify-content:center;
+    -webkit-font-smoothing:antialiased;user-select:none;overflow:hidden}
+  .wrap{width:380px;text-align:center;animation:in .5s var(--ease)}
+  @keyframes in{from{opacity:0;transform:translateY(8px)}}
+  .logo{width:46px;height:46px;margin:0 auto 22px;animation:breathe 3s var(--ease) infinite}
+  @keyframes breathe{0%,100%{opacity:.85}50%{opacity:1}}
+  h1{font-size:22px;font-weight:600;letter-spacing:-.02em}
+  .step{color:var(--text-2);margin-top:8px;min-height:20px;font-size:14px}
+  .bar{height:6px;border-radius:99px;background:var(--surface-2);overflow:hidden;margin:26px 0 10px}
+  .fill{height:100%;width:0;background:var(--accent);border-radius:99px;
+    transition:width .4s var(--ease)}
+  .fill.indet{width:38% !important;animation:indet 1.3s var(--ease) infinite}
+  @keyframes indet{0%{transform:translateX(-110%)}100%{transform:translateX(320%)}}
+  .meta{display:flex;justify-content:space-between;color:var(--text-3);font-size:12px}
+  .list{margin-top:34px;display:flex;flex-direction:column;gap:12px;text-align:left}
+  .li{display:flex;align-items:center;gap:12px;color:var(--text-3);
+    transition:color .3s var(--ease)}
+  .li.active{color:var(--text)}
+  .li.done{color:var(--text-2)}
+  .ic{width:18px;height:18px;flex:none;display:flex;align-items:center;justify-content:center}
+  .ic svg{width:18px;height:18px}
+  .ring{width:14px;height:14px;border-radius:50%;border:2px solid var(--surface-2)}
+  .li.active .ring{border-color:var(--accent);border-top-color:transparent;animation:spin .7s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  .check{color:var(--accent)}
+  .foot{margin-top:30px;color:var(--text-3);font-size:12px;display:flex;align-items:center;justify-content:center;gap:7px}
+  .dot{width:6px;height:6px;border-radius:50%;background:var(--accent)}
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <svg class="logo" viewBox="0 0 24 24" fill="none"><rect width="24" height="24" rx="7" fill="#161A20"/><path d="M6 10V7.5A1.5 1.5 0 0 1 7.5 6H10M14 6h2.5A1.5 1.5 0 0 1 18 7.5V10M18 14v2.5a1.5 1.5 0 0 1-1.5 1.5H14M10 18H7.5A1.5 1.5 0 0 1 6 16.5V14" stroke="#6C7580" stroke-width="1.8" stroke-linecap="round"/><circle cx="12" cy="12" r="2.6" fill="#2FB37D"/></svg>
+    <h1>Preparing Vigil</h1>
+    <div class="step" id="step">Starting up…</div>
+    <div class="bar"><div class="fill indet" id="fill"></div></div>
+    <div class="meta"><span id="pct"></span><span id="eta"></span></div>
+    <div class="list" id="list"></div>
+    <div class="foot"><span class="dot"></span> Runs entirely on this device</div>
+  </div>
+<script>
+  const STEPS = [
+    ["Preparing Vigil", "prep"],
+    ["Downloading AI models", "download"],
+    ["Verifying files", "verify"],
+    ["Optimizing performance", "optimize"],
+    ["Finalizing setup", "final"],
+  ];
+  const CHECK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>';
+  const list = document.getElementById("list");
+  list.innerHTML = STEPS.map((s,i)=>`<div class="li" data-i="${i}"><span class="ic"><span class="ring"></span></span><span>${s[0]}</span></div>`).join("");
+
+  // Called from Python via evaluate_js.  index: which step (0-4), pct: 0-100
+  // (or null for indeterminate), label/eta optional overrides.
+  window.vigilSetup = {
+    set(index, pct, label, eta){
+      const lis = [...document.querySelectorAll(".li")];
+      lis.forEach((li,i)=>{
+        li.classList.remove("active","done");
+        const ic = li.querySelector(".ic");
+        if(i<index){ li.classList.add("done"); ic.innerHTML = '<span class="check">'+CHECK+'</span>'; }
+        else if(i===index){ li.classList.add("active"); ic.innerHTML = '<span class="ring"></span>'; }
+        else { ic.innerHTML = '<span class="ring"></span>'; }
+      });
+      document.getElementById("step").textContent = label || (STEPS[index] ? STEPS[index][0] : "");
+      const fill = document.getElementById("fill");
+      if(pct==null){ fill.classList.add("indet"); document.getElementById("pct").textContent=""; }
+      else { fill.classList.remove("indet"); fill.style.width = pct+"%"; document.getElementById("pct").textContent = Math.round(pct)+"%"; }
+      document.getElementById("eta").textContent = eta || "";
+    },
+    done(){
+      [...document.querySelectorAll(".li")].forEach(li=>{ li.classList.remove("active"); li.classList.add("done"); li.querySelector(".ic").innerHTML='<span class="check">'+CHECK+'</span>'; });
+      const fill=document.getElementById("fill"); fill.classList.remove("indet"); fill.style.width="100%";
+      document.getElementById("pct").textContent="100%";
+      document.getElementById("step").textContent="Ready";
+    }
+  };
+  // Demo playback when opened directly in a browser (?demo=1) for design review.
+  if(new URLSearchParams(location.search).has("demo")){
+    let i=0; const seq=[[0,15],[1,55],[2,72],[3,90],[4,100]];
+    (function go(){ if(i>=seq.length){window.vigilSetup.done();return;}
+      window.vigilSetup.set(seq[i][0], seq[i][1], null, "~"+(seq.length-i)*4+"s"); i++; setTimeout(go,900); })();
+  }
+</script>
+</body>
+</html>

@@ -1,0 +1,4 @@
+# Extra dependency for the native desktop shell (desktop.py).
+# Kept separate from requirements.txt so the server/cloud install stays lean.
+# On macOS pywebview uses the built-in WKWebView via pyobjc (installed with it).
+pywebview>=5.0

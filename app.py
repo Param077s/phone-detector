@@ -3016,6 +3016,12 @@ def _admin_nav(user):
 
 @app.get("/", response_class=HTMLResponse)
 def dashboard(request: Request):
+    # In the native desktop app the redesigned UI (/app) is home. Every login
+    # path (password, Google, first-run setup) lands on "/", so redirecting here
+    # sends the desktop window straight into /app. The browser launcher leaves
+    # VIGIL_DESKTOP unset and keeps this classic dashboard as the fallback UI.
+    if os.environ.get("VIGIL_DESKTOP") == "1":
+        return RedirectResponse("/app/")
     user = getattr(request.state, "user", None) or {"username": "", "role": "invigilator"}
     html = (DASHBOARD_HTML
             .replace("__STYLE__", STYLE).replace("__LOGO__", LOGO_MARK)
