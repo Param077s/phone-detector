@@ -242,7 +242,7 @@ const state = {
   recentAlerts: [], selected: new Set(),
   density: localStorage.getItem("vigil.density") || "cozy",
   theme: localStorage.getItem("vigil.theme") || "dark",
-  evFilter: { status: "all", camera: "all", date: "", bookmarked: false },
+  evFilter: { status: "all", camera: "all", date: "", range: "all", bookmarked: false },
   seenAlerts: new Set(),          // alert ids we've already notified about
   alertsSeeded: false,            // don't toast the backlog on first load
   notifications: [],              // recent detections for the bell
@@ -657,13 +657,15 @@ const Evidence = {
     root.innerHTML = `<div class="evidence">
       <aside class="evidence__side" id="evSide"></aside>
       <div class="evidence__main"><div class="toolbar">
-        <div class="search" style="max-width:320px"><span>${icon("search")}</span><input id="evSearch" placeholder="Search evidence…"></div>
+        <div class="search" style="max-width:260px"><span>${icon("search")}</span><input id="evSearch" placeholder="Search evidence…"></div>
+        <div class="segmented" id="evRange">${[["all","All"],["today","Today"],["7d","7 days"],["30d","30 days"]].map(([r,l]) => `<button data-r="${r}" class="${state.evFilter.range===r && !state.evFilter.date?"is-active":""}">${l}</button>`).join("")}</div>
         <div class="spacer"></div>
-        <input type="date" class="input" id="evDate" style="width:150px">
+        <input type="date" class="input" id="evDate" style="width:150px" value="${state.evFilter.date}" aria-label="Filter by date">
         <button class="btn" id="evExport">${icon("download")} Export</button>
       </div><div id="evBody">${skel.evCards(8)}</div></div></div>`;
     $("#evSearch", root).oninput = debounce(() => Evidence.paint(), 120);
-    $("#evDate", root).onchange = (e) => { state.evFilter.date = e.target.value; Evidence.load(); };
+    $("#evRange", root).onclick = (e) => { const b = e.target.closest("[data-r]"); if (!b) return; state.evFilter.range = b.dataset.r; state.evFilter.date = ""; const d = $("#evDate"); if (d) d.value = ""; $$("#evRange button").forEach(x => x.classList.toggle("is-active", x === b)); Evidence.paint(); };
+    $("#evDate", root).onchange = (e) => { state.evFilter.date = e.target.value; if (e.target.value) $$("#evRange button").forEach(x => x.classList.remove("is-active")); else { state.evFilter.range = "all"; const a = $$("#evRange button")[0]; if (a) a.classList.add("is-active"); } Evidence.paint(); };
     $("#evExport", root).onclick = () => Evidence.export();
     await Evidence.load();
   },
@@ -671,8 +673,8 @@ const Evidence = {
 
   async load() {
     Evidence.selected.clear(); Evidence._lastSel = null;
-    const q = "?status=all" + (state.evFilter.date ? "&date=" + state.evFilter.date : "");
-    try { Evidence.all = await api.evidence(q); }
+    // Fetch all recent once; date range/day is filtered client-side (see filtered()).
+    try { Evidence.all = await api.evidence("?status=all"); }
     catch {
       const body = $("#evBody");
       if (body) { body.innerHTML = ""; body.appendChild(recoverNode("network", [{ label: "Retry", primary: true, icon: "wifi", onClick: () => Evidence.load() }])); }
@@ -684,10 +686,19 @@ const Evidence = {
 
   filtered() {
     const f = state.evFilter, q = ($("#evSearch")?.value || "").toLowerCase();
+    const inRange = (a) => {
+      if (f.date) return a.date === f.date;                 // a specific day was picked
+      if (f.range === "all") return true;
+      const days = f.range === "today" ? 0 : f.range === "7d" ? 6 : 29;
+      const cutoff = new Date(); cutoff.setHours(0, 0, 0, 0); cutoff.setDate(cutoff.getDate() - days);
+      const ad = new Date(a.date + "T00:00:00");
+      return !isNaN(ad) && ad >= cutoff;
+    };
     return Evidence.all.filter(a =>
       (f.status === "all" || a.status === f.status) &&
       (f.camera === "all" || a.camera === f.camera) &&
       (!f.bookmarked || state.bookmarks.has(a.id)) &&
+      inRange(a) &&
       (!q || (a.camera + " " + a.thing + " " + (a.description || "")).toLowerCase().includes(q)));
   },
 
