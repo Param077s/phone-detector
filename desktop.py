@@ -195,6 +195,12 @@ def main():
         js_api=_WinControls(),
     )
     webview.start(_boot, _win)
+    # Hard-exit once the window closes. Letting Python/C++ run normal exit
+    # destructors tears down PyTorch's dispatcher while a detection thread may
+    # still be mid-inference on the GPU (Metal/MPS) — that race segfaults on
+    # quit (crash report: RegisterOperators dtor vs mps conv2d). SQLite commits
+    # per-write, so skipping finalizers loses nothing.
+    os._exit(0)
 
 
 if __name__ == "__main__":
