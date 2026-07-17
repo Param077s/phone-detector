@@ -86,6 +86,13 @@ function initials(name) {
   return s.slice(0, 2).toUpperCase();
 }
 
+/* Loading skeletons — shown immediately, replaced when data arrives. */
+const skel = {
+  tiles: (n = 6) => Array.from({ length: n }, () => `<div class="cam skeleton" style="aspect-ratio:16/9;border:none"></div>`).join(""),
+  evCards: (n = 8) => `<div class="ev-grid">${Array.from({ length: n }, () => `<div class="ev-card" style="pointer-events:none"><div class="ev-card__thumb skeleton"></div><div class="ev-card__meta"><div class="skeleton" style="height:14px;width:60%;border-radius:6px"></div><div class="skeleton" style="height:11px;width:40%;margin-top:8px;border-radius:6px"></div></div></div>`).join("")}</div>`,
+  rows: (n = 6) => Array.from({ length: n }, () => `<tr><td colspan="5" style="padding:10px var(--s4)"><div class="skeleton" style="height:34px;border-radius:8px"></div></td></tr>`).join(""),
+};
+
 /* -------------------------------------------------------------------------
    3. Toasts / confirm / menu
    ------------------------------------------------------------------------- */
@@ -310,7 +317,7 @@ const Live = {
       </div>
       <div class="live">
         <div class="live__stats" id="stats"></div>
-        <div class="grid-cams" id="camGrid" data-density="${state.density}"></div>
+        <div class="grid-cams" id="camGrid" data-density="${state.density}">${skel.tiles(6)}</div>
       </div>`;
 
     $("#density", root).onclick = (e) => { const b = e.target.closest("[data-d]"); if (!b) return;
@@ -654,7 +661,7 @@ const Evidence = {
         <div class="spacer"></div>
         <input type="date" class="input" id="evDate" style="width:150px">
         <button class="btn" id="evExport">${icon("download")} Export</button>
-      </div><div id="evBody"></div></div></div>`;
+      </div><div id="evBody">${skel.evCards(8)}</div></div></div>`;
     $("#evSearch", root).oninput = debounce(() => Evidence.paint(), 120);
     $("#evDate", root).onchange = (e) => { state.evFilter.date = e.target.value; Evidence.load(); };
     $("#evExport", root).onclick = () => Evidence.export();
@@ -851,7 +858,7 @@ const Users = {
       </div>
       <div class="card"><table class="table"><thead><tr>
         <th class="sortable" data-k="username">Name</th><th>Role</th><th>Sign-in</th><th class="sortable" data-k="last_login">Last active</th><th></th>
-      </tr></thead><tbody id="uBody"></tbody></table></div></div>`;
+      </tr></thead><tbody id="uBody">${skel.rows(5)}</tbody></table></div></div>`;
     $("#addUser").onclick = () => Users.form();
     $("#uSearch").oninput = debounce(() => Users.paint(), 120);
     $$("[data-k]").forEach(th => th.onclick = () => { const k = th.dataset.k; state && (Users.sort = { key: k, dir: Users.sort.key === k ? -Users.sort.dir : 1 }); Users.paint(); });
