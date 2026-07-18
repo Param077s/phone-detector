@@ -855,6 +855,7 @@ const Evidence = {
     $("[data-zoom]", node).onclick = () => lightbox(img);
     const di = $("[data-zoom]", node);
     di.onerror = () => { const rec = recoverNode("corrupted"); rec.style.gridColumn = ""; di.replaceWith(rec); };
+    if (di.complete && di.naturalWidth === 0) di.onerror();   // already failed before handler attached
     if (canReview) {
       $("[data-confirm]", node).onclick = async () => { await api.reviewAlert(id, "confirm"); toast("Marked as confirmed incident", { kind: "ok" }); close(); Notify.poll(); Evidence.load(); };
       $("[data-dismiss]", node).onclick = async () => { await api.reviewAlert(id, "dismiss"); toast("Dismissed", { kind: "ok" }); close(); Notify.poll(); Evidence.load(); };
