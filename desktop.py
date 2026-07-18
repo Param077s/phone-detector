@@ -131,6 +131,22 @@ def _native_titlebar():
                 w.setStyleMask_(w.styleMask() | AppKit.NSWindowStyleMaskFullSizeContentView)
                 w.setTitlebarAppearsTransparent_(True)
                 w.setTitleVisibility_(AppKit.NSWindowTitleHidden)
+                # pywebview paints the titlebar container an opaque window
+                # color at creation — that solid strip defeats the transparent
+                # titlebar, so clear it.
+                try:
+                    w.contentView().superview().subviews().lastObject() \
+                        .setBackgroundColor_(AppKit.NSColor.clearColor())
+                except Exception:
+                    pass
+                # Make the (web) content view actually occupy the titlebar
+                # area — adding the mask alone doesn't re-lay-out an existing
+                # window's content.
+                try:
+                    cv = w.contentView()
+                    cv.setFrame_(cv.superview().bounds())
+                except Exception:
+                    pass
 
         AppKit.NSOperationQueue.mainQueue().addOperationWithBlock_(apply)
     except Exception:
@@ -170,6 +186,12 @@ def _boot(window):
         time.sleep(0.4)
         # "localhost" (not 127.0.0.1) so Google Sign-In's trusted origin matches.
         window.load_url("http://localhost:%d/app/" % PORT)
+        # Re-apply the inset titlebar: the first pass can run before the
+        # webview becomes the window's content view (splash still loading),
+        # in which case the freshly-installed content view sits below the
+        # titlebar again. Idempotent, so applying twice is harmless.
+        time.sleep(0.6)
+        _native_titlebar()
     except Exception as e:
         _state["error"] = str(e)
         msg = str(e).replace("'", " ")[:140]
