@@ -1729,7 +1729,7 @@ def api_settings(request: Request):
 
 # ---- Updates --------------------------------------------------------------
 # Bump this on every release (it's what Check for updates compares against).
-VIGIL_VERSION = "1.1.4"
+VIGIL_VERSION = "1.1.5"
 _UPDATE_REPO = "Param077s/vigil"
 
 

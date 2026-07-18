@@ -2,6 +2,27 @@
 
 All notable changes to Vigil. Dates are the release date.
 
+## 1.1.5
+- **No more crash on quit** — quitting with ⌘Q ended with a crash report every
+  time; the app now exits cleanly however you close it.
+- **Real macOS window chrome** — genuine native traffic-light buttons (with
+  hover glyphs and system behavior) replacing the web-drawn ones, content
+  running edge-to-edge under a hidden titlebar, and dragging only on the top
+  strip like every other Mac app.
+- **Context menus fixed** — Remove / Edit / Pause camera and the Users row
+  menus did nothing when clicked; they all work now.
+- **Settings actually save** — "Save changes" was silently resetting settings
+  to defaults; values now persist (and are re-read after saving).
+- **Evidence** — the detail drawer's Download button now saves the snapshot,
+  and the Bookmarked filter no longer hides results behind a stale status
+  filter.
+- **Storage** — "Clear dismissed evidence" is now a real action: confirmation,
+  then permanent deletion of dismissed events and their snapshots.
+- **Users** — "Reset password" opens a proper set-password flow.
+- **Pause all** button now flips to "Resume all" so its state is always clear.
+- **Updates land instantly** — the app no longer runs stale cached UI code
+  after an update.
+
 ## 1.1.4
 - **Accurate app version** — the built app now reports its real version in
   Finder / Get Info (previous builds always said 1.0.0). The bundle version is
