@@ -1664,6 +1664,20 @@ def update_alert(alert_id: int, action: str, request: Request):
     return {"ok": True}
 
 
+@app.post("/evidence/clear_dismissed")
+def evidence_clear_dismissed(request: Request):
+    """Permanently delete every dismissed event (row + snapshot). Admin only —
+    invigilators can dismiss, but only admins can destroy the record."""
+    _, err = _require_admin(request)
+    if err:
+        return err
+    with _db() as c:
+        ids = [r["id"] for r in c.execute("SELECT id FROM alerts WHERE status = 'dismissed'").fetchall()]
+    for aid in ids:
+        _delete_alert(aid)
+    return {"ok": True, "deleted": len(ids)}
+
+
 # ---------------------------------------------------------------------------
 # PREMIUM DESKTOP UI  (additive — the original UI at "/" is untouched)
 #
@@ -4094,6 +4108,24 @@ def users_add(username: str = Form(...), password: str = Form(""), role: str = F
 def users_delete(username: str = Form(...)):
     delete_user(username)
     return RedirectResponse("/users", status_code=303)
+
+
+@app.post("/users/reset_password")
+def users_reset_password(username: str = Form(...), password: str = Form(...)):
+    # /users writes are admin-gated in auth_gate; validate like create_user.
+    if len(password) < 6:
+        return JSONResponse({"error": "Password must be at least 6 characters."}, status_code=400)
+    with _db() as c:
+        row = c.execute("SELECT pw_hash FROM users WHERE username = ?", (username,)).fetchone()
+        if not row:
+            return JSONResponse({"error": "No such user."}, status_code=404)
+        if not row["pw_hash"]:
+            return JSONResponse({"error": "This person signs in with Google — there is no password to reset."},
+                                status_code=400)
+        salt = secrets.token_hex(16)
+        c.execute("UPDATE users SET pw_hash = ?, salt = ? WHERE username = ?",
+                  (_hash_pw(password, salt), salt, username))
+    return {"ok": True}
 
 
 # ---- Settings (admin only; gated in the middleware) -----------------------

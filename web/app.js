@@ -370,6 +370,12 @@ const Live = {
     const online = state.cameras.filter(c => state.status[c.id] === "online").length;
     const s = state.stats;
     $("#onlineCount").textContent = `${online}/${state.cameras.length} online`;
+    // Keep the pause-all button honest: it toggles, so its label must too.
+    const pa = $("#pauseAll");
+    if (pa) {
+      const anyOn = state.cameras.some(c => c.enabled !== false);
+      pa.innerHTML = `${icon(anyOn ? "pause" : "play")} ${anyOn ? "Pause all" : "Resume all"}`;
+    }
     $("#stats").innerHTML = [
       ["Cameras online", `${online}<small> / ${state.cameras.length}</small>`, "live"],
       ["Detections today", s.alerts_today, "alert"],
@@ -732,7 +738,9 @@ const Evidence = {
         ${cams.map(c => `<div class="filter-item ${f.camera===c?"is-active":""}" data-cam="${esc(c)}">${esc(c)}<span class="count">${Evidence.all.filter(a=>a.camera===c).length}</span></div>`).join("")}
       </div>`;
     $$("[data-status]").forEach(n => n.onclick = () => { state.evFilter.status = n.dataset.status; state.evFilter.bookmarked = false; Evidence.renderSide(); Evidence.paint(); });
-    $("[data-bm]").onclick = () => { state.evFilter.bookmarked = !state.evFilter.bookmarked; Evidence.renderSide(); Evidence.paint(); };
+    $("[data-bm]").onclick = () => { state.evFilter.bookmarked = !state.evFilter.bookmarked;
+      if (state.evFilter.bookmarked) state.evFilter.status = "all";   // show ALL bookmarks, not just the last status filter
+      Evidence.renderSide(); Evidence.paint(); };
     $$("[data-cam]").forEach(n => n.onclick = () => { state.evFilter.camera = n.dataset.cam; Evidence.renderSide(); Evidence.paint(); });
   },
 
@@ -843,7 +851,7 @@ const Evidence = {
         ${canReview ? `<button class="btn btn--danger" data-confirm style="flex:1">${icon("alert")} Confirm incident</button>
         <button class="btn" data-dismiss style="flex:1">${icon("x")} Dismiss</button>` :
         `<button class="btn" data-x style="flex:1">Close</button>`}
-        <button class="btn btn--icon" title="Download">${icon("download")}</button>
+        <button class="btn btn--icon" data-dl title="Download snapshot">${icon("download")}</button>
       </div></div>`);
     const close = openModal(node);
     $$("[data-x]", node).forEach(b => b.onclick = close);
@@ -852,6 +860,11 @@ const Evidence = {
     paintStar();
     starBtn.onclick = () => { toggleBookmark(id); paintStar(); toast(state.bookmarks.has(id) ? "Bookmarked" : "Bookmark removed", { kind: "ok" }); };
     $("[data-zoom]", node).onclick = () => lightbox(img);
+    $("[data-dl]", node).onclick = () => {
+      const link = document.createElement("a");
+      link.href = img; link.download = `vigil-evidence-${a.id}.jpg`;
+      document.body.appendChild(link); link.click(); link.remove();
+    };
     const di = $("[data-zoom]", node);
     di.onerror = () => { const rec = recoverNode("corrupted"); rec.style.gridColumn = ""; di.replaceWith(rec); };
     if (di.complete && di.naturalWidth === 0) di.onerror();   // already failed before handler attached
@@ -916,7 +929,7 @@ const Users = {
     </tr>`).join("");
     $$("[data-more]").forEach(b => b.onclick = (e) => { const u = Users.list.find(x => x.username === b.dataset.more); const r = b.getBoundingClientRect();
       contextMenu(r.right - 180, r.bottom + 4, [
-        { label: "Reset password", icon: "lock", onClick: () => toast("Send a reset from Settings → Account") },
+        { label: "Reset password", icon: "lock", onClick: () => Users.resetPassword(u) },
         { sep: true },
         { label: "Remove user", icon: "trash", danger: true, onClick: () => Users.remove(u) },
       ]); });
@@ -934,6 +947,26 @@ const Users = {
       const f = new FormData(); $$("[data-f]", node).forEach(i => f.append(i.dataset.f, i.value));
       if (!f.get("username").trim()) { toast("Username is required", { kind: "danger" }); return; }
       try { await api.addUser(f); toast("User added", { kind: "ok" }); close(); Users.render($("#view")); } catch { toast("Could not add user", { kind: "danger" }); }
+    };
+  },
+  resetPassword(u) {
+    if (u.auth === "google") { toast("This person signs in with Google — there is no password to reset.", { kind: "info" }); return; }
+    const node = h(`<div class="modal"><div class="modal__head"><div class="modal__title">Reset password</div><div class="spacer"></div><button class="btn btn--icon btn--ghost" data-x>${icon("x")}</button></div>
+      <div class="modal__body">
+        <p class="muted" style="margin:0 0 var(--s4)">Set a new password for <b>${esc(u.username)}</b>. They'll use it the next time they sign in.</p>
+        <div class="field"><label class="label">New password</label><input class="input" type="password" data-f="password" placeholder="At least 6 characters"></div>
+      </div><div class="modal__foot"><button class="btn" data-x>Cancel</button><button class="btn btn--primary" data-save>Set password</button></div></div>`);
+    const close = openModal(node); $$("[data-x]", node).forEach(b => b.onclick = close);
+    const pw = $("[data-f=password]", node); pw.focus();
+    $("[data-save]", node).onclick = async () => {
+      if (pw.value.length < 6) { toast("Password must be at least 6 characters", { kind: "danger" }); return; }
+      const f = new FormData(); f.append("username", u.username); f.append("password", pw.value);
+      try {
+        const r = await fetch("/users/reset_password", { method: "POST", body: f });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(d.error || "failed");
+        toast("Password updated", { kind: "ok" }); close();
+      } catch (e) { toast(e.message === "failed" ? "Could not reset password" : e.message, { kind: "danger" }); }
     };
   },
   async remove(u) {
@@ -996,7 +1029,7 @@ const Settings = {
       ${Settings.row("Manage cameras", "Add, edit, and arrange cameras from Live Footage.", `<a class="btn" href="#/live">Go to Live Footage</a>`)}</div>`;
     else if (Settings.section === "storage") html = `<div class="settings__group"><h2>Storage</h2><p>Where evidence lives on this machine.</p>
       ${Settings.row("Evidence location", "Snapshots and the database are stored locally on this device.", `<span class="badge">Local disk</span>`)}
-      ${Settings.row("Clear dismissed evidence", "Permanently delete events you've dismissed.", `<button class="btn btn--danger">Clear…</button>`)}</div>`;
+      ${Settings.row("Clear dismissed evidence", "Permanently delete events you've dismissed.", `<button class="btn btn--danger" id="clearDismissed">Clear…</button>`)}</div>`;
     else if (Settings.section === "privacy") html = `<div class="settings__group"><h2>Privacy</h2><p>Vigil runs entirely on this device.</p>
       ${Settings.row("On-device processing", "Video never leaves this machine. No cloud, no third parties.", `<span class="badge badge--ok">${icon("check")} On-device</span>`)}
       ${Settings.row("Audit trail", "Every confirm/dismiss records who decided and when.", `<span class="badge badge--ok">Enabled</span>`)}</div>`;
@@ -1016,6 +1049,17 @@ const Settings = {
     const dp = $("[data-k='_density']"); if (dp) dp.onchange = () => { state.density = dp.value; localStorage.setItem("vigil.density", state.density); toast("Default density updated", { kind: "ok" }); };
     const save = $("#setSave"); if (save) save.onclick = () => Settings.save();
     const cu = $("#checkUpdate"); if (cu) cu.onclick = () => Settings.checkUpdate(cu);
+    const cd = $("#clearDismissed"); if (cd) cd.onclick = async () => {
+      if (!await confirmDialog({ title: "Clear dismissed evidence?",
+          body: "All dismissed events and their snapshots will be permanently deleted. Confirmed evidence is kept.",
+          confirmText: "Clear dismissed", danger: true })) return;
+      try {
+        const r = await fetch("/evidence/clear_dismissed", { method: "POST" });
+        const d = await r.json();
+        if (!r.ok) throw new Error(d.error);
+        toast("Dismissed evidence cleared", { msg: `${d.deleted} event${d.deleted === 1 ? "" : "s"} removed`, kind: "ok" });
+      } catch { toast("Could not clear evidence", { kind: "danger" }); }
+    };
   },
 
   async checkUpdate(btn) {
@@ -1040,13 +1084,24 @@ const Settings = {
     btn.disabled = false; btn.innerHTML = `${icon("download")} Check now`;
   },
   async save() {
+    // The backend's form fields are lowercase (alert_cooldown, model_name, …)
+    // and booleans are presence-only — an unchecked box must send NOTHING.
+    // Sending the UPPERCASE keys we read from /api/settings made FastAPI fall
+    // back to each parameter's default, silently resetting settings on every save.
     const form = new FormData();
-    // start from current so we don't blank other fields the backend expects
-    Object.entries(Settings.data).forEach(([k, v]) => form.append(k, typeof v === "boolean" ? (v ? "on" : "") : v));
+    const put = (k, v) => {
+      const key = k.toLowerCase();
+      if (typeof v === "boolean") { if (v) form.set(key, "on"); else form.delete(key); return; }
+      form.set(key, v);
+    };
+    Object.entries(Settings.data).forEach(([k, v]) => put(k, v));   // don't blank unshown fields
     $$("[data-k]").forEach(el => { const k = el.dataset.k; if (k.startsWith("_")) return;
-      let v = el.type === "checkbox" ? (el.checked ? "on" : "") : el.value;
-      form.set(k, v); });
-    try { await api.saveSettings(form); toast("Settings saved", { kind: "ok" }); }
+      put(k, el.type === "checkbox" ? el.checked : el.value); });
+    try {
+      await api.saveSettings(form);
+      try { Settings.data = await api.settings(); } catch {}
+      toast("Settings saved", { kind: "ok" });
+    }
     catch { toast("Could not save settings", { kind: "danger" }); }
   },
 };
