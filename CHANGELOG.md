@@ -2,6 +2,12 @@
 
 All notable changes to Vigil. Dates are the release date.
 
+## 1.1.4
+- **Accurate app version** — the built app now reports its real version in
+  Finder / Get Info (previous builds always said 1.0.0). The bundle version is
+  read from the app itself at build time, so "Check for updates" and the
+  installed app can never disagree.
+
 ## 1.1.3
 - **Error-recovery states** — calm, actionable panels for offline / no-engine /
   storage-full / model-not-ready / camera-permission-blocked / corrupted-file.
