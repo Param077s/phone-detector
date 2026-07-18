@@ -2,6 +2,20 @@
 
 All notable changes to Vigil. Dates are the release date.
 
+## 1.1.3
+- **Error-recovery states** — calm, actionable panels for offline / no-engine /
+  storage-full / model-not-ready / camera-permission-blocked / corrupted-file.
+- **Command palette** (⌘K / Ctrl-K) for quick navigation and actions, with a
+  discoverability chip in the top bar.
+- **Keyboard-shortcuts overlay** (press `?`) and a keyboard-navigable sidebar,
+  skip-to-content link, and focus trapping in dialogs.
+- **Evidence** — multi-select with bulk confirm / dismiss / export (and a
+  confirmation step), a date-range filter (All / Today / 7 days / 30 days), and
+  clickable detection toasts that jump straight to the event.
+- **Cameras** — source-type + status details in fullscreen and the right-click
+  menu; tiles are keyboard-openable.
+- **Loading skeletons** across the main screens.
+
 ## 1.1.2
 - **Check for updates** — Settings → Updates shows your current version and checks
   GitHub for a newer release, with a one-click link to the download.
@@ -27,14 +41,3 @@ All notable changes to Vigil. Dates are the release date.
 - Redesigned **Live Footage, Evidence, Users, Settings** on a new design system,
   with app-wide notifications, drag-to-reorder cameras, evidence zoom / bookmark
   / CSV export, and a first-run setup screen.
-
----
-
-_Unreleased (branch `autonomy/overnight`) — pending review:_
-- Beautiful error-recovery states (offline, no engine, storage full, model not
-  ready, camera permission blocked, corrupted file).
-- Command palette (⌘K / Ctrl-K) for quick navigation and actions.
-- Keyboard-shortcuts help overlay (press `?`).
-- Evidence multi-select with bulk confirm / dismiss / export.
-- Accessibility pass (focus trapping, aria-live, keyboard-navigable sidebar).
-- Loading skeletons across the main screens.
