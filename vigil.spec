@@ -9,8 +9,22 @@
 # Built on macOS  -> dist/Vigil.app
 # Built on Windows -> dist/Vigil/Vigil.exe  (folder)
 import os
+import re
 import sys
 from PyInstaller.utils.hooks import collect_all
+
+# One source of truth for the app version: VIGIL_VERSION in app.py (the same
+# value /api/version and "Check for updates" report). VIGIL_VERSION env var
+# still wins if set, as a release-script escape hatch.
+def _vigil_version():
+    try:
+        src = open(os.path.join(SPECPATH, "app.py"), encoding="utf-8").read()
+        m = re.search(r'^VIGIL_VERSION\s*=\s*"([^"]+)"', src, re.M)
+        return m.group(1) if m else "0.0.0"
+    except OSError:
+        return "0.0.0"
+
+VERSION = os.environ.get("VIGIL_VERSION") or _vigil_version()
 
 datas = [("web", "web")]
 binaries = []
@@ -69,7 +83,8 @@ if sys.platform == "darwin":
         info_plist={
             "NSHighResolutionCapable": True,
             "LSMinimumSystemVersion": "11.0",
-            "CFBundleShortVersionString": os.environ.get("VIGIL_VERSION", "1.0.0"),
+            "CFBundleShortVersionString": VERSION,
+            "CFBundleVersion": VERSION,
             "NSCameraUsageDescription": "Vigil detects phones in your camera feeds, on-device.",
         },
     )
