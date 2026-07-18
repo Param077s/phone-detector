@@ -186,6 +186,37 @@ class _WinControls:
             pass
 
 
+def _install_quit_hook():
+    """Make Cmd-Q (and Dock ▸ Quit) hard-exit like window-close does.
+
+    Quitting goes -[NSApplication terminate:] -> C exit(), which never returns
+    through webview.start(), so the os._exit() after it is skipped and C++
+    static destructors (torch / MPSGraph) tear down while detection threads are
+    still mid-inference — SIGABRT on every quit. Answering the terminate
+    request with an immediate hard exit skips that doomed teardown; SQLite
+    commits per-write, so nothing is lost."""
+    if sys.platform != "darwin":
+        return
+    try:
+        from webview.platforms.cocoa import BrowserView
+
+        def applicationShouldTerminate_(self, app):
+            os._exit(0)
+
+        BrowserView.AppDelegate.applicationShouldTerminate_ = applicationShouldTerminate_
+    except Exception:
+        pass
+    # Backstop if pywebview's internals ever change: exit() runs atexit
+    # handlers newest-first before dylib destructors, so hard-exit there too.
+    try:
+        import ctypes
+        global _ATEXIT_CB
+        _ATEXIT_CB = ctypes.CFUNCTYPE(None)(lambda: os._exit(0))
+        ctypes.CDLL(None).atexit(_ATEXIT_CB)
+    except Exception:
+        pass
+
+
 def main():
     global _win
     # macOS: frameless + easy_drag = the flush-to-top, no-titlebar native look;
@@ -203,6 +234,7 @@ def main():
         resizable=True,
         js_api=_WinControls(),
     )
+    _install_quit_hook()
     webview.start(_boot, _win)
     # Hard-exit once the window closes. Letting Python/C++ run normal exit
     # destructors tears down PyTorch's dispatcher while a detection thread may
