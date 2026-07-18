@@ -114,9 +114,33 @@ def _model_present():
         return True
 
 
+def _native_titlebar():
+    """The 'hidden titlebar' look real Mac apps use (Linear/Arc/Slack): REAL
+    traffic lights with native hover glyphs and behavior, content running to
+    the top edge, and dragging only on the titlebar strip. Replaces the old
+    frameless window whose web-drawn buttons and drag-from-anywhere felt fake."""
+    if sys.platform != "darwin":
+        return
+    try:
+        import AppKit
+        from webview.platforms.cocoa import BrowserView
+
+        def apply():
+            for i in BrowserView.instances.values():
+                w = i.window
+                w.setStyleMask_(w.styleMask() | AppKit.NSWindowStyleMaskFullSizeContentView)
+                w.setTitlebarAppearsTransparent_(True)
+                w.setTitleVisibility_(AppKit.NSWindowTitleHidden)
+
+        AppKit.NSOperationQueue.mainQueue().addOperationWithBlock_(apply)
+    except Exception:
+        pass
+
+
 def _boot(window):
     """Runs once the splash is on screen (pywebview calls this after the GUI
     loop starts). Loads the engine, starts the server, then opens the app."""
+    _native_titlebar()
     time.sleep(0.35)  # let the splash DOM settle before we script it
     try:
         _js(window, "vigilSetup.set(0, null, 'Preparing Vigil…')")
@@ -219,18 +243,13 @@ def _install_quit_hook():
 
 def main():
     global _win
-    # macOS: frameless + easy_drag = the flush-to-top, no-titlebar native look;
-    # the UI draws its own traffic-light controls (wired to _WinControls), and
-    # Cmd-Q / Cmd-W / Cmd-M still work as a fallback. Windows keeps its standard
-    # (already native) frame — safer, and it still gets all the UI polish.
-    frameless = sys.platform == "darwin"
+    # Standard native window everywhere; on macOS _native_titlebar() then hides
+    # the titlebar into the content (real traffic lights, titlebar-strip drag).
     _win = webview.create_window(
         "Vigil",
         url="file://%s" % SPLASH,
         width=1180, height=760, min_size=(920, 600),
         background_color="#0B0D10",
-        frameless=frameless,
-        easy_drag=frameless,
         resizable=True,
         js_api=_WinControls(),
     )

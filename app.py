@@ -1396,6 +1396,11 @@ async def security_headers(request: Request, call_next):
     h.setdefault("Referrer-Policy", "no-referrer")
     h.setdefault("Permissions-Policy", "camera=(self), microphone=(), geolocation=()")
     h.setdefault("Content-Security-Policy", _CSP)
+    # The UI must never run stale JS after an update — WebKit's HTTP cache
+    # otherwise keeps old app.js alive across app upgrades ("buttons don't
+    # work"). no-cache = revalidate every load; instant on loopback.
+    if request.url.path.startswith("/app"):
+        h["Cache-Control"] = "no-cache"
     return resp
 
 

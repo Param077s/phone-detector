@@ -559,25 +559,7 @@ svg[viewBox="0 0 24 24"] { width: 16px; height: 16px; flex: none; }
 /* Icon buttons in the topbar get a gentle spring on hover-in */
 .toggle__track::after { transition: transform var(--t) var(--spring), background var(--t) var(--ease); }
 
-/* Frameless macOS window (app.js adds .is-frameless): reserve the traffic-light
-   zone and make the top of the window draggable so it feels like one native
-   surface. Degrades to nothing in a browser or on the standard Windows frame. */
-:root.is-frameless .nav__brand { padding-top: 30px; }
-:root.is-frameless .topbar { -webkit-app-region: drag; }
-:root.is-frameless .topbar button, :root.is-frameless .topbar .search { -webkit-app-region: no-drag; }
-
-/* Custom traffic-light window controls (macOS frameless). */
-.winctl {
-  position: fixed; top: 13px; left: 14px; z-index: 200;
-  display: flex; gap: 8px; -webkit-app-region: no-drag;
-}
-.winctl__btn {
-  width: 12px; height: 12px; border-radius: 50%; border: none; padding: 0;
-  cursor: pointer; display: flex; align-items: center; justify-content: center;
-  font-size: 9px; line-height: 1; color: rgba(0,0,0,0.55);
-}
-.winctl__btn span { opacity: 0; transition: opacity var(--t-fast) var(--ease); }
-.winctl:hover .winctl__btn span { opacity: 1; }
-.winctl__close { background: #FF5F57; }
-.winctl__min   { background: #FEBC2E; }
-.winctl__zoom  { background: #28C840; }
+/* macOS inset native titlebar (app.js adds .is-inset): the OS draws the real
+   traffic lights over our top-left corner, so give the brand room to clear
+   them. Degrades to nothing in a browser or on the standard Windows frame. */
+:root.is-inset .nav__brand { padding-top: 30px; }

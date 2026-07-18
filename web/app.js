@@ -167,6 +167,7 @@ function openModal(node) {
 
 function contextMenu(x, y, items) {
   $$(".menu").forEach(m => m.remove());
+  items.forEach((it, i) => it._i = i);
   const menu = h(`<div class="menu" role="menu">${items.map(it =>
     it.sep ? `<div class="menu__sep"></div>` :
     it.label && it.header ? `<div class="menu__label">${esc(it.label)}</div>` :
@@ -178,9 +179,7 @@ function contextMenu(x, y, items) {
   menu.style.top = Math.min(y, innerHeight - r.height - 8) + "px";
   const close = () => { menu.remove(); document.removeEventListener("click", close); document.removeEventListener("keydown", onKey); };
   const onKey = (e) => { if (e.key === "Escape") close(); };
-  items.forEach((it, i) => { if (it.onClick) { const n = $(`[data-i="${i}"]`, menu); if (n) n.onclick = () => { close(); it.onClick(); }; } });
-  items.forEach((it, i) => it._i = i);
-  $$("[data-i]", menu).forEach(n => { const it = items[+n.dataset.i]; if (it.onClick) n.onclick = () => { close(); it.onClick(); }; });
+  $$("[data-i]", menu).forEach(n => { const it = items[+n.dataset.i]; if (it && it.onClick) n.onclick = () => { close(); it.onClick(); }; });
   setTimeout(() => document.addEventListener("click", close), 0);
   document.addEventListener("keydown", onKey);
   addEventListener("hashchange", close, { once: true });
@@ -1175,21 +1174,9 @@ function shell() {
   $("#bellBtn").onclick = (e) => { e.stopPropagation(); Notify.openPanel($("#bellBtn")); };
   $("#cmdkBtn").onclick = () => Palette.open();
   Notify.paintBell();
-  // Frameless macOS window: draw our own traffic-light controls, wired to the
-  // pywebview bridge. Cmd-Q/W/M remain as a fallback if the bridge is absent.
-  if (document.documentElement.classList.contains("is-frameless")) {
-    $("#winctl")?.remove();
-    const wc = h(`<div class="winctl" id="winctl">
-      <button class="winctl__btn winctl__close" data-wc="close" title="Close"><span>×</span></button>
-      <button class="winctl__btn winctl__min" data-wc="minimize" title="Minimize"><span>–</span></button>
-      <button class="winctl__btn winctl__zoom" data-wc="zoom" title="Zoom"><span>+</span></button></div>`);
-    document.body.appendChild(wc);
-    wc.addEventListener("click", (e) => {
-      const b = e.target.closest("[data-wc]"); if (!b) return;
-      const papi = window.pywebview && window.pywebview.api;
-      if (papi && typeof papi[b.dataset.wc] === "function") papi[b.dataset.wc]();
-    });
-  }
+  // macOS desktop uses the native inset titlebar (real traffic lights drawn by
+  // the OS over our content) — nothing to render here; .is-inset only pads the
+  // brand so it clears the window buttons.
   startClock();
 }
 
@@ -1314,7 +1301,7 @@ async function boot() {
   if (state.me.desktop) {
     document.documentElement.classList.add("is-desktop");
     if (/mac/i.test(navigator.platform) || /mac/i.test(navigator.userAgent))
-      document.documentElement.classList.add("is-frameless");
+      document.documentElement.classList.add("is-inset");
   }
   try { state.stats = await api.stats(); } catch {}
   shell();
