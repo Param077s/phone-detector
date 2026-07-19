@@ -2,6 +2,12 @@
 
 All notable changes to Vigil. Dates are the release date.
 
+## 1.1.6
+- **Native Windows titlebar** — the titlebar now merges with the app on
+  Windows: always-dark caption painted the app's own color (no more white
+  strip on light-mode PCs), Mica backdrop on Windows 11, and the real
+  minimize/maximize/close buttons with snap layouts kept intact.
+
 ## 1.1.5
 - **No more crash on quit** — quitting with ⌘Q ended with a crash report every
   time; the app now exits cleanly however you close it.
