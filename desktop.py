@@ -153,10 +153,52 @@ def _native_titlebar():
         pass
 
 
+def _native_titlebar_windows():
+    """The Windows half of the native-chrome treatment: keep the REAL frame
+    (min/max/close, snap layouts, titlebar drag) but merge the titlebar with
+    the app — forced dark immersive titlebar, caption painted the app's own
+    background, Mica backdrop. pywebview only follows the SYSTEM theme, which
+    leaves a white titlebar over our dark UI on light-mode Windows."""
+    if os.name != "nt":
+        return
+    try:
+        import webview.platforms.winforms as wf
+
+        BG = 0x00100D0B      # app background #0B0D10 as COLORREF (0x00BBGGRR)
+        TX = 0x00EDEAE8      # caption text #E8EAED
+
+        def apply(hwnd):
+            for attr, val in ((19, 1), (20, 1),   # immersive dark mode (legacy + current id)
+                              (38, 2),            # Mica backdrop      (Win11 22H2+)
+                              (35, BG),           # caption color      (Win11+)
+                              (36, TX),           # caption text color (Win11+)
+                              (34, BG)):          # border color       (Win11+)
+                try:
+                    wf.DwmSetWindowAttribute(hwnd, attr, val)
+                except Exception:
+                    pass  # older Windows: attribute not supported — fine
+
+        # pywebview re-themes the caption whenever the SYSTEM theme changes;
+        # pin it to the app's look instead.
+        try:
+            wf.BrowserView.BrowserForm.update_title_bar_theme = \
+                lambda self: apply(self.Handle.ToInt32())
+        except Exception:
+            pass
+        for i in wf.BrowserView.instances.values():
+            try:
+                apply(i.Handle.ToInt32())
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+
 def _boot(window):
     """Runs once the splash is on screen (pywebview calls this after the GUI
     loop starts). Loads the engine, starts the server, then opens the app."""
     _native_titlebar()
+    _native_titlebar_windows()
     time.sleep(0.35)  # let the splash DOM settle before we script it
     try:
         _js(window, "vigilSetup.set(0, null, 'Preparing Vigil…')")
