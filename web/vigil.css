@@ -563,3 +563,42 @@ svg[viewBox="0 0 24 24"] { width: 16px; height: 16px; flex: none; }
    traffic lights over our top-left corner, so give the brand room to clear
    them. Degrades to nothing in a browser or on the standard Windows frame. */
 :root.is-inset .nav__brand { padding-top: 30px; }
+
+/* ==========================================================================
+   DESKTOP SIDEBAR  —  resizable, collapsible, remembered (app.js)
+   ========================================================================== */
+.nav { position: relative; min-width: 0; overflow: hidden; }
+.nav__resize {
+  position: absolute; top: 0; right: -3px; width: 7px; height: 100%;
+  cursor: col-resize; z-index: 5;
+}
+.nav__resize:hover, :root.is-navdrag .nav__resize { background:
+  linear-gradient(to right, transparent 2px, var(--accent-line) 3px, transparent 5px); }
+
+/* Collapse: animate the grid track itself (WebKit interpolates same-shape
+   track lists); nav content clips cleanly while the column shrinks. */
+.app { transition: grid-template-columns var(--t-slow) var(--ease-in-out); }
+.nav { transition: padding var(--t-slow) var(--ease-in-out), border-right-width var(--t-slow) var(--ease-in-out); }
+.topbar { transition: padding-left var(--t-slow) var(--ease-in-out); }
+:root.is-navdrag .app { transition: none; }         /* live drag = 1:1, no lag */
+:root.is-navhidden .app { grid-template-columns: 0 1fr; }
+:root.is-navhidden .nav { padding-left: 0; padding-right: 0; border-right-width: 0; }
+:root.is-navhidden .nav__resize { display: none; }
+/* Sidebar hidden on the Mac inset titlebar: the traffic lights now sit over
+   the topbar, so push its first control clear of them. */
+:root.is-inset.is-navhidden .topbar { padding-left: 84px; }
+
+/* ==========================================================================
+   VIBRANCY  —  the shell (desktop.py) confirms the native NSVisualEffectView
+   underlay is live by adding .has-vibrancy; only then does the sidebar go
+   translucent. In a browser this class never appears and nothing changes.
+   ========================================================================== */
+:root.has-vibrancy, :root.has-vibrancy body { background: transparent; }
+:root.has-vibrancy .nav {
+  background: color-mix(in srgb, var(--bg) 55%, transparent);
+  border-right-color: color-mix(in srgb, var(--border) 70%, transparent);
+}
+:root.has-vibrancy .topbar, :root.has-vibrancy .content { background: var(--bg); }
+:root.has-vibrancy .topbar { background: var(--surface); }
+:root.has-vibrancy .nav__item:hover { background: color-mix(in srgb, var(--surface-2) 72%, transparent); }
+:root.has-vibrancy .nav__item.is-active { background: color-mix(in srgb, var(--surface-3) 80%, transparent); }

@@ -75,7 +75,28 @@ def _free_port():
     return port
 
 
-PORT = _free_port()
+def _stable_port():
+    """A per-user port that stays the SAME across launches. The web origin
+    (localhost:PORT) scopes localStorage — with a random port every run, the
+    UI's remembered theme/sidebar/last-page silently reset each launch."""
+    cfg = os.path.join(os.getcwd(), ".vigil-port")
+    try:
+        port = int(open(cfg).read().strip())
+        if 1024 < port < 65536:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                if s.connect_ex(("127.0.0.1", port)) != 0:   # free → reuse it
+                    return port
+    except Exception:
+        pass
+    port = _free_port()
+    try:
+        open(cfg, "w").write(str(port))
+    except Exception:
+        pass
+    return port
+
+
+PORT = _stable_port()
 SPLASH = os.path.join(HERE, "web", "splash.html")
 _state = {"error": None}
 
@@ -194,11 +215,26 @@ def _native_titlebar_windows():
         pass
 
 
+def _dispatch_js(cmd):
+    """Forward a native menu command into the page (web/app.js: vigilMenu)."""
+    try:
+        _win and _win.evaluate_js("window.vigilMenu && window.vigilMenu(%r)" % str(cmd))
+    except Exception:
+        pass
+
+
 def _boot(window):
     """Runs once the splash is on screen (pywebview calls this after the GUI
     loop starts). Loads the engine, starts the server, then opens the app."""
     _native_titlebar()
     _native_titlebar_windows()
+    if sys.platform == "darwin":
+        # Menu bar, window-frame memory, About panel, Dock reopen, vibrancy.
+        try:
+            import mac_native
+            mac_native.install(window, _dispatch_js)
+        except Exception:
+            pass
     time.sleep(0.35)  # let the splash DOM settle before we script it
     try:
         _js(window, "vigilSetup.set(0, null, 'Preparing Vigil…')")
@@ -317,8 +353,29 @@ def main():
         resizable=True,
         js_api=_WinControls(),
     )
+
+    def _on_loaded(*_a):
+        """Every page load: tell the UI when the native vibrancy underlay is
+        live so it can make the sidebar translucent (web/vigil.css)."""
+        if sys.platform != "darwin":
+            return
+        try:
+            import mac_native
+            if mac_native.VIBRANT:
+                _win.evaluate_js(
+                    "document.documentElement.classList.add('has-vibrancy')")
+        except Exception:
+            pass
+
+    try:
+        _win.events.loaded += _on_loaded
+    except Exception:
+        pass
     _install_quit_hook()
-    webview.start(_boot, _win)
+    # private_mode=False: pywebview's default private mode clears cookies and
+    # localStorage on EVERY launch — that would sign the user out and forget
+    # window/sidebar/theme preferences each time the app opens.
+    webview.start(_boot, _win, private_mode=False)
     # Hard-exit once the window closes. Letting Python/C++ run normal exit
     # destructors tears down PyTorch's dispatcher while a detection thread may
     # still be mid-inference on the GPU (Metal/MPS) — that race segfaults on

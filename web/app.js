@@ -55,6 +55,7 @@ const P = {
   zap:      'M13 2 3 14h9l-1 8 10-12h-9l1-8z',
   info:     'M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM12 16v-4M12 8h.01',
   lock:     'M5 11h14a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-6a2 2 0 0 1 2-2zM7 11V7a5 5 0 0 1 10 0v4',
+  sidebar:  'M4 4h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2zM9.5 4v16',
 };
 const icon = (name, cls = "") =>
   `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"${cls?` class="${cls}"`:""}>${
@@ -250,7 +251,9 @@ const state = {
   cameras: [], status: {}, stats: { cameras: 0, alerts_today: 0, pending: 0 },
   recentAlerts: [], selected: new Set(),
   density: localStorage.getItem("vigil.density") || "cozy",
-  theme: localStorage.getItem("vigil.theme") || "dark",
+  theme: localStorage.getItem("vigil.theme") || "dark",   // "auto" | "dark" | "light"
+  navW: Math.min(320, Math.max(184, +localStorage.getItem("vigil.navW") || 232)),
+  navHidden: localStorage.getItem("vigil.navHidden") === "1",
   evFilter: { status: "all", camera: "all", date: "", range: "all", bookmarked: false },
   seenAlerts: new Set(),          // alert ids we've already notified about
   alertsSeeded: false,            // don't toast the backlog on first load
@@ -701,6 +704,7 @@ const Evidence = {
     }
     Evidence.renderSide(); Evidence.paint();
     if (Evidence.pendingOpen != null) { const id = Evidence.pendingOpen; Evidence.pendingOpen = null; Evidence.detail(id); }
+    if (Evidence.pendingExport) { Evidence.pendingExport = false; Evidence.export(); }
   },
 
   filtered() {
@@ -1014,8 +1018,8 @@ const Settings = {
       ${Settings.row("Alert cooldown", "Seconds to wait before the same camera can alert again.", num("ALERT_COOLDOWN", d.ALERT_COOLDOWN))}
       ${Settings.row("Confirmations before alert", "Consecutive detections required — higher means fewer false alarms.", num("REQUIRED_HITS", d.REQUIRED_HITS))}</div>`;
     else if (Settings.section === "appearance") html = `<div class="settings__group"><h2>Appearance</h2><p>How Vigil looks on this device.</p>
-      ${Settings.row("Theme", "Dark is easiest on the eyes for long monitoring shifts.", `<div class="segmented" id="themePick">
-        <button data-t="dark" class="${state.theme==="dark"?"is-active":""}">Dark</button><button data-t="light" class="${state.theme==="light"?"is-active":""}">Light</button></div>`)}
+      ${Settings.row("Appearance", "Auto follows your system's light/dark setting live. Dark is easiest on the eyes for long shifts.", `<div class="segmented" id="themePick">
+        <button data-t="auto" class="${state.theme==="auto"?"is-active":""}">Auto</button><button data-t="dark" class="${state.theme==="dark"?"is-active":""}">Dark</button><button data-t="light" class="${state.theme==="light"?"is-active":""}">Light</button></div>`)}
       ${Settings.row("Default grid density", "How many cameras fill the Live Footage wall by default.", sel("_density", [["comfortable","Large"],["cozy","Medium"],["compact","Small"],["dense","Wall"]], state.density))}</div>`;
     else if (Settings.section === "ai") html = `<div class="settings__group"><h2>AI Models</h2><p>The detection engine. Defaults are tuned — change only if you know the trade-offs.</p>
       ${Settings.row("Detection model", "Larger models are more accurate but need more power.", sel("MODEL_NAME", [["yolo11n.pt","Fast (nano)"],["yolo11m.pt","Balanced (medium)"],["yolo11x.pt","Accurate (xlarge)"]], d.MODEL_NAME))}
@@ -1194,6 +1198,7 @@ function shell() {
   $("#app").innerHTML = `
     <a href="#view" class="skip-link" id="skipLink">Skip to content</a>
     <aside class="nav" role="navigation" aria-label="Primary">
+      <div class="nav__resize" id="navResize" title="Drag to resize · double-click to reset"></div>
       <div class="nav__brand">${LOGO}<span class="nav__brand-name">Vigil</span></div>
       <div class="nav__section">Monitor</div>
       ${nav("live","live","Live Footage")}
@@ -1208,11 +1213,12 @@ function shell() {
       </div>
     </aside>
     <header class="topbar">
+      <button class="btn btn--icon btn--ghost btn--sm" id="navToggle" title="Toggle sidebar (⌥⌘S)" aria-label="Toggle sidebar">${icon("sidebar")}</button>
       <div><div class="topbar__title" id="tbTitle"></div></div>
       <div class="topbar__spacer"></div>
       <button class="btn btn--ghost btn--sm" id="cmdkBtn" title="Command palette" aria-label="Open command palette">${icon("search")}<span class="kbd" style="margin:0 0 0 4px">${/mac/i.test(navigator.platform) ? "⌘K" : "Ctrl K"}</span></button>
       <button class="btn btn--icon btn--ghost btn--sm bell" id="bellBtn" title="Notifications" aria-label="Notifications">${icon("bell")}<span class="bell__count hidden" id="bellCount">0</span></button>
-      <button class="btn btn--icon btn--ghost btn--sm" id="themeBtn" title="Toggle theme" aria-label="Toggle light or dark theme">${icon(state.theme==="dark"?"sun":"moon")}</button>
+      <button class="btn btn--icon btn--ghost btn--sm" id="themeBtn" title="Toggle theme" aria-label="Toggle light or dark theme">${icon(document.documentElement.dataset.theme==="dark"?"sun":"moon")}</button>
       <span class="topbar__clock tnum" id="clock"></span>
     </header>
     <main class="content" id="view" tabindex="-1"></main>`;
@@ -1225,9 +1231,16 @@ function shell() {
       { sep: true },
       { label: "Sign out", icon: "logout", onClick: () => location.href = "/logout" },
     ]); };
-  $("#themeBtn").onclick = () => { setTheme(state.theme === "dark" ? "light" : "dark"); $("#themeBtn").innerHTML = icon(state.theme==="dark"?"sun":"moon"); };
+  $("#themeBtn").onclick = () => {
+    const cur = document.documentElement.dataset.theme;      // resolved (auto → actual)
+    setTheme(cur === "dark" ? "light" : "dark");
+    $("#themeBtn").innerHTML = icon(document.documentElement.dataset.theme === "dark" ? "sun" : "moon");
+  };
   $("#bellBtn").onclick = (e) => { e.stopPropagation(); Notify.openPanel($("#bellBtn")); };
   $("#cmdkBtn").onclick = () => Palette.open();
+  $("#navToggle").onclick = toggleSidebar;
+  navResizer($("#navResize"));
+  applyNav();
   Notify.paintBell();
   // macOS desktop uses the native inset titlebar (real traffic lights drawn by
   // the OS over our content) — nothing to render here; .is-inset only pads the
@@ -1240,6 +1253,7 @@ function go(route) { location.hash = "#/" + route; }
 async function mount() {
   const route = (location.hash.replace(/^#\/?/, "") || "live").split("?")[0];
   state.route = ROUTES[route] ? route : "live";
+  localStorage.setItem("vigil.route", state.route);   // reopen where you left off
   // tear down anything transient left over from the previous view
   $$(".menu").forEach(m => m.remove());
   $("#overlays").innerHTML = "";
@@ -1254,7 +1268,54 @@ async function mount() {
   await r.view.render(view);
 }
 
-function setTheme(t) { state.theme = t; document.documentElement.dataset.theme = t; localStorage.setItem("vigil.theme", t); }
+/* "auto" follows the OS live (macOS appearance changes apply instantly). */
+const sysDark = matchMedia("(prefers-color-scheme: dark)");
+function setTheme(t) {
+  state.theme = t; localStorage.setItem("vigil.theme", t);
+  document.documentElement.dataset.theme =
+    t === "auto" ? (sysDark.matches ? "dark" : "light") : t;
+}
+sysDark.addEventListener("change", () => { if (state.theme === "auto") setTheme("auto"); });
+
+/* ---- Desktop sidebar: persisted width, drag-resize, collapse ---- */
+function applyNav() {
+  const root = document.documentElement;
+  root.style.setProperty("--nav-w", state.navW + "px");
+  root.classList.toggle("is-navhidden", state.navHidden);
+  const tb = $("#navToggle");
+  if (tb) tb.setAttribute("aria-label", state.navHidden ? "Show sidebar" : "Hide sidebar");
+}
+function toggleSidebar() {
+  state.navHidden = !state.navHidden;
+  localStorage.setItem("vigil.navHidden", state.navHidden ? "1" : "0");
+  applyNav();
+}
+function navResizer(handle) {
+  let startX = 0, startW = 0;
+  handle.onmousedown = (e) => {
+    e.preventDefault(); startX = e.clientX; startW = state.navW;
+    document.body.style.cursor = "col-resize";
+    document.documentElement.classList.add("is-navdrag");   // suspend width transition
+    const move = (ev) => {
+      state.navW = Math.min(320, Math.max(184, startW + ev.clientX - startX));
+      document.documentElement.style.setProperty("--nav-w", state.navW + "px");
+    };
+    const up = () => {
+      removeEventListener("mousemove", move); removeEventListener("mouseup", up);
+      document.body.style.cursor = "";
+      document.documentElement.classList.remove("is-navdrag");
+      localStorage.setItem("vigil.navW", state.navW);
+    };
+    addEventListener("mousemove", move); addEventListener("mouseup", up);
+  };
+  handle.ondblclick = () => { state.navW = 232; localStorage.setItem("vigil.navW", 232); applyNav(); };
+}
+
+function focusSearch() {
+  const s = $("#camSearch, #evSearch, #uSearch");
+  if (s) s.focus(); else Palette.open();
+}
+function refreshView() { mount(); }
 
 function startClock() {
   const tick = () => { const c = $("#clock"); if (c) c.textContent = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }); };
@@ -1319,10 +1380,11 @@ const Palette = {
 const ShortcutsHelp = {
   open() {
     if ($(".sc-help")) return;
-    const mod = /mac/i.test(navigator.platform) ? "⌘" : "Ctrl";
+    const mac = /mac/i.test(navigator.platform);
+    const mod = mac ? "⌘" : "Ctrl", alt = mac ? "⌥" : "Alt";
     const groups = [
-      ["Navigation", [[["1"], "Live Footage"], [["2"], "Evidence"], [["3"], "Users"], [["4"], "Settings"], [[mod, "K"], "Command palette"], [["/"], "Focus search"]]],
-      ["Actions", [[["N"], "Add camera"]]],
+      ["Navigation", [[[mod, "1"], "Live Footage"], [[mod, "2"], "Evidence"], [[mod, "3"], "Users"], [[mod, "4"], "Settings"], [[mod, "K"], "Command palette"], [[mod, "F"], "Find"], [["/"], "Focus search"]]],
+      ["Actions", [[[mod, "N"], "Add camera"], [["⇧", mod, "E"], "Export evidence"], [[mod, "R"], "Refresh view"], [[alt, mod, "S"], "Toggle sidebar"], [[mod, ","], "Settings"]]],
       ["General", [[["Esc"], "Close / dismiss"], [["?"], "This help"]]],
     ];
     const node = h(`<div class="modal sc-help" role="dialog" aria-modal="true">
@@ -1336,9 +1398,47 @@ const ShortcutsHelp = {
   },
 };
 
+/* -------------------------------------------------------------------------
+   Native menu bridge — the macOS menu bar (mac_native.py) calls
+   window.vigilMenu('<cmd>'); browser keyboard shortcuts route here too, so
+   menus, keys and buttons all share one set of actions.
+   ------------------------------------------------------------------------- */
+window.vigilMenu = (cmd) => {
+  if (cmd.startsWith("goto:")) return go(cmd.slice(5));
+  switch (cmd) {
+    case "settings":       return go("settings");
+    case "new-camera":
+      if (!isAdmin()) return;
+      if (state.route !== "live") go("live");
+      return void setTimeout(() => CameraForm.open(), state.route === "live" ? 0 : 80);
+    case "export":
+      if (state.route === "evidence") return Evidence.export();
+      Evidence.pendingExport = true; return go("evidence");
+    case "search":         return focusSearch();
+    case "refresh":        return refreshView();
+    case "toggle-sidebar": return toggleSidebar();
+    case "shortcuts":      return ShortcutsHelp.open();
+    case "palette":        return Palette.open();
+  }
+};
+
 /* Global keyboard shortcuts */
 function shortcuts(e) {
-  if ((e.key === "k" || e.key === "K") && (e.metaKey || e.ctrlKey)) { e.preventDefault(); Palette.open(); return; }
+  const mod = e.metaKey || e.ctrlKey;
+  if ((e.key === "k" || e.key === "K") && mod) { e.preventDefault(); Palette.open(); return; }
+  // Desktop-grade ⌘ shortcuts. In the packaged Mac app most of these arrive
+  // via the native menu bar instead; this path covers the browser (and any
+  // key the menu doesn't own).
+  if (mod && e.altKey && e.code === "KeyS") { e.preventDefault(); toggleSidebar(); return; }
+  if (mod && !e.altKey) {
+    const nav = { "1": "live", "2": "evidence", "3": "users", "4": "settings", ",": "settings" };
+    if (nav[e.key] && !e.shiftKey) { e.preventDefault(); go(nav[e.key]); return; }
+    if ((e.key === "f" || e.key === "F") && !e.shiftKey) { e.preventDefault(); focusSearch(); return; }
+    if ((e.key === "r" || e.key === "R") && !e.shiftKey) { e.preventDefault(); refreshView(); return; }
+    if ((e.key === "n" || e.key === "N") && !e.shiftKey) { e.preventDefault(); window.vigilMenu("new-camera"); return; }
+    if ((e.key === "e" || e.key === "E") && e.shiftKey) { e.preventDefault(); window.vigilMenu("export"); return; }
+    return;
+  }
   if (e.target.matches("input, textarea, select")) { if (e.key === "Escape") e.target.blur(); return; }
   if (e.key === "?") { e.preventDefault(); ShortcutsHelp.open(); return; }
   const map = { "1": "live", "2": "evidence", "3": "users", "4": "settings" };
@@ -1359,6 +1459,11 @@ async function boot() {
       document.documentElement.classList.add("is-inset");
   }
   try { state.stats = await api.stats(); } catch {}
+  // Open on the page you last used (only when no explicit route was asked for).
+  if (!location.hash) {
+    const last = localStorage.getItem("vigil.route");
+    if (last && ROUTES[last]) history.replaceState(null, "", "#/" + last);
+  }
   shell();
   addEventListener("hashchange", mount);
   document.addEventListener("keydown", shortcuts);

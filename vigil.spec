@@ -28,7 +28,7 @@ VERSION = os.environ.get("VIGIL_VERSION") or _vigil_version()
 
 datas = [("web", "web")]
 binaries = []
-hiddenimports = ["app"]
+hiddenimports = ["app", "mac_native"] if sys.platform == "darwin" else ["app"]
 
 # Ship a default model inside the bundle so the first launch works offline.
 for _m in ("yolo11m.pt", "yolo11n.pt"):
