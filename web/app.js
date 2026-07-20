@@ -64,6 +64,41 @@ const icon = (name, cls = "") =>
 
 const LOGO = `<svg viewBox="0 0 24 24" fill="none"><rect width="24" height="24" rx="7" fill="var(--surface-3)"/><path d="M6 10V7.5A1.5 1.5 0 0 1 7.5 6H10M14 6h2.5A1.5 1.5 0 0 1 18 7.5V10M18 14v2.5a1.5 1.5 0 0 1-1.5 1.5H14M10 18H7.5A1.5 1.5 0 0 1 6 16.5V14" stroke="var(--text-3)" stroke-width="1.8" stroke-linecap="round"/><circle cx="12" cy="12" r="2.6" fill="var(--accent)"/></svg>`;
 
+/* Empty-state illustrations — small drawn scenes, never a bare rectangle. */
+const ILLO = {
+  cameras: `<svg class="empty__art" viewBox="0 0 132 96" fill="none">
+    <defs><radialGradient id="ilc-g" cx="50%" cy="40%" r="60%">
+      <stop offset="0%" stop-color="var(--accent)" stop-opacity=".16"/>
+      <stop offset="100%" stop-color="var(--accent)" stop-opacity="0"/></radialGradient></defs>
+    <ellipse cx="66" cy="50" rx="62" ry="40" fill="url(#ilc-g)"/>
+    <rect x="34" y="28" width="52" height="36" rx="9" fill="var(--surface-2)" stroke="var(--border-strong)"/>
+    <circle cx="60" cy="46" r="11" fill="var(--surface-inset)" stroke="var(--border-strong)"/>
+    <circle cx="60" cy="46" r="4.5" fill="var(--accent)"/>
+    <circle cx="78" cy="37" r="2.2" fill="var(--danger)" opacity=".8"/>
+    <path d="M92 40c6 2 6 10 0 12M99 36c10 4 10 16 0 20" stroke="var(--accent)" stroke-opacity=".5" stroke-width="2" stroke-linecap="round"/>
+    <rect x="46" y="68" width="28" height="4" rx="2" fill="var(--surface-3)"/>
+  </svg>`,
+  clear: `<svg class="empty__art" viewBox="0 0 132 96" fill="none">
+    <defs><radialGradient id="ilk-g" cx="50%" cy="40%" r="60%">
+      <stop offset="0%" stop-color="var(--accent)" stop-opacity=".14"/>
+      <stop offset="100%" stop-color="var(--accent)" stop-opacity="0"/></radialGradient></defs>
+    <ellipse cx="66" cy="50" rx="62" ry="40" fill="url(#ilk-g)"/>
+    <path d="M66 22l26 10v16c0 15-11 24-26 28-15-4-26-13-26-28V32l26-10z" fill="var(--surface-2)" stroke="var(--border-strong)"/>
+    <path d="M55 48l8 8 15-16" stroke="var(--accent)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+  </svg>`,
+  search: `<svg class="empty__art" viewBox="0 0 132 96" fill="none">
+    <defs><radialGradient id="ils-g" cx="50%" cy="40%" r="60%">
+      <stop offset="0%" stop-color="var(--info)" stop-opacity=".12"/>
+      <stop offset="100%" stop-color="var(--info)" stop-opacity="0"/></radialGradient></defs>
+    <ellipse cx="66" cy="50" rx="62" ry="40" fill="url(#ils-g)"/>
+    <rect x="30" y="30" width="30" height="20" rx="5" fill="var(--surface-2)" stroke="var(--border-strong)"/>
+    <rect x="66" y="30" width="30" height="20" rx="5" fill="var(--surface-2)" stroke="var(--border-strong)" opacity=".55"/>
+    <rect x="48" y="56" width="30" height="20" rx="5" fill="var(--surface-2)" stroke="var(--border-strong)" opacity=".35"/>
+    <circle cx="88" cy="60" r="12" fill="var(--surface)" stroke="var(--text-3)" stroke-width="2.4"/>
+    <path d="M97 69l8 8" stroke="var(--text-3)" stroke-width="2.4" stroke-linecap="round"/>
+  </svg>`,
+};
+
 /* -------------------------------------------------------------------------
    2. Small DOM + utility helpers
    ------------------------------------------------------------------------- */
@@ -252,8 +287,10 @@ const state = {
   recentAlerts: [], selected: new Set(),
   density: localStorage.getItem("vigil.density") || "cozy",
   theme: localStorage.getItem("vigil.theme") || "dark",   // "auto" | "dark" | "light"
-  navW: Math.min(320, Math.max(184, +localStorage.getItem("vigil.navW") || 232)),
-  navHidden: localStorage.getItem("vigil.navHidden") === "1",
+  navW: Math.min(320, Math.max(200, +localStorage.getItem("vigil.navW") || 248)),
+  // Collapsed = icon rail (a dock, not a disappearance). Old "hidden" pref
+  // from earlier builds migrates to the rail.
+  navRail: (localStorage.getItem("vigil.navRail") ?? localStorage.getItem("vigil.navHidden")) === "1",
   evFilter: { status: "all", camera: "all", date: "", range: "all", bookmarked: false },
   seenAlerts: new Set(),          // alert ids we've already notified about
   alertsSeeded: false,            // don't toast the backlog on first load
@@ -323,12 +360,11 @@ const Live = {
         <div class="search" style="max-width:280px"><span>${icon("search")}</span>
           <input id="camSearch" placeholder="Search cameras…" autocomplete="off"></div>
         <div class="spacer"></div>
-        <span id="onlineCount" class="muted"></span>
         ${isAdmin() ? `<button class="btn" id="pauseAll">${icon("pause")} Pause all</button>
         <button class="btn btn--primary" id="addCam">${icon("plus")} Add camera</button>` : ""}
       </div>
       <div class="live">
-        <div class="live__stats" id="stats"></div>
+        <div class="ribbon" id="stats"></div>
         <div class="grid-cams" id="camGrid" data-density="${state.density}">${skel.tiles(6)}</div>
       </div>`;
 
@@ -371,20 +407,24 @@ const Live = {
 
   renderStats() {
     const online = state.cameras.filter(c => state.status[c.id] === "online").length;
+    const total = state.cameras.length;
     const s = state.stats;
-    $("#onlineCount").textContent = `${online}/${state.cameras.length} online`;
     // Keep the pause-all button honest: it toggles, so its label must too.
     const pa = $("#pauseAll");
     if (pa) {
       const anyOn = state.cameras.some(c => c.enabled !== false);
       pa.innerHTML = `${icon(anyOn ? "pause" : "play")} ${anyOn ? "Pause all" : "Resume all"}`;
     }
-    $("#stats").innerHTML = [
-      ["Cameras online", `${online}<small> / ${state.cameras.length}</small>`, "live"],
-      ["Detections today", s.alerts_today, "alert"],
-      ["Pending review", s.pending, "clock"],
-      ["AI engine", `Active`, "cpu"],
-    ].map(([label, val, ic]) => `<div class="stat"><div class="stat__label">${icon(ic)} ${label}</div><div class="stat__value">${val}</div></div>`).join("");
+    // One quiet status line — the cameras are the page, numbers just support.
+    $("#stats").innerHTML = `
+      <span class="ribbon__item"><span class="dot ${online ? "dot--live" : total ? "dot--danger" : ""}"></span>
+        <span id="onlineCount"><strong>${online}</strong>&nbsp;of ${total} live</span></span>
+      <span class="ribbon__sep"></span>
+      <span class="ribbon__item">${icon("alert")} <strong>${s.alerts_today ?? 0}</strong>&nbsp;detections today</span>
+      <span class="ribbon__sep"></span>
+      <span class="ribbon__item ${s.pending ? "is-attention" : ""}">${icon("clock")} <strong>${s.pending ?? 0}</strong>&nbsp;awaiting review</span>
+      <span class="ribbon__sep"></span>
+      <span class="ribbon__item">${icon("shield")} AI watching</span>`;
   },
 
   buildGrid() {
@@ -451,7 +491,7 @@ const Live = {
   empty() {
     const admin = isAdmin();
     const e = h(`<div class="empty" style="grid-column:1/-1">
-      <div class="empty__icon">${icon("live")}</div>
+      ${ILLO.cameras}
       <div class="empty__title">No cameras yet</div>
       <div class="empty__text">Live Footage shows every camera Vigil is watching, with AI detection running on each feed. ${admin ? "Add your first camera to start monitoring." : "Ask an admin to add cameras."}</div>
       ${admin ? `<button class="btn btn--primary" style="margin-top:8px">${icon("plus")} Add camera</button>` : ""}</div>`);
@@ -543,7 +583,7 @@ const Live = {
       $(".cam__name", el).textContent = c.label;
     });
     Live.syncBadges();
-    $("#onlineCount").textContent = `${state.cameras.filter(c => state.status[c.id]==="online").length}/${state.cameras.length} online`;
+    // (online count in the ribbon is repainted by renderStats each refresh)
   },
 
   filter(q) {
@@ -829,7 +869,7 @@ const Evidence = {
     const f = state.evFilter;
     const filtered = f.status !== "all" || f.camera !== "all" || state.evFilter.date;
     return h(`<div class="empty">
-      <div class="empty__icon">${icon("evidence")}</div>
+      ${filtered ? ILLO.search : ILLO.clear}
       <div class="empty__title">${filtered ? "No matching evidence" : "No evidence yet"}</div>
       <div class="empty__text">${filtered
         ? "No events match these filters. Try widening the status, camera, or date filters."
@@ -907,8 +947,8 @@ const Users = {
     root.className = "content";
     if (!isAdmin()) { root.innerHTML = `<div class="content__inner">${noAccess()}</div>`; return; }
     root.innerHTML = `<div class="users-wrap">
-      <div class="row" style="margin-bottom:var(--s5)">
-        <div><h1 style="font-size:var(--fs-xl);font-weight:600">Users</h1><div class="muted">People who can access Vigil and review evidence.</div></div>
+      <div class="page-head">
+        <div><h1>Users</h1><div class="muted">People who can access Vigil and review evidence.</div></div>
         <div class="spacer"></div>
         <div class="search" style="max-width:260px"><span>${icon("search")}</span><input id="uSearch" placeholder="Search people…"></div>
         <button class="btn btn--primary" id="addUser">${icon("plus")} Add user</button>
@@ -1200,7 +1240,7 @@ const ROUTES = {
 let current = null;
 
 function shell() {
-  const nav = (id, ic, label, badge) => `<div class="nav__item ${state.route===id?"is-active":""}" data-route="${id}" role="link" tabindex="0" ${state.route===id?'aria-current="page"':""}>${icon(ic)}<span>${label}</span>${badge?`<span class="nav__badge" id="navBadge">${badge}</span>`:""}</div>`;
+  const nav = (id, ic, label, badge) => `<div class="nav__item ${state.route===id?"is-active":""}" data-route="${id}" role="link" tabindex="0" title="${label}" ${state.route===id?'aria-current="page"':""}>${icon(ic)}<span>${label}</span>${badge?`<span class="nav__badge" id="navBadge">${badge}</span>`:""}</div>`;
   $("#app").innerHTML = `
     <a href="#view" class="skip-link" id="skipLink">Skip to content</a>
     <aside class="nav" role="navigation" aria-label="Primary">
@@ -1222,7 +1262,7 @@ function shell() {
       <button class="btn btn--icon btn--ghost btn--sm" id="navToggle" title="Toggle sidebar (⌥⌘S)" aria-label="Toggle sidebar">${icon("sidebar")}</button>
       <div><div class="topbar__title" id="tbTitle"></div></div>
       <div class="topbar__spacer"></div>
-      <button class="btn btn--ghost btn--sm" id="cmdkBtn" title="Command palette" aria-label="Open command palette">${icon("search")}<span class="kbd" style="margin:0 0 0 4px">${/mac/i.test(navigator.platform) ? "⌘K" : "Ctrl K"}</span></button>
+      <button class="topbar__search" id="cmdkBtn" title="Search Vigil" aria-label="Open command palette">${icon("search")}<span>Search Vigil…</span><span class="kbd">${/mac/i.test(navigator.platform) ? "⌘K" : "Ctrl K"}</span></button>
       <button class="btn btn--icon btn--ghost btn--sm bell" id="bellBtn" title="Notifications" aria-label="Notifications">${icon("bell")}<span class="bell__count hidden" id="bellCount">0</span></button>
       <button class="btn btn--icon btn--ghost btn--sm" id="themeBtn" title="Toggle theme" aria-label="Toggle light or dark theme">${icon(document.documentElement.dataset.theme==="dark"?"sun":"moon")}</button>
       <span class="topbar__clock tnum" id="clock"></span>
@@ -1288,17 +1328,17 @@ function setTheme(t) {
 sysDark.addEventListener("change", () => { if (state.theme === "auto") setTheme("auto"); });
 addEventListener("pywebviewready", () => setTheme(state.theme));
 
-/* ---- Desktop sidebar: persisted width, drag-resize, collapse ---- */
+/* ---- Desktop sidebar: persisted width, drag-resize, rail collapse ---- */
 function applyNav() {
   const root = document.documentElement;
   root.style.setProperty("--nav-w", state.navW + "px");
-  root.classList.toggle("is-navhidden", state.navHidden);
+  root.classList.toggle("is-navrail", state.navRail);
   const tb = $("#navToggle");
-  if (tb) tb.setAttribute("aria-label", state.navHidden ? "Show sidebar" : "Hide sidebar");
+  if (tb) tb.setAttribute("aria-label", state.navRail ? "Expand sidebar" : "Collapse sidebar");
 }
 function toggleSidebar() {
-  state.navHidden = !state.navHidden;
-  localStorage.setItem("vigil.navHidden", state.navHidden ? "1" : "0");
+  state.navRail = !state.navRail;
+  localStorage.setItem("vigil.navRail", state.navRail ? "1" : "0");
   applyNav();
 }
 function navResizer(handle) {

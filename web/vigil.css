@@ -1,27 +1,34 @@
 /* ==========================================================================
    VIGIL — DESIGN SYSTEM
-   One consistent visual language. Neutral-first, calm, restrained.
-   Every token has a reason. No glow, no gradients-for-decoration, no clutter.
-   Dark is the default (built for operators who stare for hours); light mirrors it.
+   Desktop software, not a dashboard. One material language:
+     plane 0  the room      — near-black depth, subtle vignette, nothing loud
+     plane 1  panels        — surfaces lit from above, soft elevation
+     plane 2  glass         — command bar, menus, overlays (blur + tint)
+   Hierarchy comes from light and space, not from boxes and borders.
+   Spacing is a strict scale (4/8/12/16/20/24/32/40/48) — see --s tokens.
+   Dark is home (operators, night shifts); light mirrors it faithfully.
    ========================================================================== */
 
 :root {
-  /* ---- Surfaces (cool graphite ramp) ---- */
-  --bg:            #0B0D10;
-  --surface:       #111419;
-  --surface-2:     #161A20;
-  --surface-3:     #1C222A;   /* hover / raised */
-  --surface-inset: #0E1116;   /* wells: video, code */
-  --border:        #21262E;
-  --border-strong: #2C333D;
+  /* ---- The room (plane 0) ---- */
+  --bg:            #0A0C0F;
+  --bg-deep:       #07090B;   /* stage behind cameras */
+  --surface:       #101318;   /* plane 1 panels */
+  --surface-2:     #151A20;   /* raised / hover */
+  --surface-3:     #1B2129;   /* pressed / selected */
+  --surface-inset: #0D1014;   /* wells: video, code */
+  --border:        #1E242C;   /* hairlines — used sparingly */
+  --border-strong: #2A313B;
+  --glass:         color-mix(in srgb, #101318 78%, transparent);
+  --glass-border:  color-mix(in srgb, #2A313B 60%, transparent);
 
   /* ---- Text ---- */
-  --text:   #E8EBEF;
-  --text-2: #A4ADB8;   /* secondary */
-  --text-3: #6C7580;   /* muted / captions */
-  --text-4: #464E58;   /* placeholder / disabled */
+  --text:   #ECEFF3;
+  --text-2: #A6AFBA;
+  --text-3: #6E7682;
+  --text-4: #474E58;
 
-  /* ---- Accent (single brand hue — calm green = operational/secure) ---- */
+  /* ---- Accent (calm green = watching, operational) ---- */
   --accent:        #2FB37D;
   --accent-hover:  #38C489;
   --accent-press:  #279A6C;
@@ -29,70 +36,73 @@
   --accent-line:   rgba(47,179,125,0.30);
   --on-accent:     #04120C;
 
-  /* ---- Status (muted, never alarming) ---- */
-  --ok:        #2FB37D;
-  --ok-quiet:  rgba(47,179,125,0.12);
-  --warn:      #DCA43A;   /* pending review */
-  --warn-quiet:rgba(220,164,58,0.12);
-  --danger:    #E05D4A;   /* detection / offline / destructive */
-  --danger-quiet: rgba(224,93,74,0.12);
-  --info:      #5B9BD5;
-  --info-quiet: rgba(91,155,213,0.12);
+  /* ---- Status ---- */
+  --ok:        #2FB37D;  --ok-quiet:    rgba(47,179,125,0.12);
+  --warn:      #DCA43A;  --warn-quiet:  rgba(220,164,58,0.12);
+  --danger:    #E05D4A;  --danger-quiet:rgba(224,93,74,0.12);
+  --info:      #5B9BD5;  --info-quiet:  rgba(91,155,213,0.12);
 
   /* ---- Typography ---- */
   --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto,
           Helvetica, Arial, sans-serif;
   --mono: "SF Mono", ui-monospace, "JetBrains Mono", "Roboto Mono", Menlo, monospace;
   --fs-xs: 11px; --fs-sm: 12px; --fs-base: 13px; --fs-md: 14px;
-  --fs-lg: 16px; --fs-xl: 20px; --fs-2xl: 26px; --fs-3xl: 33px;
+  --fs-lg: 16px; --fs-xl: 20px; --fs-2xl: 26px; --fs-3xl: 34px;
   --lh: 1.5;
   --w-normal: 400; --w-medium: 500; --w-semi: 600;
+  --track-tight: -0.015em;
+  --track-label: 0.08em;               /* uppercase section labels */
 
-  /* ---- Spacing (4px grid) ---- */
-  --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px; --s5: 20px;
+  /* ---- Spacing (the ONLY scale; nothing arbitrary) ---- */
+  --s1: 4px;  --s2: 8px;  --s3: 12px; --s4: 16px; --s5: 20px;
   --s6: 24px; --s8: 32px; --s10: 40px; --s12: 48px; --s16: 64px;
+  --edge: var(--s8);                    /* content ↔ window-edge margin */
 
   /* ---- Radius ---- */
-  --r-sm: 6px; --r-md: 8px; --r-lg: 12px; --r-xl: 16px; --r-full: 999px;
+  --r-sm: 7px; --r-md: 10px; --r-lg: 14px; --r-xl: 18px; --r-full: 999px;
 
-  /* ---- Elevation (soft, no glow) ---- */
-  --shadow-1: 0 1px 2px rgba(0,0,0,.30), 0 1px 1px rgba(0,0,0,.20);
-  --shadow-2: 0 6px 16px rgba(0,0,0,.36), 0 2px 6px rgba(0,0,0,.28);
-  --shadow-3: 0 18px 48px rgba(0,0,0,.50), 0 6px 16px rgba(0,0,0,.34);
-  /* Material edge: a 1px "lit from above" highlight that gives surfaces the
-     tactile, layered quality of native macOS controls. */
-  --edge-hi: rgba(255,255,255,0.05);
+  /* ---- Elevation (three planes) ---- */
+  --edge-hi: rgba(255,255,255,0.05);   /* 1px lit-from-above edge */
+  --shadow-1: 0 1px 2px rgba(0,0,0,.32), 0 1px 1px rgba(0,0,0,.22);
+  --shadow-2: 0 8px 24px rgba(0,0,0,.38), 0 2px 8px rgba(0,0,0,.26);
+  --shadow-3: 0 24px 64px rgba(0,0,0,.52), 0 8px 20px rgba(0,0,0,.34);
+  --ring-accent: 0 0 0 1px var(--accent), 0 0 24px -6px var(--accent-line);
+  --ring-danger: 0 0 0 1px var(--danger), 0 0 28px -4px rgba(224,93,74,.55);
 
-  /* ---- Motion ---- */
+  /* ---- Motion (physical, never linear) ---- */
   --ease: cubic-bezier(.2,.6,.2,1);
   --ease-in-out: cubic-bezier(.4,0,.2,1);
-  --spring: cubic-bezier(.34,1.56,.64,1);      /* gentle overshoot for tactile feedback */
-  --t-fast: 120ms; --t: 180ms; --t-slow: 240ms;
+  --spring: cubic-bezier(.34,1.56,.64,1);
+  --t-fast: 120ms; --t: 180ms; --t-slow: 260ms; --t-glide: 380ms;
 
   /* ---- Layout ---- */
-  --nav-w: 232px;
-  --topbar-h: 52px;
+  --nav-w: 248px;
+  --nav-rail: 64px;
+  --topbar-h: 56px;
   --z-nav: 20; --z-topbar: 30; --z-menu: 60; --z-toast: 80; --z-modal: 90;
 }
 
 :root[data-theme="light"] {
-  --bg:            #F6F7F9;
+  --bg:            #F5F6F8;
+  --bg-deep:       #EDEFF2;
   --surface:       #FFFFFF;
-  --surface-2:     #F1F3F5;
-  --surface-3:     #E9ECEF;
-  --surface-inset: #0E1116;
-  --border:        #E3E6EA;
-  --border-strong: #D2D7DD;
+  --surface-2:     #F0F2F5;
+  --surface-3:     #E7EAEE;
+  --surface-inset: #0D1014;
+  --border:        #E4E7EB;
+  --border-strong: #D3D8DE;
+  --glass:         color-mix(in srgb, #FFFFFF 80%, transparent);
+  --glass-border:  color-mix(in srgb, #D3D8DE 60%, transparent);
   --text:   #14181D;
-  --text-2: #5A636E;
-  --text-3: #8A929C;
-  --text-4: #B4BAC2;
+  --text-2: #59626D;
+  --text-3: #89919B;
+  --text-4: #B3BAC2;
   --on-accent: #FFFFFF;
   --accent-quiet: rgba(47,179,125,0.10);
   --edge-hi: rgba(255,255,255,0.9);
   --shadow-1: 0 1px 2px rgba(16,24,40,.06), 0 1px 1px rgba(16,24,40,.04);
-  --shadow-2: 0 6px 16px rgba(16,24,40,.10), 0 2px 6px rgba(16,24,40,.06);
-  --shadow-3: 0 18px 48px rgba(16,24,40,.18), 0 6px 16px rgba(16,24,40,.10);
+  --shadow-2: 0 8px 24px rgba(16,24,40,.10), 0 2px 8px rgba(16,24,40,.06);
+  --shadow-3: 0 24px 64px rgba(16,24,40,.18), 0 8px 20px rgba(16,24,40,.10);
 }
 
 /* ==========================================================================
@@ -109,7 +119,7 @@ body {
   background: var(--bg);
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
-  overflow: hidden;               /* app owns its own scroll regions */
+  overflow: hidden;
 }
 h1,h2,h3,h4,p,figure { margin: 0; }
 button, input, select, textarea { font: inherit; color: inherit; }
@@ -123,20 +133,16 @@ a { color: inherit; text-decoration: none; }
 }
 .tnum { font-variant-numeric: tabular-nums; }
 
-/* Skip-to-content — hidden until keyboard-focused */
 .skip-link {
   position: fixed; top: 10px; left: 10px; z-index: 300;
-  padding: 8px 14px; background: var(--surface); color: var(--text);
+  padding: var(--s2) var(--s4); background: var(--surface); color: var(--text);
   border: 1px solid var(--border-strong); border-radius: var(--r-md);
   box-shadow: var(--shadow-2); transform: translateY(-160%);
   transition: transform var(--t) var(--ease);
 }
 .skip-link:focus { transform: none; }
 
-/* Default icon size (icon() SVGs use viewBox 0 0 24 24). Component rules
-   below — .btn svg, .nav__item svg, .empty__icon svg, etc. — override this. */
 svg[viewBox="0 0 24 24"] { width: 16px; height: 16px; flex: none; }
-.stat__label svg { width: 14px; height: 14px; }
 
 /* Scrollbars — quiet, thin */
 * { scrollbar-width: thin; scrollbar-color: var(--border-strong) transparent; }
@@ -155,40 +161,67 @@ svg[viewBox="0 0 24 24"] { width: 16px; height: 16px; flex: none; }
   grid-template-columns: var(--nav-w) 1fr;
   grid-template-rows: var(--topbar-h) 1fr;
   height: 100vh;
+  transition: grid-template-columns var(--t-glide) var(--ease-in-out);
 }
+:root.is-navdrag .app { transition: none; }
 
-/* ---- Sidebar navigation ---- */
+/* ---- Sidebar — a dock, part of the desktop environment ---- */
 .nav {
   grid-column: 1;
   grid-row: 1 / 3;
+  position: relative;
   display: flex; flex-direction: column;
+  min-width: 0; overflow: hidden;
   background: var(--surface);
   border-right: 1px solid var(--border);
-  padding: var(--s3);
-  gap: var(--s1);
+  padding: var(--s4) var(--s3) var(--s3);
+  gap: 2px;
   z-index: var(--z-nav);
 }
+.nav__resize {
+  position: absolute; top: 0; right: -3px; width: 7px; height: 100%;
+  cursor: col-resize; z-index: 5;
+}
+.nav__resize:hover, :root.is-navdrag .nav__resize { background:
+  linear-gradient(to right, transparent 2px, var(--accent-line) 3px, transparent 5px); }
+
 .nav__brand {
   display: flex; align-items: center; gap: var(--s3);
-  padding: var(--s2) var(--s2) var(--s5);
+  padding: var(--s2) var(--s2) var(--s6);
 }
-.nav__brand svg { width: 24px; height: 24px; display: block; }
-.nav__brand-name { font-size: var(--fs-lg); font-weight: var(--w-semi); letter-spacing: -0.01em; }
+.nav__brand svg { width: 26px; height: 26px; display: block; flex: none; }
+.nav__brand-name {
+  font-size: var(--fs-lg); font-weight: var(--w-semi);
+  letter-spacing: var(--track-tight); white-space: nowrap;
+}
 .nav__section {
   font-size: var(--fs-xs); font-weight: var(--w-semi); text-transform: uppercase;
-  letter-spacing: .06em; color: var(--text-3);
-  padding: var(--s4) var(--s2) var(--s2);
+  letter-spacing: var(--track-label); color: var(--text-4);
+  padding: var(--s5) var(--s3) var(--s2);
+  white-space: nowrap;
 }
 .nav__item {
+  position: relative;
   display: flex; align-items: center; gap: var(--s3);
-  padding: 7px var(--s2); border-radius: var(--r-md);
+  height: 36px; padding: 0 var(--s3);
+  border-radius: var(--r-md);
   color: var(--text-2); font-weight: var(--w-medium);
-  cursor: pointer; user-select: none;
-  transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
+  cursor: pointer; user-select: none; white-space: nowrap;
+  transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease),
+              transform var(--t-fast) var(--spring);
 }
-.nav__item svg { width: 17px; height: 17px; flex: none; opacity: .85; }
+.nav__item svg { width: 18px; height: 18px; flex: none; opacity: .85; }
 .nav__item:hover { background: var(--surface-2); color: var(--text); }
-.nav__item.is-active { background: var(--surface-3); color: var(--text); }
+.nav__item:active { transform: scale(0.985); }
+.nav__item.is-active {
+  background: var(--accent-quiet); color: var(--text);
+}
+.nav__item.is-active::before {
+  content: ""; position: absolute;
+  left: calc(-1 * var(--s3) + 2px); top: 50%; transform: translateY(-50%);
+  width: 3px; height: 18px; border-radius: var(--r-full);
+  background: var(--accent);
+}
 .nav__item.is-active svg { opacity: 1; color: var(--accent); }
 .nav__badge {
   margin-left: auto; min-width: 18px; height: 18px; padding: 0 5px;
@@ -199,7 +232,8 @@ svg[viewBox="0 0 24 24"] { width: 16px; height: 16px; flex: none; }
 .nav__spacer { flex: 1; }
 .nav__user {
   display: flex; align-items: center; gap: var(--s3);
-  padding: var(--s2); border-radius: var(--r-md); cursor: pointer;
+  padding: var(--s2) var(--s3); margin: 0 calc(-1 * var(--s1));
+  border-radius: var(--r-md); cursor: pointer; white-space: nowrap;
   transition: background var(--t-fast) var(--ease);
 }
 .nav__user:hover { background: var(--surface-2); }
@@ -207,25 +241,64 @@ svg[viewBox="0 0 24 24"] { width: 16px; height: 16px; flex: none; }
 .nav__user-name { font-weight: var(--w-medium); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .nav__user-role { font-size: var(--fs-xs); color: var(--text-3); }
 
-/* ---- Topbar ---- */
+/* Icon rail — the sidebar collapses to a dock, never to nothing */
+:root.is-navrail .app { grid-template-columns: var(--nav-rail) 1fr; }
+:root.is-navrail .nav { padding-left: var(--s3); padding-right: var(--s3); align-items: center; }
+:root.is-navrail .nav__brand { padding-left: 0; padding-right: 0; justify-content: center; }
+:root.is-navrail .nav__brand-name,
+:root.is-navrail .nav__section,
+:root.is-navrail .nav__item span,
+:root.is-navrail .nav__badge,
+:root.is-navrail .nav__user-meta,
+:root.is-navrail .nav__resize { display: none; }
+:root.is-navrail .nav__item { width: 40px; height: 40px; justify-content: center; padding: 0; }
+:root.is-navrail .nav__item.is-active::before { left: -9px; }
+:root.is-navrail .nav__user { padding: var(--s2); margin: 0; }
+
+/* ---- Topbar — one glass command layer over the content ---- */
 .topbar {
   grid-column: 2; grid-row: 1;
   height: var(--topbar-h);
-  display: flex; align-items: center; gap: var(--s4);
-  padding: 0 var(--s5);
-  border-bottom: 1px solid var(--border);
-  background: var(--surface);
+  display: flex; align-items: center; gap: var(--s2);
+  padding: 0 var(--edge) 0 var(--s4);
+  background: var(--glass);
+  -webkit-backdrop-filter: blur(18px) saturate(1.4);
+  backdrop-filter: blur(18px) saturate(1.4);
+  border-bottom: 1px solid var(--glass-border);
   z-index: var(--z-topbar);
 }
-.topbar__title { font-size: var(--fs-lg); font-weight: var(--w-semi); letter-spacing: -0.01em; }
-.topbar__sub { color: var(--text-3); font-size: var(--fs-sm); }
+.topbar__title {
+  font-size: var(--fs-lg); font-weight: var(--w-semi);
+  letter-spacing: var(--track-tight); margin-left: var(--s2);
+}
 .topbar__spacer { flex: 1; }
-.topbar__clock { color: var(--text-2); font-size: var(--fs-sm); }
+.topbar__clock { color: var(--text-3); font-size: var(--fs-sm); margin-left: var(--s2); }
 
-/* ---- Content scroll region ---- */
-.content { grid-column: 2; grid-row: 2; overflow: auto; min-height: 0; }
-.content__inner { padding: var(--s6); max-width: 1400px; margin: 0 auto; }
+/* Global search affordance (opens the command palette) */
+.topbar__search {
+  display: inline-flex; align-items: center; gap: var(--s2);
+  height: 32px; padding: 0 var(--s3);
+  min-width: 200px;
+  background: var(--surface-2); color: var(--text-3);
+  border: 1px solid transparent; border-radius: var(--r-md);
+  cursor: pointer; user-select: none;
+  transition: background var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease),
+              min-width var(--t-slow) var(--ease);
+}
+.topbar__search:hover { background: var(--surface-3); color: var(--text-2); border-color: var(--border-strong); }
+.topbar__search svg { width: 14px; height: 14px; }
+.topbar__search .kbd { margin-left: auto; }
+
+/* ---- Content ---- */
+.content { grid-column: 2; grid-row: 2; overflow: auto; min-height: 0; background: var(--bg); }
+.content__inner { padding: var(--edge); max-width: 1480px; margin: 0 auto; }
 .content--flush { padding: 0; }
+
+/* View entrance — content glides in, sections stagger */
+@keyframes rise { from { opacity: 0; transform: translateY(10px); } }
+.content > * { animation: rise var(--t-glide) var(--ease) backwards; }
+.content > *:nth-child(2) { animation-delay: 40ms; }
+.content > *:nth-child(3) { animation-delay: 80ms; }
 
 /* ==========================================================================
    BUTTONS
@@ -239,13 +312,16 @@ svg[viewBox="0 0 24 24"] { width: 16px; height: 16px; flex: none; }
   font-size: var(--fs-base); font-weight: var(--w-medium);
   cursor: pointer; white-space: nowrap; user-select: none;
   transition: background var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease),
-              transform var(--t-fast) var(--ease), opacity var(--t-fast) var(--ease);
+              transform var(--t-fast) var(--spring), opacity var(--t-fast) var(--ease);
 }
 .btn svg { width: 15px; height: 15px; }
 .btn:hover { background: var(--surface-3); border-color: var(--text-4); }
-.btn:active { transform: translateY(.5px); }
+.btn:active { transform: translateY(0.5px) scale(0.975); }
 .btn:disabled { opacity: .45; pointer-events: none; }
-.btn--primary { --_bg: var(--accent); --_fg: var(--on-accent); --_bd: transparent; }
+.btn--primary {
+  --_bg: var(--accent); --_fg: var(--on-accent); --_bd: transparent;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,0.14);
+}
 .btn--primary:hover { --_bg: var(--accent-hover); border-color: transparent; }
 .btn--primary:active { --_bg: var(--accent-press); }
 .btn--ghost { --_bg: transparent; --_bd: transparent; color: var(--text-2); }
@@ -256,7 +332,7 @@ svg[viewBox="0 0 24 24"] { width: 16px; height: 16px; flex: none; }
 .btn--icon { width: 32px; padding: 0; }
 .btn--icon.btn--sm { width: 27px; }
 
-/* Segmented control (filters) */
+/* Segmented control */
 .segmented {
   display: inline-flex; background: var(--surface-2);
   border: 1px solid var(--border); border-radius: var(--r-md); padding: 2px;
@@ -264,16 +340,18 @@ svg[viewBox="0 0 24 24"] { width: 16px; height: 16px; flex: none; }
 .segmented button {
   height: 26px; padding: 0 var(--s3); border: none; background: transparent;
   color: var(--text-2); font-weight: var(--w-medium); font-size: var(--fs-sm);
-  border-radius: var(--r-sm); cursor: pointer;
-  transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
+  border-radius: var(--r-sm); cursor: pointer; white-space: nowrap;
+  transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease),
+              transform var(--t-fast) var(--spring);
 }
 .segmented button:hover { color: var(--text); }
+.segmented button:active { transform: scale(0.97); }
 .segmented button.is-active { background: var(--surface); color: var(--text); box-shadow: var(--shadow-1); }
 
 /* ==========================================================================
    FORM CONTROLS
    ========================================================================== */
-.field { display: flex; flex-direction: column; gap: 6px; }
+.field { display: flex; flex-direction: column; gap: var(--s2); }
 .label { font-size: var(--fs-sm); font-weight: var(--w-medium); color: var(--text-2); }
 .hint { font-size: var(--fs-sm); color: var(--text-3); }
 .input, .select, .textarea {
@@ -314,43 +392,46 @@ svg[viewBox="0 0 24 24"] { width: 16px; height: 16px; flex: none; }
 .toggle__track::after {
   content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px;
   background: var(--text-2); border-radius: 50%;
-  transition: transform var(--t) var(--ease), background var(--t) var(--ease);
+  transition: transform var(--t) var(--spring), background var(--t) var(--ease);
 }
 .toggle input:checked + .toggle__track { background: var(--accent); border-color: transparent; }
 .toggle input:checked + .toggle__track::after { transform: translateX(16px); background: #fff; }
 
 /* ==========================================================================
-   CARDS / PANELS / TABLES
+   PANELS / TABLES
    ========================================================================== */
 .card {
   background: var(--surface); border: 1px solid var(--border);
-  border-radius: var(--r-lg); box-shadow: var(--shadow-1);
+  border-radius: var(--r-lg);
+  box-shadow: inset 0 1px 0 var(--edge-hi), var(--shadow-1);
 }
 .card__head {
   display: flex; align-items: center; gap: var(--s3);
-  padding: var(--s4) var(--s5); border-bottom: 1px solid var(--border);
+  padding: var(--s4) var(--s6); border-bottom: 1px solid var(--border);
 }
 .card__title { font-weight: var(--w-semi); }
-.card__body { padding: var(--s5); }
+.card__body { padding: var(--s6); }
 
 .stat {
   display: flex; flex-direction: column; gap: var(--s1);
-  padding: var(--s4) var(--s5);
+  padding: var(--s4) var(--s6);
   background: var(--surface); border: 1px solid var(--border); border-radius: var(--r-lg);
+  box-shadow: inset 0 1px 0 var(--edge-hi), var(--shadow-1);
 }
-.stat__label { font-size: var(--fs-sm); color: var(--text-3); display: flex; align-items: center; gap: 6px; }
+.stat__label { font-size: var(--fs-sm); color: var(--text-3); display: flex; align-items: center; gap: var(--s2); }
+.stat__label svg { width: 14px; height: 14px; }
 .stat__value { font-size: var(--fs-2xl); font-weight: var(--w-semi); letter-spacing: -0.02em; }
 .stat__value small { font-size: var(--fs-md); color: var(--text-3); font-weight: var(--w-normal); }
 
 .table { width: 100%; border-collapse: collapse; }
 .table th {
   text-align: left; font-size: var(--fs-sm); font-weight: var(--w-medium); color: var(--text-3);
-  padding: var(--s2) var(--s4); border-bottom: 1px solid var(--border);
+  padding: var(--s3) var(--s4); border-bottom: 1px solid var(--border);
   position: sticky; top: 0; background: var(--surface); cursor: default;
 }
 .table th.sortable { cursor: pointer; }
 .table th.sortable:hover { color: var(--text); }
-.table td { padding: var(--s3) var(--s4); border-bottom: 1px solid var(--border); }
+.table td { padding: var(--s4); border-bottom: 1px solid var(--border); }
 .table tr { transition: background var(--t-fast) var(--ease); }
 .table tbody tr:hover { background: var(--surface-2); }
 .table tbody tr:last-child td { border-bottom: none; }
@@ -375,7 +456,7 @@ svg[viewBox="0 0 24 24"] { width: 16px; height: 16px; flex: none; }
 .dot--ok { background: var(--ok); }
 .dot--warn { background: var(--warn); }
 .dot--danger { background: var(--danger); }
-.dot--live { background: var(--ok); box-shadow: 0 0 0 0 var(--ok); animation: pulse 2.2s var(--ease) infinite; }
+.dot--live { background: var(--ok); animation: pulse 2.2s var(--ease) infinite; }
 @keyframes pulse {
   0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--ok) 55%, transparent); }
   70% { box-shadow: 0 0 0 5px transparent; }
@@ -386,16 +467,23 @@ svg[viewBox="0 0 24 24"] { width: 16px; height: 16px; flex: none; }
   width: 28px; height: 28px; border-radius: 50%; flex: none;
   display: inline-flex; align-items: center; justify-content: center;
   font-size: var(--fs-sm); font-weight: var(--w-semi);
-  background: var(--surface-3); color: var(--text-2);
+  background: linear-gradient(160deg, var(--surface-3), var(--surface-2));
+  box-shadow: inset 0 1px 0 var(--edge-hi);
+  color: var(--text-2);
 }
 
 /* ==========================================================================
-   MENUS / CONTEXT MENU / TOOLTIP
+   MENUS / TOOLTIP / KBD
    ========================================================================== */
 .menu {
-  position: fixed; min-width: 180px; padding: var(--s1);
-  background: var(--surface); border: 1px solid var(--border-strong);
-  border-radius: var(--r-md); box-shadow: var(--shadow-3); z-index: var(--z-menu);
+  position: fixed; min-width: 190px; padding: var(--s1);
+  background: var(--glass);
+  -webkit-backdrop-filter: blur(24px) saturate(1.4);
+  backdrop-filter: blur(24px) saturate(1.4);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--r-md);
+  box-shadow: inset 0 1px 0 var(--edge-hi), var(--shadow-3);
+  z-index: var(--z-menu);
   animation: menuIn var(--t-fast) var(--ease);
 }
 @keyframes menuIn { from { opacity: 0; transform: translateY(-4px) scale(.98); } }
@@ -422,10 +510,15 @@ svg[viewBox="0 0 24 24"] { width: 16px; height: 16px; flex: none; }
    ========================================================================== */
 .cmdk-scrim { align-items: flex-start; padding-top: 12vh; }
 .cmdk {
-  width: min(560px, 92vw);
-  background: var(--surface); border: 1px solid var(--border-strong);
-  border-radius: var(--r-xl); box-shadow: var(--shadow-3); overflow: hidden;
-  animation: modalIn var(--t-slow) var(--ease);
+  width: min(580px, 92vw);
+  background: var(--glass);
+  -webkit-backdrop-filter: blur(28px) saturate(1.5);
+  backdrop-filter: blur(28px) saturate(1.5);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--r-xl);
+  box-shadow: inset 0 1px 0 var(--edge-hi), var(--shadow-3);
+  overflow: hidden;
+  animation: modalIn var(--t-slow) var(--spring);
 }
 .cmdk__head { display: flex; align-items: center; gap: var(--s3); padding: var(--s4) var(--s5); border-bottom: 1px solid var(--border); }
 .cmdk__head svg { width: 18px; height: 18px; color: var(--text-3); flex: none; }
@@ -446,8 +539,8 @@ svg[viewBox="0 0 24 24"] { width: 16px; height: 16px; flex: none; }
    MODAL / DIALOG
    ========================================================================== */
 .scrim {
-  position: fixed; inset: 0; background: rgba(6,8,11,.55);
-  backdrop-filter: blur(2px); z-index: var(--z-modal);
+  position: fixed; inset: 0; background: rgba(5,7,9,.55);
+  backdrop-filter: blur(3px); z-index: var(--z-modal);
   display: flex; align-items: center; justify-content: center; padding: var(--s6);
   animation: fade var(--t) var(--ease);
 }
@@ -455,15 +548,16 @@ svg[viewBox="0 0 24 24"] { width: 16px; height: 16px; flex: none; }
 .modal {
   width: 100%; max-width: 460px;
   background: var(--surface); border: 1px solid var(--border-strong);
-  border-radius: var(--r-xl); box-shadow: var(--shadow-3);
-  animation: modalIn var(--t-slow) var(--ease);
+  border-radius: var(--r-xl);
+  box-shadow: inset 0 1px 0 var(--edge-hi), var(--shadow-3);
+  animation: modalIn var(--t-slow) var(--spring);
 }
 .modal--wide { max-width: 720px; }
-@keyframes modalIn { from { opacity: 0; transform: translateY(8px) scale(.985); } }
-.modal__head { display: flex; align-items: center; gap: var(--s3); padding: var(--s5) var(--s5) var(--s3); }
-.modal__title { font-size: var(--fs-lg); font-weight: var(--w-semi); }
-.modal__body { padding: var(--s3) var(--s5); display: flex; flex-direction: column; gap: var(--s4); }
-.modal__foot { display: flex; justify-content: flex-end; gap: var(--s2); padding: var(--s4) var(--s5) var(--s5); }
+@keyframes modalIn { from { opacity: 0; transform: translateY(10px) scale(.98); } }
+.modal__head { display: flex; align-items: center; gap: var(--s3); padding: var(--s6) var(--s6) var(--s3); }
+.modal__title { font-size: var(--fs-lg); font-weight: var(--w-semi); letter-spacing: var(--track-tight); }
+.modal__body { padding: var(--s3) var(--s6); display: flex; flex-direction: column; gap: var(--s4); }
+.modal__foot { display: flex; justify-content: flex-end; gap: var(--s2); padding: var(--s4) var(--s6) var(--s6); }
 
 /* ==========================================================================
    TOASTS
@@ -472,32 +566,38 @@ svg[viewBox="0 0 24 24"] { width: 16px; height: 16px; flex: none; }
 .toast {
   display: flex; align-items: center; gap: var(--s3);
   min-width: 260px; max-width: 380px; padding: var(--s3) var(--s4);
-  background: var(--surface); border: 1px solid var(--border-strong);
-  border-radius: var(--r-md); box-shadow: var(--shadow-3);
-  animation: toastIn var(--t-slow) var(--ease);
+  background: var(--glass);
+  -webkit-backdrop-filter: blur(20px) saturate(1.4);
+  backdrop-filter: blur(20px) saturate(1.4);
+  border: 1px solid var(--glass-border); border-radius: var(--r-md);
+  box-shadow: inset 0 1px 0 var(--edge-hi), var(--shadow-3);
+  animation: toastIn var(--t-slow) var(--spring);
 }
-@keyframes toastIn { from { opacity: 0; transform: translateX(12px); } }
+@keyframes toastIn { from { opacity: 0; transform: translateX(14px); } }
 .toast.is-leaving { animation: toastOut var(--t) var(--ease) forwards; }
-@keyframes toastOut { to { opacity: 0; transform: translateX(12px); } }
+@keyframes toastOut { to { opacity: 0; transform: translateX(14px); } }
 .toast__icon { width: 18px; height: 18px; flex: none; }
 .toast__body { flex: 1; min-width: 0; }
 .toast__title { font-weight: var(--w-medium); }
 .toast__msg { font-size: var(--fs-sm); color: var(--text-3); }
 
 /* ==========================================================================
-   EMPTY STATES & SKELETONS
+   EMPTY STATES  (never a bare dark rectangle)
    ========================================================================== */
 .empty {
   display: flex; flex-direction: column; align-items: center; text-align: center;
   gap: var(--s3); padding: var(--s16) var(--s6); color: var(--text-3);
 }
+.empty__art { width: 132px; height: 96px; margin-bottom: var(--s2); animation: float 5s var(--ease-in-out) infinite alternate; }
+@keyframes float { from { transform: translateY(0); } to { transform: translateY(-6px); } }
 .empty__icon {
-  width: 52px; height: 52px; border-radius: var(--r-lg);
+  width: 56px; height: 56px; border-radius: var(--r-lg);
   display: flex; align-items: center; justify-content: center;
   background: var(--surface-2); border: 1px solid var(--border); color: var(--text-3);
+  box-shadow: inset 0 1px 0 var(--edge-hi);
 }
 .empty__icon svg { width: 24px; height: 24px; }
-.empty__title { font-size: var(--fs-lg); font-weight: var(--w-semi); color: var(--text); }
+.empty__title { font-size: var(--fs-lg); font-weight: var(--w-semi); color: var(--text); letter-spacing: var(--track-tight); }
 .empty__text { max-width: 400px; }
 .empty__actions { display: flex; gap: var(--s2); margin-top: var(--s3); flex-wrap: wrap; justify-content: center; }
 .empty--alert .empty__icon { background: var(--danger-quiet); border-color: transparent; color: var(--danger); }
@@ -533,84 +633,27 @@ svg[viewBox="0 0 24 24"] { width: 16px; height: 16px; flex: none; }
 }
 
 /* ==========================================================================
-   NATIVE MATERIAL & MOTION  (tactile depth + spring feedback)
-   Layered on top of the base components for an Apple-like, immersive feel.
+   PLATFORM — macOS inset titlebar / Windows / native translucency
    ========================================================================== */
-/* "Lit from above" edge on raised surfaces — the tactile material quality of
-   native controls. Paired with the existing soft shadow below. */
-.card, .stat, .ev-card, .modal, .menu, .toast, .drawer {
-  box-shadow: inset 0 1px 0 var(--edge-hi), var(--shadow-1);
-}
-.menu, .toast { box-shadow: inset 0 1px 0 var(--edge-hi), var(--shadow-3); }
-.modal, .drawer { box-shadow: inset 0 1px 0 var(--edge-hi), var(--shadow-3); }
-.ev-card:hover { box-shadow: inset 0 1px 0 var(--edge-hi), var(--shadow-2); }
-.stat { transition: transform var(--t) var(--ease), box-shadow var(--t) var(--ease); }
-.stat:hover { transform: translateY(-1px); box-shadow: inset 0 1px 0 var(--edge-hi), var(--shadow-2); }
-
-/* Spring feedback on press — subtle scale so clicks feel physical. */
-.btn { transition: background var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease),
-        transform var(--t-fast) var(--spring), opacity var(--t-fast) var(--ease); }
-.btn:active { transform: translateY(0.5px) scale(0.975); }
-.btn--primary { box-shadow: inset 0 1px 0 rgba(255,255,255,0.14); }
-.nav__item, .filter-item, .segmented button { transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease), transform var(--t-fast) var(--spring); }
-.nav__item:active, .filter-item:active { transform: scale(0.985); }
-.cam__btn:active { transform: scale(0.92); }
-
-/* Icon buttons in the topbar get a gentle spring on hover-in */
-.toggle__track::after { transition: transform var(--t) var(--spring), background var(--t) var(--ease); }
-
-/* macOS inset native titlebar (app.js adds .is-inset): the OS draws the real
-   traffic lights over our top-left corner, so give the brand room to clear
-   them. Degrades to nothing in a browser or on the standard Windows frame. */
+/* macOS: real traffic lights are drawn over our top-left corner. */
 :root.is-inset .nav__brand { padding-top: 30px; }
 
-/* ==========================================================================
-   DESKTOP SIDEBAR  —  resizable, collapsible, remembered (app.js)
-   ========================================================================== */
-.nav { position: relative; min-width: 0; overflow: hidden; }
-.nav__resize {
-  position: absolute; top: 0; right: -3px; width: 7px; height: 100%;
-  cursor: col-resize; z-index: 5;
-}
-.nav__resize:hover, :root.is-navdrag .nav__resize { background:
-  linear-gradient(to right, transparent 2px, var(--accent-line) 3px, transparent 5px); }
-
-/* Collapse: animate the grid track itself (WebKit interpolates same-shape
-   track lists); nav content clips cleanly while the column shrinks. */
-.app { transition: grid-template-columns var(--t-slow) var(--ease-in-out); }
-.nav { transition: padding var(--t-slow) var(--ease-in-out), border-right-width var(--t-slow) var(--ease-in-out); }
-.topbar { transition: padding-left var(--t-slow) var(--ease-in-out); }
-:root.is-navdrag .app { transition: none; }         /* live drag = 1:1, no lag */
-:root.is-navhidden .app { grid-template-columns: 0 1fr; }
-:root.is-navhidden .nav { padding-left: 0; padding-right: 0; border-right-width: 0; }
-:root.is-navhidden .nav__resize { display: none; }
-/* Sidebar hidden on the Mac inset titlebar: the traffic lights now sit over
-   the topbar, so push its first control clear of them. */
-:root.is-inset.is-navhidden .topbar { padding-left: 84px; }
-
-/* ==========================================================================
-   VIBRANCY  —  the shell (desktop.py) confirms the native NSVisualEffectView
-   underlay is live by adding .has-vibrancy; only then does the sidebar go
-   translucent. In a browser this class never appears and nothing changes.
-   ========================================================================== */
-:root.has-vibrancy, :root.has-vibrancy body { background: transparent; }
-:root.has-vibrancy .nav {
-  background: color-mix(in srgb, var(--bg) 55%, transparent);
-  border-right-color: color-mix(in srgb, var(--border) 70%, transparent);
-}
-:root.has-vibrancy .topbar, :root.has-vibrancy .content { background: var(--bg); }
-:root.has-vibrancy .topbar { background: var(--surface); }
-:root.has-vibrancy .nav__item:hover { background: color-mix(in srgb, var(--surface-2) 72%, transparent); }
-:root.has-vibrancy .nav__item.is-active { background: color-mix(in srgb, var(--surface-3) 80%, transparent); }
-
-/* ==========================================================================
-   WINDOWS  (app.js adds .is-win in the desktop shell)
-   Fluent-at-home: Segoe UI Variable first, same Vigil brand everywhere else.
-   The native frame already provides Snap Layouts, rounded corners, shadows,
-   and per-monitor DPI; win_native.py merges the titlebar + Mica backdrop.
-   ========================================================================== */
+/* Windows (desktop shell): Fluent type ramp, same brand. */
 :root.is-win {
   --font: "Segoe UI Variable Text", "Segoe UI", system-ui, Roboto,
           Helvetica, Arial, sans-serif;
   --mono: "Cascadia Mono", "Cascadia Code", Consolas, ui-monospace, monospace;
 }
+
+/* Native translucency (macOS vibrancy / Windows Mica): the shell adds
+   .has-vibrancy only when the OS material is really live behind the window. */
+:root.has-vibrancy, :root.has-vibrancy body { background: transparent; }
+:root.has-vibrancy .nav {
+  background: color-mix(in srgb, var(--bg) 30%, transparent);
+  border-right-color: color-mix(in srgb, var(--border) 70%, transparent);
+}
+:root[data-theme="light"].has-vibrancy .nav { background: color-mix(in srgb, var(--bg) 35%, transparent); }
+:root.has-vibrancy .content { background: var(--bg); }
+:root.has-vibrancy .topbar { background: var(--glass); }
+:root.has-vibrancy .nav__item:hover { background: color-mix(in srgb, var(--surface-2) 72%, transparent); }
+:root.has-vibrancy .nav__item.is-active { background: color-mix(in srgb, var(--accent-quiet) 90%, transparent); }

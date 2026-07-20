@@ -188,7 +188,7 @@ def _install_menubar():
         T("Users", "goto:users", "3"),
         T("Settings", "goto:settings", "4"),
         None,
-        T("Hide Sidebar", "toggle-sidebar", "s", _CMD | _OPT),
+        T("Toggle Sidebar", "toggle-sidebar", "s", _CMD | _OPT),
         T("Refresh", "refresh", "r"),
         None,
         _item("Enter Full Screen", "toggleFullScreen:", "f", _CMD | _CTL),
