@@ -602,3 +602,15 @@ svg[viewBox="0 0 24 24"] { width: 16px; height: 16px; flex: none; }
 :root.has-vibrancy .topbar { background: var(--surface); }
 :root.has-vibrancy .nav__item:hover { background: color-mix(in srgb, var(--surface-2) 72%, transparent); }
 :root.has-vibrancy .nav__item.is-active { background: color-mix(in srgb, var(--surface-3) 80%, transparent); }
+
+/* ==========================================================================
+   WINDOWS  (app.js adds .is-win in the desktop shell)
+   Fluent-at-home: Segoe UI Variable first, same Vigil brand everywhere else.
+   The native frame already provides Snap Layouts, rounded corners, shadows,
+   and per-monitor DPI; win_native.py merges the titlebar + Mica backdrop.
+   ========================================================================== */
+:root.is-win {
+  --font: "Segoe UI Variable Text", "Segoe UI", system-ui, Roboto,
+          Helvetica, Arial, sans-serif;
+  --mono: "Cascadia Mono", "Cascadia Code", Consolas, ui-monospace, monospace;
+}

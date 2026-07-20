@@ -66,7 +66,9 @@ exe = EXE(
     strip=False,
     upx=False,
     console=False,                               # <- no Terminal / console window
-    icon="build/vigil.icns" if sys.platform == "darwin" and os.path.exists("build/vigil.icns") else None,
+    icon=("build/vigil.icns" if sys.platform == "darwin" and os.path.exists("build/vigil.icns")
+          else "build/vigil.ico" if sys.platform == "win32" and os.path.exists("build/vigil.ico")
+          else None),
 )
 
 coll = COLLECT(

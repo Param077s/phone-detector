@@ -754,7 +754,13 @@ const Evidence = {
     if (!rows.length) { body.innerHTML = ""; body.appendChild(Evidence.empty()); return; }
     body.classList.toggle("has-sel", Evidence.selected.size > 0);
     body.innerHTML = `<div class="ev-grid">${rows.map((a, i) => Evidence.card(a, i)).join("")}</div>`;
-    $$(".ev-card", body).forEach(c => c.onclick = (e) => { if (e.target.closest(".ev-card__check")) return; Evidence.detail(+c.dataset.id); });
+    $$(".ev-card", body).forEach(c => {
+      c.onclick = (e) => { if (e.target.closest(".ev-card__check")) return; Evidence.detail(+c.dataset.id); };
+      c.onkeydown = (e) => {
+        if (e.key === "Enter" || e.key === " ") { e.preventDefault(); Evidence.detail(+c.dataset.id); }
+        else if (e.key === "x" || e.key === "X") { e.preventDefault(); Evidence.toggleSelect(+c.dataset.id, e.shiftKey); }
+      };
+    });
     $$("[data-check]", body).forEach(cb => cb.onclick = (e) => { e.stopPropagation(); Evidence.toggleSelect(+cb.dataset.check, e.shiftKey); });
     if (Evidence.selected.size) Evidence.renderBulk(body);
   },
@@ -766,7 +772,7 @@ const Evidence = {
     const img = MOCK ? mockFrame("e" + a.id) : (a.image || `/evidence/image/${a.id}`);
     const sel = Evidence.selected.has(a.id);
     const star = state.bookmarks.has(a.id) ? `<span style="margin-left:auto;color:var(--warn)">${icon("star")}</span>` : "";
-    return `<div class="ev-card ${sel ? "is-selected" : ""}" data-id="${a.id}" style="animation-delay:${Math.min(i*24,300)}ms">
+    return `<div class="ev-card ${sel ? "is-selected" : ""}" data-id="${a.id}" tabindex="0" role="button" aria-label="Evidence ${a.id} — ${esc(a.camera)}, ${a.status}" style="animation-delay:${Math.min(i*24,300)}ms">
       <div class="ev-card__thumb"><img loading="lazy" src="${img}" alt=""><div class="ev-card__badge">${badge}</div>
         <label class="ev-card__check"><input type="checkbox" data-check="${a.id}" ${sel ? "checked" : ""} aria-label="Select event"></label></div>
       <div class="ev-card__meta">
@@ -1272,10 +1278,15 @@ async function mount() {
 const sysDark = matchMedia("(prefers-color-scheme: dark)");
 function setTheme(t) {
   state.theme = t; localStorage.setItem("vigil.theme", t);
-  document.documentElement.dataset.theme =
-    t === "auto" ? (sysDark.matches ? "dark" : "light") : t;
+  const resolved = t === "auto" ? (sysDark.matches ? "dark" : "light") : t;
+  document.documentElement.dataset.theme = resolved;
+  // Windows desktop: repaint the native titlebar to match (win_native.py).
+  const papi = window.pywebview && window.pywebview.api;
+  if (papi && papi.set_caption && document.documentElement.classList.contains("is-win"))
+    try { papi.set_caption(resolved === "dark"); } catch {}
 }
 sysDark.addEventListener("change", () => { if (state.theme === "auto") setTheme("auto"); });
+addEventListener("pywebviewready", () => setTheme(state.theme));
 
 /* ---- Desktop sidebar: persisted width, drag-resize, collapse ---- */
 function applyNav() {
@@ -1437,6 +1448,13 @@ function shortcuts(e) {
     if ((e.key === "r" || e.key === "R") && !e.shiftKey) { e.preventDefault(); refreshView(); return; }
     if ((e.key === "n" || e.key === "N") && !e.shiftKey) { e.preventDefault(); window.vigilMenu("new-camera"); return; }
     if ((e.key === "e" || e.key === "E") && e.shiftKey) { e.preventDefault(); window.vigilMenu("export"); return; }
+    // Windows desktop: Ctrl+W closes the window (the browser owns it otherwise).
+    if ((e.key === "w" || e.key === "W") && !e.shiftKey &&
+        document.documentElement.classList.contains("is-win")) {
+      const papi = window.pywebview && window.pywebview.api;
+      if (papi && papi.close) { e.preventDefault(); papi.close(); }
+      return;
+    }
     return;
   }
   if (e.target.matches("input, textarea, select")) { if (e.key === "Escape") e.target.blur(); return; }
@@ -1457,6 +1475,10 @@ async function boot() {
     document.documentElement.classList.add("is-desktop");
     if (/mac/i.test(navigator.platform) || /mac/i.test(navigator.userAgent))
       document.documentElement.classList.add("is-inset");
+    else if (/win/i.test(navigator.platform) || /Windows/i.test(navigator.userAgent)) {
+      document.documentElement.classList.add("is-win");
+      setTheme(state.theme);          // re-resolve so the caption syncs too
+    }
   }
   try { state.stats = await api.stats(); } catch {}
   // Open on the page you last used (only when no explicit route was asked for).

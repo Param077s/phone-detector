@@ -174,43 +174,59 @@ def _native_titlebar():
         pass
 
 
-def _native_titlebar_windows():
-    """The Windows half of the native-chrome treatment: keep the REAL frame
-    (min/max/close, snap layouts, titlebar drag) but merge the titlebar with
-    the app — forced dark immersive titlebar, caption painted the app's own
-    background, Mica backdrop. pywebview only follows the SYSTEM theme, which
-    leaves a white titlebar over our dark UI on light-mode Windows."""
+# ---------------------------------------------------------------------------
+# Window geometry memory (Windows). macOS uses NSWindow frame autosave in
+# mac_native.py; here pywebview's own x/y/width/height do the same job.
+# ---------------------------------------------------------------------------
+_GEOM_FILE = "window.json"
+
+
+def _load_geometry():
+    """Last session's window bounds, sanity-checked. Off-screen placement is
+    corrected after boot (once real screen info exists) — see _fix_offscreen."""
     if os.name != "nt":
+        return {}
+    try:
+        import json
+        g = json.load(open(_GEOM_FILE))
+        w, h = int(g.get("w", 0)), int(g.get("h", 0))
+        if not (300 <= w <= 20000 and 200 <= h <= 20000):
+            return {}
+        return {"x": int(g.get("x", 100)), "y": int(g.get("y", 100)),
+                "width": w, "height": h, "maximized": bool(g.get("max"))}
+    except Exception:
+        return {}
+
+
+def _save_geometry():
+    if os.name != "nt" or _win is None:
         return
     try:
-        import webview.platforms.winforms as wf
-
-        BG = 0x00100D0B      # app background #0B0D10 as COLORREF (0x00BBGGRR)
-        TX = 0x00EDEAE8      # caption text #E8EAED
-
-        def apply(hwnd):
-            for attr, val in ((19, 1), (20, 1),   # immersive dark mode (legacy + current id)
-                              (38, 2),            # Mica backdrop      (Win11 22H2+)
-                              (35, BG),           # caption color      (Win11+)
-                              (36, TX),           # caption text color (Win11+)
-                              (34, BG)):          # border color       (Win11+)
-                try:
-                    wf.DwmSetWindowAttribute(hwnd, attr, val)
-                except Exception:
-                    pass  # older Windows: attribute not supported — fine
-
-        # pywebview re-themes the caption whenever the SYSTEM theme changes;
-        # pin it to the app's look instead.
-        try:
-            wf.BrowserView.BrowserForm.update_title_bar_theme = \
-                lambda self: apply(self.Handle.ToInt32())
+        import json
+        maximized = False
+        try:                                # winforms-only detail; best effort
+            import webview.platforms.winforms as wf
+            for f in wf.BrowserView.instances.values():
+                maximized = "Maximized" in str(f.WindowState)
         except Exception:
             pass
-        for i in wf.BrowserView.instances.values():
-            try:
-                apply(i.Handle.ToInt32())
-            except Exception:
-                pass
+        json.dump({"x": _win.x, "y": _win.y, "w": _win.width,
+                   "h": _win.height, "max": maximized}, open(_GEOM_FILE, "w"))
+    except Exception:
+        pass
+
+
+def _fix_offscreen():
+    """A remembered position can point at a monitor that no longer exists —
+    if no screen contains the window's top strip, pull it back on-screen."""
+    try:
+        import webview
+        x, y, w = _win.x, _win.y, _win.width
+        for s in webview.screens:
+            sx, sy = getattr(s, "x", 0), getattr(s, "y", 0)
+            if sx - w + 80 < x < sx + s.width - 80 and sy - 10 <= y < sy + s.height - 60:
+                return
+        _win.move(80, 80)
     except Exception:
         pass
 
@@ -227,7 +243,6 @@ def _boot(window):
     """Runs once the splash is on screen (pywebview calls this after the GUI
     loop starts). Loads the engine, starts the server, then opens the app."""
     _native_titlebar()
-    _native_titlebar_windows()
     if sys.platform == "darwin":
         # Menu bar, window-frame memory, About panel, Dock reopen, vibrancy.
         try:
@@ -235,6 +250,14 @@ def _boot(window):
             mac_native.install(window, _dispatch_js)
         except Exception:
             pass
+    elif os.name == "nt":
+        # Taskbar identity, Mica backdrop, theme-synced immersive titlebar.
+        try:
+            import win_native
+            win_native.install(window, _dispatch_js, transparent=_TRANSPARENT)
+        except Exception:
+            pass
+        _fix_offscreen()
     time.sleep(0.35)  # let the splash DOM settle before we script it
     try:
         _js(window, "vigilSetup.set(0, null, 'Preparing Vigil…')")
@@ -285,6 +308,17 @@ class _WinControls:
     def minimize(self):
         try:
             _win and _win.minimize()
+        except Exception:
+            pass
+
+    def set_caption(self, dark):
+        """Windows: keep the native titlebar's color in step with the app's
+        light/dark theme (app.js calls this whenever the theme resolves)."""
+        if os.name != "nt":
+            return
+        try:
+            import win_native
+            win_native.apply_caption_theme(bool(dark))
         except Exception:
             pass
 
@@ -341,27 +375,53 @@ def _install_quit_hook():
         pass
 
 
+# Windows: a transparent WebView2 is the prerequisite for the Mica backdrop
+# showing through the sidebar (win_native.py). Page surfaces stay opaque via
+# CSS until the shell confirms Mica is live, so this is safe on Win10 too.
+_TRANSPARENT = os.name == "nt" and os.environ.get("VIGIL_NO_MICA") != "1"
+
+
 def main():
     global _win
+    if os.name == "nt":
+        # Before any window exists, so the taskbar groups/icons correctly.
+        try:
+            import win_native
+            win_native.set_taskbar_identity()
+        except Exception:
+            pass
+    geom = _load_geometry()
     # Standard native window everywhere; on macOS _native_titlebar() then hides
     # the titlebar into the content (real traffic lights, titlebar-strip drag).
     _win = webview.create_window(
         "Vigil",
         url="file://%s" % SPLASH,
-        width=1180, height=760, min_size=(920, 600),
+        width=geom.get("width", 1180), height=geom.get("height", 760),
+        x=geom.get("x"), y=geom.get("y"),
+        maximized=geom.get("maximized", False),
+        min_size=(920, 600),
         background_color="#0B0D10",
+        transparent=_TRANSPARENT,
         resizable=True,
         js_api=_WinControls(),
     )
+    try:
+        _win.events.closing += lambda *a: _save_geometry()
+    except Exception:
+        pass
 
     def _on_loaded(*_a):
-        """Every page load: tell the UI when the native vibrancy underlay is
-        live so it can make the sidebar translucent (web/vigil.css)."""
-        if sys.platform != "darwin":
-            return
+        """Every page load: tell the UI when the native translucency layer is
+        live (macOS vibrancy / Windows Mica) so it can make the sidebar
+        translucent (web/vigil.css, .has-vibrancy)."""
         try:
-            import mac_native
-            if mac_native.VIBRANT:
+            if sys.platform == "darwin":
+                import mac_native as native
+            elif os.name == "nt":
+                import win_native as native
+            else:
+                return
+            if native.VIBRANT:
                 _win.evaluate_js(
                     "document.documentElement.classList.add('has-vibrancy')")
         except Exception:

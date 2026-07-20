@@ -79,10 +79,22 @@ d.ellipse([c - cr * 0.45, c - cr * 0.62, c + cr * 0.1, c - cr * 0.12],
           fill=(255, 255, 255, 60))
 
 os.makedirs("build", exist_ok=True)
-iconset = "build/vigil.iconset"
-os.makedirs(iconset, exist_ok=True)
-for s in (16, 32, 128, 256, 512):
-    img.resize((s, s), Image.LANCZOS).save(f"{iconset}/icon_{s}x{s}.png")
-    img.resize((s * 2, s * 2), Image.LANCZOS).save(f"{iconset}/icon_{s}x{s}@2x.png")
-subprocess.run(["iconutil", "-c", "icns", iconset, "-o", "build/vigil.icns"], check=True)
-print("build/vigil.icns written")
+
+# Windows .ico — same art, full-bleed (Windows icons carry no built-in margin,
+# so the squircle is scaled up to use the canvas like other taskbar icons).
+full = img.crop((MARGIN - 24, MARGIN - 24, S - MARGIN + 24, S - MARGIN + 24))
+full.resize((256, 256), Image.LANCZOS).save(
+    "build/vigil.ico",
+    sizes=[(16, 16), (24, 24), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)])
+print("build/vigil.ico written")
+
+# macOS .icns (needs Apple's iconutil, so only on a Mac)
+if sys.platform == "darwin":
+    iconset = "build/vigil.iconset"
+    os.makedirs(iconset, exist_ok=True)
+    for s in (16, 32, 128, 256, 512):
+        img.resize((s, s), Image.LANCZOS).save(f"{iconset}/icon_{s}x{s}.png")
+        img.resize((s * 2, s * 2), Image.LANCZOS).save(f"{iconset}/icon_{s}x{s}@2x.png")
+    subprocess.run(["iconutil", "-c", "icns", iconset, "-o", "build/vigil.icns"],
+                   check=True)
+    print("build/vigil.icns written")
