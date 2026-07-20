@@ -2,6 +2,29 @@
 
 All notable changes to Vigil. Dates are the release date.
 
+## 1.2.0
+- **Complete redesign** — Vigil no longer looks like a dashboard. The
+  cameras are the page: a deep stage with luminous feed panels, one quiet
+  status line instead of stat cards, a glass command bar, and a sidebar
+  dock that collapses to an icon rail. New motion throughout (staggered
+  entrances, gliding panels, spring presses) and drawn illustrations for
+  every empty state. Same features, same workflow.
+- **A real Mac app** — native menu bar (File/Edit/View/Window/Help) with
+  full keyboard shortcuts (⌘1–4, ⌘F, ⌘N, ⇧⌘E, ⌘,, ⌥⌘S), native About
+  panel, translucent sidebar over the real macOS material, and ⌘W now
+  hides the window while detection keeps running (click the Dock icon to
+  bring it back). The window remembers its size and position.
+- **A real Windows app** — Mica backdrop behind the sidebar, titlebar
+  color that follows the app's light/dark theme live, taskbar identity,
+  window size/position memory, Ctrl+W to close, and a proper installer
+  (Start Menu entry, uninstall listing, optional desktop shortcut).
+- **Preferences that stick** — theme, sidebar width and state, and your
+  last-opened page now survive relaunches (two launch-time bugs fixed:
+  a rotating localhost port and private browsing mode were silently
+  wiping saved settings and sign-ins every start).
+- **Auto appearance** — a new Auto theme follows your system's light/dark
+  setting live, on both platforms.
+
 ## 1.1.6
 - **Native Windows titlebar** — the titlebar now merges with the app on
   Windows: always-dark caption painted the app's own color (no more white
