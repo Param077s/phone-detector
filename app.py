@@ -1061,35 +1061,49 @@ class CameraStream:
     def _reader(self):
         self.cap = self._open()                     # open IN this thread (thread-safe)
         fails = 0
-        while self.running:
-            if self.cap is None or not self.cap.isOpened():
-                time.sleep(min(15.0, 1.0 + 2.0 * fails))    # back off a dead camera fast
-                fails += 1
-                self.cap = self._open()
-                continue
-            ok, f = read_capture(self.cap, ffmpeg=self.is_ffmpeg)
-            if not ok:                                  # stream dropped / camera off
-                fails += 1
+        try:
+            while self.running:
+                if self.cap is None or not self.cap.isOpened():
+                    time.sleep(min(15.0, 1.0 + 2.0 * fails))    # back off a dead camera fast
+                    fails += 1
+                    self.cap = self._open()
+                    continue
+                ok, f = read_capture(self.cap, ffmpeg=self.is_ffmpeg)
+                if not ok:                                  # stream dropped / camera off
+                    fails += 1
+                    with self.lock:
+                        self.frame = None
+                    release_capture(self.cap)               # exclusive: pauses FFmpeg reads
+                    time.sleep(min(15.0, 2.0 * fails))      # back off hard — a dead camera retries rarely
+                    self.cap = self._open()
+                    continue
+                fails = 0
                 with self.lock:
-                    self.frame = None
-                release_capture(self.cap)               # exclusive: pauses FFmpeg reads
-                time.sleep(min(15.0, 2.0 * fails))      # back off hard — a dead camera retries rarely
-                self.cap = self._open()
-                continue
-            fails = 0
-            with self.lock:
-                self.frame = f
+                    self.frame = f
+        finally:
+            # Tear the device down HERE, on the same thread that reads it. macOS
+            # webcams (AVFoundation) read WITHOUT the capture lock (so a dead
+            # network camera can't freeze a live webcam), which means a release
+            # from another thread can land mid-read — OpenCV then messages a
+            # freed CaptureDelegate and the whole app segfaults. That's exactly
+            # what happened when the last camera was deleted (stop() released
+            # from the caller's thread). Releasing as the reader exits keeps
+            # read() and release() strictly sequential on one thread.
+            try:
+                release_capture(self.cap)
+            except Exception:
+                pass
+            self.cap = None
 
     def read(self):
         with self.lock:
             return None if self.frame is None else self.frame.copy()
 
     def stop(self):
+        # Only signal. The reader thread releases the capture as it exits, so
+        # read() and release() are never concurrent (see _reader's finally) —
+        # cross-thread release is what crashed AVFoundation webcams.
         self.running = False
-        try:
-            release_capture(self.cap)               # exclusive: pauses reads
-        except Exception:
-            pass
 
 
 streams = {}                       # source -> {"stream": CameraStream, "refs": set(camera_ids)}
@@ -1834,7 +1848,7 @@ def api_settings(request: Request):
 
 # ---- Updates --------------------------------------------------------------
 # Bump this on every release (it's what Check for updates compares against).
-VIGIL_VERSION = "1.2.2"
+VIGIL_VERSION = "1.2.3"
 _UPDATE_REPO = "Param077s/vigil"
 
 

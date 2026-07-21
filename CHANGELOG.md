@@ -2,6 +2,13 @@
 
 All notable changes to Vigil. Dates are the release date.
 
+## 1.2.3
+- **Fixed a crash when removing cameras** — deleting a camera (or pausing/
+  re-pointing one) could crash Vigil on macOS: the webcam device was being
+  torn down on one thread while its reader was still grabbing a frame on
+  another, which segfaults deep inside the camera library. The capture is now
+  always closed on the same thread that reads it, so this can't happen.
+
 ## 1.2.2
 - **One-click background updates** — clicking Download now fetches the new
   version in the background while you keep working; when it's ready Vigil says
