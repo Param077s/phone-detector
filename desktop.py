@@ -280,10 +280,14 @@ def _boot(window):
         vigil._updater.on_restart = lambda: (_save_geometry(), os._exit(0))
         _js(window, "vigilSetup.set(3, null, 'Optimizing performance…')")
 
-        # Start the existing FastAPI app, bound to loopback only.
+        # Bind all interfaces so a phone on the SAME Wi-Fi can open the live
+        # wall ("Watch on your phone"). Every route is still login-gated and
+        # LAN logins are rate-limited; the app window itself uses localhost.
+        # macOS shows a one-time "accept incoming connections?" prompt — allow it.
         _js(window, "vigilSetup.set(4, null, 'Finalizing setup…')")
+        os.environ["VIGIL_PORT"] = str(PORT)
         import uvicorn
-        config = uvicorn.Config(vigil.app, host="127.0.0.1", port=PORT,
+        config = uvicorn.Config(vigil.app, host="0.0.0.0", port=PORT,
                                 log_level="warning", access_log=False)
         server = uvicorn.Server(config)
         threading.Thread(target=server.run, daemon=True).start()

@@ -321,6 +321,56 @@ svg[viewBox="0 0 24 24"] { width: 16px; height: 16px; flex: none; }
 .content__inner { padding: var(--edge); max-width: 1480px; margin: 0 auto; }
 .content--flush { padding: 0; }
 
+/* ==========================================================================
+   MOBILE  —  phones (teachers watching over Wi-Fi). The sidebar becomes an
+   off-canvas drawer; the topbar + content take the full width.
+   ========================================================================== */
+.nav-scrim { display: none; }
+@media (max-width: 720px) {
+  .app,
+  :root.is-navrail .app { grid-template-columns: 1fr; }        /* single column */
+  .topbar { grid-column: 1; padding-left: var(--s3); padding-right: var(--s3); }
+  .content { grid-column: 1; }
+  .content__inner { padding: var(--s3); }
+
+  /* Sidebar → drawer that slides over the content */
+  .nav,
+  :root.is-navrail .nav {
+    position: fixed; top: 0; left: 0; bottom: 0;
+    width: min(288px, 84vw);
+    padding: var(--s4) var(--s3) var(--s3);
+    transform: translateX(-100%);
+    transition: transform var(--t-glide) var(--ease-in-out);
+    box-shadow: var(--shadow-3); z-index: var(--z-modal);
+  }
+  :root.is-navopen .nav { transform: none; }
+  .nav__resize { display: none; }
+
+  /* Force full labels in the drawer even if desktop left it collapsed to a rail */
+  :root.is-navrail .nav__brand-name,
+  :root.is-navrail .nav__section,
+  :root.is-navrail .nav__item span,
+  :root.is-navrail .nav__badge,
+  :root.is-navrail .nav__update span,
+  :root.is-navrail .nav__user-meta { display: revert; }
+  :root.is-navrail .nav__item { width: auto; height: auto; justify-content: flex-start; padding: var(--s2) var(--s3); }
+
+  /* Backdrop behind the open drawer */
+  .nav-scrim {
+    display: block; position: fixed; inset: 0; background: rgba(0,0,0,.5);
+    opacity: 0; pointer-events: none; z-index: calc(var(--z-modal) - 1);
+    transition: opacity var(--t) var(--ease);
+  }
+  :root.is-navopen .nav-scrim { opacity: 1; pointer-events: auto; }
+
+  /* Compact topbar: drop the label + clock, shrink search to an icon */
+  .topbar__title { font-size: var(--fs-md); margin-left: var(--s1); }
+  .topbar__clock { display: none; }
+  .topbar__search span:not(.kbd) { display: none; }
+  .topbar__search .kbd { display: none; }
+  .topbar__search { min-width: 0; padding: 0 var(--s2); }
+}
+
 /* View entrance — content glides in, sections stagger */
 @keyframes rise { from { opacity: 0; transform: translateY(10px); } }
 .content > * { animation: rise var(--t-glide) var(--ease) backwards; }
@@ -423,6 +473,29 @@ svg[viewBox="0 0 24 24"] { width: 16px; height: 16px; flex: none; }
 }
 .toggle input:checked + .toggle__track { background: var(--accent); border-color: transparent; }
 .toggle input:checked + .toggle__track::after { transform: translateX(16px); background: #fff; }
+
+/* "Watch on your phone" share modal */
+.modal--phone { max-width: 420px; }
+.phone-share { display: flex; flex-direction: column; align-items: center; gap: var(--s4); text-align: center; }
+.phone-share__loading { display: flex; flex-direction: column; align-items: center; gap: var(--s3); padding: var(--s6) 0; color: var(--text-3); }
+.phone-share__loading svg { width: 32px; height: 32px; opacity: .6; }
+.phone-share__qr {
+  background: #fff; padding: 14px; border-radius: var(--r-lg);
+  box-shadow: var(--shadow-2); line-height: 0;
+}
+.phone-share__qr img { display: block; width: 220px; height: 220px; image-rendering: pixelated; }
+.phone-share__noqr { width: 220px; height: 220px; display: flex; align-items: center; justify-content: center; color: var(--text-4); }
+.phone-share__steps { text-align: left; margin: 0; padding-left: var(--s5); display: flex; flex-direction: column; gap: var(--s2); color: var(--text-2); align-self: stretch; }
+.phone-share__steps b { color: var(--text); }
+.phone-share__url {
+  display: flex; align-items: center; gap: var(--s2); align-self: stretch;
+  padding: var(--s2) var(--s2) var(--s2) var(--s3); border-radius: var(--r-md);
+  background: var(--surface-2); border: 1px solid var(--border);
+}
+.phone-share__url .mono { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--fs-sm); }
+.phone-share__url .btn { flex: none; }
+.phone-share--warn { flex-direction: row; align-items: flex-start; gap: var(--s3); text-align: left; padding: var(--s2) 0; }
+.phone-share--warn svg { width: 22px; height: 22px; color: var(--warn); flex: none; margin-top: 2px; }
 
 /* Update download progress bar */
 .progress {

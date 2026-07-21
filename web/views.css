@@ -59,6 +59,8 @@
 .grid-cams[data-density="dense"]       { --cols: 6; gap: var(--s2); }
 @media (max-width: 1200px) { .grid-cams[data-density="dense"] { --cols: 4; } .grid-cams[data-density="compact"] { --cols: 3; } }
 @media (max-width: 820px)  { .grid-cams { --cols: 2 !important; } }
+/* Phones: one big tile per row — teachers are watching, not managing a wall */
+@media (max-width: 560px)  { .grid-cams { --cols: 1 !important; gap: var(--s3) !important; } }
 
 /* Camera tile — a luminous panel floating on the stage */
 .cam {

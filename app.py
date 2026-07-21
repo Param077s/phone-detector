@@ -40,6 +40,9 @@ import secrets
 import sqlite3
 import threading
 import queue
+import socket
+import io
+import base64
 from datetime import datetime
 
 import cv2
@@ -47,6 +50,7 @@ import numpy as np
 from ultralytics import YOLO
 import vlm                                   # optional AI "second look" (Ollama)
 import updater                               # background self-update (packaged macOS app)
+import qrcode                                # "watch on your phone" QR code (LAN sharing)
 from fastapi import FastAPI, Response, Request, Form, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool
@@ -1846,9 +1850,50 @@ def api_settings(request: Request):
     return current_settings()
 
 
+# ---- "Watch on your phone" (LAN sharing) ----------------------------------
+def _lan_ip():
+    """This machine's primary LAN IPv4, so a phone on the same Wi-Fi can reach
+    Vigil. No packet is actually sent — connecting a UDP socket just makes the
+    OS pick the interface it WOULD use to reach the internet."""
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+    except Exception:
+        try:
+            ip = socket.gethostbyname(socket.gethostname())
+        except Exception:
+            ip = "127.0.0.1"
+    finally:
+        s.close()
+    return ip
+
+
+@app.get("/api/lan-info")
+def api_lan_info(request: Request):
+    """The address + QR a teacher scans to open the live wall on their phone.
+    Same-Wi-Fi only; login still required. `on_lan` is False when we couldn't
+    find a real network address (so the UI can explain instead of showing a
+    dead link)."""
+    ip = _lan_ip()
+    # The port we're actually served on = the port the client reached us on.
+    port = request.url.port or int(os.environ.get("VIGIL_PORT", "8000") or 8000)
+    url = "http://%s:%d/app/" % (ip, port)
+    qr = ""
+    try:
+        img = qrcode.make(url)
+        buf = io.BytesIO()
+        img.save(buf, format="PNG")
+        qr = "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
+    except Exception:
+        pass
+    return {"ip": ip, "port": port, "url": url, "qr": qr,
+            "on_lan": not ip.startswith("127.")}
+
+
 # ---- Updates --------------------------------------------------------------
 # Bump this on every release (it's what Check for updates compares against).
-VIGIL_VERSION = "1.2.3"
+VIGIL_VERSION = "1.2.4"
 _UPDATE_REPO = "Param077s/vigil"
 
 

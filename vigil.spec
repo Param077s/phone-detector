@@ -28,7 +28,7 @@ VERSION = os.environ.get("VIGIL_VERSION") or _vigil_version()
 
 datas = [("web", "web")]
 binaries = []
-hiddenimports = ["app", "mac_native"] if sys.platform == "darwin" else ["app"]
+hiddenimports = (["app", "mac_native"] if sys.platform == "darwin" else ["app"]) + ["qrcode"]
 
 # Ship a default model inside the bundle so the first launch works offline.
 for _m in ("yolo11m.pt", "yolo11n.pt"):
@@ -36,7 +36,7 @@ for _m in ("yolo11m.pt", "yolo11n.pt"):
         datas.append((_m, "."))
 
 # Pull in everything these heavy packages need (data files + submodules).
-for _pkg in ("ultralytics", "torch", "torchvision", "cv2", "webview"):
+for _pkg in ("ultralytics", "torch", "torchvision", "cv2", "webview", "qrcode"):
     try:
         _d, _b, _h = collect_all(_pkg)
         datas += _d

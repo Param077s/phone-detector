@@ -28,6 +28,7 @@ const P = {
   minimize: 'M8 3v3a2 2 0 0 1-2 2H3M21 8h-3a2 2 0 0 1-2-2V3M16 21v-3a2 2 0 0 1 2-2h3M3 16h3a2 2 0 0 1 2 2v3',
   pause:    'M6 4h4v16H6zM14 4h4v16h-4z',
   play:     'M6 3l14 9-14 9V3z',
+  phone:    'M7 2h10a2 2 0 0 1 2 2v16a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2zM11 18h2',
   edit:     'M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z',
   trash:    'M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6M10 11v6M14 11v6',
   x:        'M18 6 6 18M6 6l12 12',
@@ -262,6 +263,9 @@ const api = {
   updateCheck:  () => MOCK
     ? Promise.resolve({ current: "1.2.0", latest: "1.3.0", url: "https://github.com/Param077s/vigil/releases/latest", update_available: true, can_self_update: true })
     : api._get("/api/update-check"),
+  lanInfo:      () => MOCK
+    ? Promise.resolve({ ip: "192.168.1.42", port: 8000, url: "http://192.168.1.42:8000/app/", qr: "", on_lan: true })
+    : api._get("/api/lan-info"),
   updateState:  () => api._get("/api/update/state"),
   updateStart:  () => fetch("/api/update/start", { method: "POST" }).then(r => r.json()),
   updateApply:  (relaunch) => fetch("/api/update/apply", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ relaunch }) }).then(r => r.json()),
@@ -917,6 +921,46 @@ const BulkSchedule = {
                            : `Detection hours cleared on ${cams.length} camera${cams.length > 1 ? "s" : ""}`, { kind: "ok" });
         close(); Live.exitSelect(); Live.refresh(true);
       } catch { saveBtn.disabled = false; toast("Could not update every camera", { kind: "danger" }); }
+    };
+  },
+};
+
+/* =========================================================================
+   6b. WATCH ON YOUR PHONE  (LAN share — QR + link a teacher scans to open the
+   live wall on their phone; same Wi-Fi, still login-gated)
+   ========================================================================= */
+const PhoneAccess = {
+  async open() {
+    const node = h(`<div class="modal modal--phone" role="dialog" aria-modal="true">
+      <div class="modal__head"><div class="modal__title">${icon("phone")} Watch on your phone</div><div class="spacer"></div><button class="btn btn--icon btn--ghost" data-x>${icon("x")}</button></div>
+      <div class="modal__body" id="phoneBody"><div class="phone-share__loading">${icon("phone")}<span>Finding this Mac on the network…</span></div></div></div>`);
+    const close = openModal(node);
+    $$("[data-x]", node).forEach(b => b.onclick = close);
+    let d;
+    try { d = await api.lanInfo(); } catch { d = null; }
+    const body = $("#phoneBody", node);
+    if (!d || !d.on_lan) {
+      body.innerHTML = `<div class="phone-share phone-share--warn">${icon("wifioff")}
+        <div><div class="strong">This Mac isn't on a network yet</div>
+        <div class="muted">Connect it to Wi‑Fi, then reopen this. Teachers must be on the same Wi‑Fi to watch.</div></div></div>`;
+      return;
+    }
+    body.innerHTML = `<div class="phone-share">
+        <div class="phone-share__qr">${d.qr
+          ? `<img src="${d.qr}" alt="Scan to open Vigil on your phone" width="220" height="220">`
+          : `<div class="phone-share__noqr">${icon("phone")}</div>`}</div>
+        <ol class="phone-share__steps">
+          <li>Join the phone to the <b>same Wi‑Fi</b> as this Mac.</li>
+          <li><b>Scan the code</b> with the phone camera (or open the link).</li>
+          <li>Log in with a Vigil account to watch the live wall.</li>
+        </ol>
+        <div class="phone-share__url"><span class="mono" title="${esc(d.url)}">${esc(d.url)}</span>
+          <button class="btn btn--sm" id="phoneCopy">${icon("share")} Copy link</button></div>
+        <p class="hint">Anyone on this Wi‑Fi with a login can watch. Some campus networks block device‑to‑device — if the link won't open, tell me and I'll set up an internet link.</p>
+      </div>`;
+    $("#phoneCopy", node).onclick = () => {
+      (navigator.clipboard?.writeText(d.url) || Promise.resolve()).then(
+        () => toast("Link copied", { kind: "ok" }), () => toast(d.url, { kind: "info" }));
     };
   },
 };
@@ -1608,13 +1652,17 @@ function shell() {
       <div><div class="topbar__title" id="tbTitle"></div></div>
       <div class="topbar__spacer"></div>
       <button class="topbar__search" id="cmdkBtn" title="Search Vigil" aria-label="Open command palette">${icon("search")}<span>Search Vigil…</span><span class="kbd">${/mac/i.test(navigator.platform) ? "⌘K" : "Ctrl K"}</span></button>
+      ${isAdmin() ? `<button class="btn btn--icon btn--ghost btn--sm" id="phoneBtn" title="Watch on your phone" aria-label="Watch on your phone">${icon("phone")}</button>` : ""}
       <button class="btn btn--icon btn--ghost btn--sm bell" id="bellBtn" title="Notifications" aria-label="Notifications">${icon("bell")}<span class="bell__count hidden" id="bellCount">0</span></button>
       <button class="btn btn--icon btn--ghost btn--sm" id="themeBtn" title="Toggle theme" aria-label="Toggle light or dark theme">${icon(document.documentElement.dataset.theme==="dark"?"sun":"moon")}</button>
       <span class="topbar__clock tnum" id="clock"></span>
     </header>
-    <main class="content" id="view" tabindex="-1"></main>`;
+    <main class="content" id="view" tabindex="-1"></main>
+    <div class="nav-scrim" id="navScrim"></div>`;
   $("#skipLink").onclick = (e) => { e.preventDefault(); const v = $("#view"); if (v) { v.focus(); v.scrollIntoView(); } };
-  $$("[data-route]").forEach(n => { n.onclick = () => go(n.dataset.route); n.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); go(n.dataset.route); } }; });
+  // On phones a nav tap navigates AND closes the drawer.
+  $$("[data-route]").forEach(n => { const goRoute = () => { go(n.dataset.route); closeNav(); }; n.onclick = goRoute; n.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); goRoute(); } }; });
+  $("#navScrim").onclick = closeNav;
   $("#navUser").onclick = (e) => { const r = e.currentTarget.getBoundingClientRect();
     contextMenu(r.left, r.top - 8, [
       { label: state.me.username, header: true },
@@ -1628,6 +1676,7 @@ function shell() {
     $("#themeBtn").innerHTML = icon(document.documentElement.dataset.theme === "dark" ? "sun" : "moon");
   };
   $("#bellBtn").onclick = (e) => { e.stopPropagation(); Notify.openPanel($("#bellBtn")); };
+  { const pb = $("#phoneBtn"); if (pb) pb.onclick = () => PhoneAccess.open(); }
   $("#cmdkBtn").onclick = () => Palette.open();
   $("#navToggle").onclick = toggleSidebar;
   navResizer($("#navResize"));
@@ -1686,8 +1735,14 @@ function applyNav() {
   const tb = $("#navToggle");
   if (tb) tb.setAttribute("aria-label", state.navRail ? "Expand sidebar" : "Collapse sidebar");
 }
+const isMobile = () => window.matchMedia("(max-width: 720px)").matches;
+function closeNav() { document.documentElement.classList.remove("is-navopen"); }
 function toggleSidebar() {
-  state.navRail = !state.navRail;
+  if (isMobile()) {                       // phones: the toggle opens/closes the drawer
+    document.documentElement.classList.toggle("is-navopen");
+    return;
+  }
+  state.navRail = !state.navRail;         // desktop: collapse to an icon rail
   localStorage.setItem("vigil.navRail", state.navRail ? "1" : "0");
   applyNav();
 }
@@ -1765,6 +1820,7 @@ const Palette = {
     out.push({ label: "Go to Settings", icon: "settings", hint: "4", run: () => go("settings") });
     if (admin) out.push(
       { label: "Add camera", icon: "plus", keywords: "new camera", run: () => { go("live"); setTimeout(() => CameraForm.open(), 60); } },
+      { label: "Watch on your phone", icon: "phone", keywords: "mobile qr teacher share lan wifi", run: () => PhoneAccess.open() },
       { label: "Pause all cameras", icon: "pause", keywords: "stop", run: () => api.pauseAll().then(() => { toast("All cameras paused", { kind: "ok" }); if (state.route === "live") Live.refresh(true); }) },
       { label: "Resume all cameras", icon: "play", keywords: "start", run: () => api.resumeAll().then(() => { toast("All cameras resumed", { kind: "ok" }); if (state.route === "live") Live.refresh(true); }) },
     );
@@ -1884,6 +1940,6 @@ async function boot() {
   Updates.start();              // automatic update notice (chip + one toast)
 }
 // Dev hook — only exposed in mock mode (?mock=1), never in the real app.
-if (MOCK) window.__vigil = { recoverNode, RECOVER, Live, Evidence, Settings, Notify, Updates, Palette, ShortcutsHelp, toast, go, state };
+if (MOCK) window.__vigil = { recoverNode, RECOVER, Live, Evidence, Settings, Notify, Updates, PhoneAccess, Palette, ShortcutsHelp, toast, go, state };
 boot();
 })();

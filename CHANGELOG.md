@@ -2,6 +2,16 @@
 
 All notable changes to Vigil. Dates are the release date.
 
+## 1.2.4
+- **Watch on your phone** — a new phone button (top bar) shows a QR code and
+  link that teachers scan to open the live camera wall on their phone. They
+  join the same Wi‑Fi, scan, and log in — detection keeps running on the Mac;
+  the phone is just a viewer. (macOS will ask once to allow incoming network
+  connections — click Allow.) Alerts to phones also still work via Telegram.
+- **A real mobile layout** — on phones the sidebar becomes a slide‑in drawer,
+  the top bar goes compact, and the camera wall shows one big tile per row, so
+  Vigil is genuinely usable on a phone screen instead of a shrunk‑down desktop.
+
 ## 1.2.3
 - **Fixed a crash when removing cameras** — deleting a camera (or pausing/
   re-pointing one) could crash Vigil on macOS: the webcam device was being
