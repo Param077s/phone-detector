@@ -424,6 +424,16 @@ svg[viewBox="0 0 24 24"] { width: 16px; height: 16px; flex: none; }
 .toggle input:checked + .toggle__track { background: var(--accent); border-color: transparent; }
 .toggle input:checked + .toggle__track::after { transform: translateX(16px); background: #fff; }
 
+/* Update download progress bar */
+.progress {
+  height: 7px; border-radius: var(--r-full); background: var(--surface-3);
+  overflow: hidden; margin: var(--s2) 0;
+}
+.progress__bar {
+  height: 100%; border-radius: var(--r-full); background: var(--accent);
+  width: 0; transition: width var(--t) var(--ease);
+}
+
 /* Detection-schedule editor (camera form) */
 .sched-row { display: flex; align-items: flex-start; gap: var(--s4); }
 .sched-row__text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }

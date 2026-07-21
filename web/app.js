@@ -260,8 +260,11 @@ const api = {
   users:        () => MOCK ? Promise.resolve(MOCKDATA.users)      : api._get("/api/users"),
   settings:     () => MOCK ? Promise.resolve(MOCKDATA.settings)   : api._get("/api/settings"),
   updateCheck:  () => MOCK
-    ? Promise.resolve({ current: "1.2.0", latest: "1.3.0", url: "https://github.com/Param077s/vigil/releases/latest", update_available: true })
+    ? Promise.resolve({ current: "1.2.0", latest: "1.3.0", url: "https://github.com/Param077s/vigil/releases/latest", update_available: true, can_self_update: true })
     : api._get("/api/update-check"),
+  updateState:  () => api._get("/api/update/state"),
+  updateStart:  () => fetch("/api/update/start", { method: "POST" }).then(r => r.json()),
+  updateApply:  (relaunch) => fetch("/api/update/apply", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ relaunch }) }).then(r => r.json()),
 
   addCamera: (b) => fetch("/cameras", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(b) }).then(r => r.json()),
   editCamera: (id, b) => fetch("/cameras/" + id, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(b) }).then(r => r.json()),
@@ -1327,13 +1330,37 @@ const Settings = {
     box.innerHTML = "";
     try {
       let d;
-      if (MOCK) { await new Promise(r => setTimeout(r, 500)); d = { current: "1.1.1", latest: "1.2.0", update_available: true, url: "https://github.com/Param077s/vigil/releases/latest" }; }
+      if (MOCK) { await new Promise(r => setTimeout(r, 500)); d = { current: "1.1.1", latest: "1.2.0", update_available: true, can_self_update: true, url: "https://github.com/Param077s/vigil/releases/latest" }; }
       else { const r = await fetch("/api/update-check"); d = await r.json(); if (!r.ok) throw new Error(d.error || "failed"); }
       if (d.update_available) {
-        box.innerHTML = `<div class="card" style="margin-top:var(--s4)"><div class="card__body row" style="justify-content:space-between;gap:var(--s4)">
-          <div><div class="strong">Update available — v${esc(d.latest)}</div><div class="muted" style="font-size:var(--fs-sm)">You're on v${esc(d.current)}.</div></div>
-          <button class="btn btn--primary" id="dlUpdate">${icon("download")} Download</button></div></div>`;
-        $("#dlUpdate").onclick = () => openExternal(d.url);
+        box.innerHTML = `<div class="card" style="margin-top:var(--s4)"><div class="card__body" id="updBody"></div></div>`;
+        const render = (s) => {
+          const body = $("#updBody"); if (!body) return;
+          if (s.state === "downloading") {
+            body.innerHTML = `<div><div class="strong">Downloading v${esc(d.latest)}…</div>
+              <div class="progress"><div class="progress__bar" style="width:${Math.round((s.progress || 0) * 100)}%"></div></div>
+              <div class="muted" style="font-size:var(--fs-sm)">Keep using Vigil — it installs when you restart.</div></div>`;
+          } else if (s.state === "ready") {
+            body.innerHTML = `<div class="row" style="justify-content:space-between;gap:var(--s4)">
+              <div><div class="strong" style="color:var(--ok)">${icon("check")} Update ready — v${esc(d.latest)}</div>
+                <div class="muted" style="font-size:var(--fs-sm)">Restart Vigil to finish. It reopens updated.</div></div>
+              <button class="btn btn--primary" id="updRestart">Restart now</button></div>`;
+            $("#updRestart").onclick = () => UpdateFlow.restart();
+          } else if (s.state === "error") {
+            body.innerHTML = `<div class="row" style="justify-content:space-between;gap:var(--s4)">
+              <div style="color:var(--danger)">${icon("alert")} <span>${esc(s.error || "Update failed.")}</span></div>
+              <button class="btn btn--sm" id="updRetry">Retry</button></div>`;
+            $("#updRetry").onclick = () => UpdateFlow.download(d);
+          } else {
+            body.innerHTML = `<div class="row" style="justify-content:space-between;gap:var(--s4)">
+              <div><div class="strong">Update available — v${esc(d.latest)}</div><div class="muted" style="font-size:var(--fs-sm)">You're on v${esc(d.current)}. ${d.can_self_update ? "Downloads in the background." : "Opens the download page."}</div></div>
+              <button class="btn btn--primary" id="dlUpdate">${icon("download")} ${d.can_self_update ? "Download" : "Get update"}</button></div>`;
+            $("#dlUpdate").onclick = () => UpdateFlow.download(d);
+          }
+        };
+        UpdateFlow.info = d;
+        Settings._updUnsub && Settings._updUnsub();
+        Settings._updUnsub = UpdateFlow.subscribe(render);
       } else {
         box.innerHTML = `<div class="row" style="margin-top:var(--s4);color:var(--ok)">${icon("check")} <span>You're on the latest version (v${esc(d.current)}).</span></div>`;
       }
@@ -1438,6 +1465,53 @@ const Notify = {
 };
 
 /* =========================================================================
+   9b. UPDATE FLOW  (Claude-Code style background self-update)
+   When the packaged app CAN self-update, "Download" fetches the new build in
+   the background while you keep working; when it's ready it says "Restart to
+   update", and the swap happens on the next quit. When it CAN'T (dev, plain
+   web, or an old build), it falls back to opening the release page. Both the
+   Settings panel and the sidebar chip drive and observe this one controller.
+   ========================================================================= */
+const UpdateFlow = {
+  info: null, last: { state: "idle", progress: 0 }, _poll: null, _subs: new Set(),
+  canSelf() { return !!(UpdateFlow.info && UpdateFlow.info.can_self_update); },
+  subscribe(fn) { UpdateFlow._subs.add(fn); try { fn(UpdateFlow.last); } catch {} return () => UpdateFlow._subs.delete(fn); },
+  _emit(s) { UpdateFlow.last = s; UpdateFlow._subs.forEach(fn => { try { fn(s); } catch {} }); },
+
+  /* User asked to get the update. Background-downloads if we can self-update;
+     otherwise opens the release page in the browser. */
+  download(info) {
+    UpdateFlow.info = info || UpdateFlow.info;
+    if (!UpdateFlow.info) return;
+    if (!UpdateFlow.canSelf()) { openExternal(UpdateFlow.info.url); return; }
+    if (UpdateFlow.last.state === "downloading" || UpdateFlow.last.state === "ready") return;
+    if (MOCK) return UpdateFlow._mock();
+    api.updateStart().then(s => { UpdateFlow._emit(s); UpdateFlow._startPoll(); }).catch(() => {});
+  },
+  _startPoll() {
+    if (UpdateFlow._poll) return;
+    UpdateFlow._poll = setInterval(async () => {
+      let s; try { s = await api.updateState(); } catch { return; }
+      UpdateFlow._emit(s);
+      if (s.state === "ready" || s.state === "error") { clearInterval(UpdateFlow._poll); UpdateFlow._poll = null; }
+    }, 1000);
+  },
+  restart() {
+    if (MOCK) { toast("Restarting to finish update…", { kind: "ok" }); return; }
+    api.updateApply(true).catch(() => {});
+    toast("Restarting to finish update…", { msg: "Vigil will reopen updated.", kind: "ok" });
+  },
+  _mock() {          // browser (?mock=1) simulation of a background download
+    let p = 0; UpdateFlow._emit({ state: "downloading", progress: 0 });
+    const t = setInterval(() => {
+      p += 0.17;
+      if (p >= 1) { clearInterval(t); UpdateFlow._emit({ state: "ready", progress: 1, version: (UpdateFlow.info || {}).latest }); }
+      else UpdateFlow._emit({ state: "downloading", progress: p });
+    }, 450);
+  },
+};
+
+/* =========================================================================
    9c. UPDATES  (automatic — publish a release and every running app learns)
    The app quietly asks its own server (which asks GitHub, cached 1h) shortly
    after launch and every few hours. A new version paints a sidebar chip and
@@ -1456,20 +1530,37 @@ const Updates = {
     if (localStorage.getItem("vigil.skipVer") === d.latest) return;
     const fresh = !Updates.info || Updates.info.latest !== d.latest;
     Updates.info = d;
+    UpdateFlow.info = d;
     Updates.paint();
     if (fresh && sessionStorage.getItem("vigil.updateToast") !== d.latest) {
       sessionStorage.setItem("vigil.updateToast", d.latest);
       toast(`Vigil ${d.latest} is available`, {
-        msg: "Click to download the update", kind: "info", timeout: 9000,
-        onClick: () => openExternal(d.url),
+        msg: d.can_self_update ? "Click to download it in the background" : "Click to download the update",
+        kind: "info", timeout: 9000,
+        onClick: () => Updates.act(),
       });
     }
+  },
+  // Chip / toast click: download if idle, restart if a build is staged.
+  act() {
+    const s = UpdateFlow.last;
+    if (s.state === "ready") UpdateFlow.restart();
+    else if (s.state !== "downloading") UpdateFlow.download(Updates.info);
   },
   paint() {
     const chip = $("#updateChip");
     if (!chip || !Updates.info) return;
-    $("#updateChipLabel", chip).textContent = `Update ${Updates.info.latest}`;
     chip.classList.remove("hidden");
+    if (!Updates._sub) Updates._sub = UpdateFlow.subscribe(() => Updates._paintChip());
+    Updates._paintChip();
+  },
+  _paintChip() {
+    const chip = $("#updateChip"); if (!chip || !Updates.info) return;
+    const label = $("#updateChipLabel", chip); if (!label) return;
+    const s = UpdateFlow.last;
+    if (s.state === "downloading") label.textContent = `Downloading ${Math.round((s.progress || 0) * 100)}%`;
+    else if (s.state === "ready") label.textContent = "Restart to update";
+    else label.textContent = `Update ${Updates.info.latest}`;
   },
   skip() {
     if (Updates.info) localStorage.setItem("vigil.skipVer", Updates.info.latest);
@@ -1542,8 +1633,8 @@ function shell() {
   navResizer($("#navResize"));
   applyNav();
   const chip = $("#updateChip");
-  chip.onclick = () => { if (Updates.info) openExternal(Updates.info.url); };
-  chip.onkeydown = (e) => { if (e.key === "Enter" && Updates.info) openExternal(Updates.info.url); };
+  chip.onclick = () => { if (Updates.info) Updates.act(); };
+  chip.onkeydown = (e) => { if (e.key === "Enter" && Updates.info) Updates.act(); };
   $("#updateSkip").onclick = (e) => { e.stopPropagation(); Updates.skip(); };
   Updates.paint();                 // repaint if a check already found one
   Notify.paintBell();

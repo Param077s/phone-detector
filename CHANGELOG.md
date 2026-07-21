@@ -2,6 +2,14 @@
 
 All notable changes to Vigil. Dates are the release date.
 
+## 1.2.2
+- **One-click background updates** — clicking Download now fetches the new
+  version in the background while you keep working; when it's ready Vigil says
+  "Restart to update", and it installs itself the next time you quit — the app
+  reopens on the new version. No more downloading a disk image and dragging it
+  to Applications by hand. (macOS; other platforms still open the download
+  page.)
+
 ## 1.2.1
 - **Detection schedules** — a camera can be set to only run detection during
   set hours (e.g. Exam Hall 1, 10:00–13:00, weekdays) instead of always-on.

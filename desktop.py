@@ -45,6 +45,12 @@ if FROZEN:
     os.makedirs(DATA, exist_ok=True)
     os.environ["VIGIL_DATA_DIR"] = DATA
     os.environ["VIGIL_WEB_DIR"] = os.path.join(RES, "web")
+    # Tell the server which installed Vigil.app to self-update (background
+    # download + swap-on-quit). sys.executable is …/Vigil.app/Contents/MacOS/Vigil.
+    _exe = os.path.abspath(sys.executable)
+    _i = _exe.find(".app" + os.sep + "Contents" + os.sep + "MacOS")
+    if _i != -1:
+        os.environ["VIGIL_APP_PATH"] = _exe[: _i + len(".app")]
     for _m in ("yolo11m.pt", "yolo11n.pt"):        # bundled default model, if present
         _p = os.path.join(RES, _m)
         if os.path.exists(_p):
@@ -270,6 +276,8 @@ def _boot(window):
         # Importing app.py builds the YOLO model — the slow first-run step.
         _js(window, "vigilSetup.set(2, null, 'Verifying files…')")
         import app as vigil
+        # "Restart now" (web/app.js) → quit so the update helper can swap + reopen.
+        vigil._updater.on_restart = lambda: (_save_geometry(), os._exit(0))
         _js(window, "vigilSetup.set(3, null, 'Optimizing performance…')")
 
         # Start the existing FastAPI app, bound to loopback only.
@@ -344,6 +352,16 @@ class _WinControls:
             pass
 
 
+def _apply_pending_update():
+    """If a background-downloaded update is staged, spawn the detached helper
+    that waits for us to exit and swaps the bundle in place. Idempotent."""
+    try:
+        import app as vigil
+        vigil._updater.apply(relaunch=False)
+    except Exception:
+        pass
+
+
 def _install_quit_hook():
     """Make Cmd-Q (and Dock ▸ Quit) hard-exit like window-close does.
 
@@ -359,6 +377,7 @@ def _install_quit_hook():
         from webview.platforms.cocoa import BrowserView
 
         def applicationShouldTerminate_(self, app):
+            _apply_pending_update()          # swap-on-quit if an update is staged
             os._exit(0)
 
         BrowserView.AppDelegate.applicationShouldTerminate_ = applicationShouldTerminate_

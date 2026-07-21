@@ -46,6 +46,7 @@ import cv2
 import numpy as np
 from ultralytics import YOLO
 import vlm                                   # optional AI "second look" (Ollama)
+import updater                               # background self-update (packaged macOS app)
 from fastapi import FastAPI, Response, Request, Form, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool
@@ -1833,7 +1834,7 @@ def api_settings(request: Request):
 
 # ---- Updates --------------------------------------------------------------
 # Bump this on every release (it's what Check for updates compares against).
-VIGIL_VERSION = "1.2.1"
+VIGIL_VERSION = "1.2.2"
 _UPDATE_REPO = "Param077s/vigil"
 
 
@@ -1873,9 +1874,41 @@ def api_update_check():
     latest = (data.get("tag_name") or "").lstrip("vV")
     url = data.get("html_url") or "https://github.com/%s/releases/latest" % _UPDATE_REPO
     out = {"current": VIGIL_VERSION, "latest": latest, "url": url,
-           "update_available": bool(latest) and _version_tuple(latest) > _version_tuple(VIGIL_VERSION)}
+           "update_available": bool(latest) and _version_tuple(latest) > _version_tuple(VIGIL_VERSION),
+           "can_self_update": _updater.supported()}
     _update_cache["at"], _update_cache["data"] = time.time(), out
     return out
+
+
+# Background self-update (packaged macOS app only). VIGIL_APP_PATH is set by
+# desktop.py so we know which Vigil.app to replace; otherwise supported() is
+# False and the UI keeps opening the release page in the browser.
+_updater = updater.Updater()
+_updater.configure(_DATA_DIR, VIGIL_VERSION,
+                   app_path=os.environ.get("VIGIL_APP_PATH", "").strip() or None)
+
+
+@app.get("/api/update/state")
+def api_update_state():
+    return _updater.snapshot()
+
+
+@app.post("/api/update/start")
+def api_update_start():
+    """Begin downloading + staging the latest release in the background."""
+    return _updater.start()
+
+
+@app.post("/api/update/apply")
+async def api_update_apply(request: Request):
+    """Swap in a staged update. relaunch=True quits Vigil and reopens on the
+    new version; otherwise the swap just happens on the next quit."""
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    ok = _updater.apply(relaunch=bool(body.get("relaunch")))
+    return {"ok": ok, **_updater.snapshot()}
 
 
 # Serve the redesigned app. html=True makes /app -> web/index.html; hash
