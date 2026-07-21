@@ -132,6 +132,27 @@ function sourceLabel(s) {
   return "Custom source";
 }
 
+/* Detection schedule helpers. A camera's schedule is {start,end,days} (days is
+   0=Mon..6=Sun, empty = every day) or absent (always on). */
+const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+function schedule(c) {
+  const s = c && c.schedule;
+  if (!s || !s.start || !s.end) return null;
+  return { start: s.start, end: s.end, days: Array.isArray(s.days) ? s.days : [] };
+}
+/* Short chip text, e.g. "10:00–13:00" or "10:00–13:00 · Mon–Fri". */
+function scheduleLabel(c, withDays = true) {
+  const s = schedule(c);
+  if (!s) return "";
+  let span = `${s.start}–${s.end}`;
+  if (!withDays || !s.days.length || s.days.length === 7) return span;
+  const d = [...s.days].sort((a, b) => a - b);
+  const contiguous = d.every((v, i) => i === 0 || v === d[i - 1] + 1);
+  const days = contiguous && d.length > 2 ? `${WEEKDAYS[d[0]]}–${WEEKDAYS[d[d.length - 1]]}`
+                                          : d.map(i => WEEKDAYS[i]).join(", ");
+  return `${span} · ${days}`;
+}
+
 /* Loading skeletons — shown immediately, replaced when data arrives. */
 const skel = {
   tiles: (n = 6) => Array.from({ length: n }, () => `<div class="cam skeleton" style="aspect-ratio:16/9;border:none"></div>`).join(""),
@@ -238,6 +259,9 @@ const api = {
   evidence:  (q = "") => MOCK ? Promise.resolve(MOCKDATA.evidence): api._get("/evidence/list" + q),
   users:        () => MOCK ? Promise.resolve(MOCKDATA.users)      : api._get("/api/users"),
   settings:     () => MOCK ? Promise.resolve(MOCKDATA.settings)   : api._get("/api/settings"),
+  updateCheck:  () => MOCK
+    ? Promise.resolve({ current: "1.2.0", latest: "1.3.0", url: "https://github.com/Param077s/vigil/releases/latest", update_available: true })
+    : api._get("/api/update-check"),
 
   addCamera: (b) => fetch("/cameras", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(b) }).then(r => r.json()),
   editCamera: (id, b) => fetch("/cameras/" + id, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(b) }).then(r => r.json()),
@@ -256,13 +280,13 @@ const MOCKDATA = {
   stats: { cameras: 6, alerts_today: 4, pending: 2 },
   cameras: [
     { id: "a1", label: "Main Entrance", location: "Building A · Lobby", source: "rtsp://…", enabled: true },
-    { id: "a2", label: "Exam Hall 1", location: "Building A · Floor 2", source: "rtsp://…", enabled: true },
-    { id: "a3", label: "Exam Hall 2", location: "Building A · Floor 2", source: "rtsp://…", enabled: true },
+    { id: "a2", label: "Exam Hall 1", location: "Building A · Floor 2", source: "rtsp://…", enabled: true, schedule: { start: "10:00", end: "13:00", days: [0,1,2,3,4] } },
+    { id: "a3", label: "Exam Hall 2", location: "Building A · Floor 2", source: "rtsp://…", enabled: true, schedule: { start: "14:00", end: "16:30", days: [] } },
     { id: "a4", label: "Corridor West", location: "Building B", source: "0", enabled: true },
     { id: "a5", label: "Library", location: "Building C · Ground", source: "rtsp://…", enabled: false },
     { id: "a6", label: "Parking Deck", location: "Exterior", source: "rtsp://…", enabled: true },
   ],
-  status: { a1: "online", a2: "online", a3: "online", a4: "offline", a5: "paused", a6: "online" },
+  status: { a1: "online", a2: "online", a3: "scheduled", a4: "offline", a5: "paused", a6: "online" },
   evidence: [
     { id: 21, time: "14:32:08", date: new Date().toISOString().slice(0,10), confidence: 0.91, camera: "Exam Hall 1", status: "pending", thing: "Phone", image: "", description: "A person holding a phone near desk, screen visible.", reviewed_by: "", reviewed_at: "" },
     { id: 20, time: "14:18:44", date: new Date().toISOString().slice(0,10), confidence: 0.78, camera: "Exam Hall 2", status: "pending", thing: "Phone", image: "", description: "", reviewed_by: "", reviewed_at: "" },
@@ -360,12 +384,22 @@ const Live = {
         <div class="search" style="max-width:280px"><span>${icon("search")}</span>
           <input id="camSearch" placeholder="Search cameras…" autocomplete="off"></div>
         <div class="spacer"></div>
-        ${isAdmin() ? `<button class="btn" id="pauseAll">${icon("pause")} Pause all</button>
+        ${isAdmin() ? `<button class="btn" id="selectCams">${icon("check")} Select</button>
+        <button class="btn" id="pauseAll">${icon("pause")} Pause all</button>
         <button class="btn btn--primary" id="addCam">${icon("plus")} Add camera</button>` : ""}
       </div>
       <div class="live">
         <div class="ribbon" id="stats"></div>
         <div class="grid-cams" id="camGrid" data-density="${state.density}">${skel.tiles(6)}</div>
+      </div>
+      <div class="selbar hidden" id="selBar">
+        <span class="selbar__count" id="selCount">0 selected</span>
+        <div class="spacer"></div>
+        <button class="btn btn--sm" id="selAll">Select all</button>
+        <button class="btn btn--sm" id="selPause">${icon("pause")} Pause</button>
+        <button class="btn btn--sm" id="selClearSched">${icon("clock")} Clear hours</button>
+        <button class="btn btn--sm btn--primary" id="selSetSched">${icon("clock")} Set detection hours</button>
+        <button class="btn btn--sm btn--ghost" id="selDone">Done</button>
       </div>`;
 
     $("#density", root).onclick = (e) => { const b = e.target.closest("[data-d]"); if (!b) return;
@@ -376,13 +410,22 @@ const Live = {
     if (isAdmin()) {
       $("#addCam", root).onclick = () => CameraForm.open();
       $("#pauseAll", root).onclick = () => Live.togglePauseAll($("#pauseAll", root));
+      $("#selectCams", root).onclick = () => Live.selecting ? Live.exitSelect() : Live.enterSelect();
+      $("#selDone", root).onclick = () => Live.exitSelect();
+      $("#selAll", root).onclick = () => Live.selectAll();
+      $("#selPause", root).onclick = () => Live.bulkPause();
+      $("#selSetSched", root).onclick = () => Live.bulkSchedule();
+      $("#selClearSched", root).onclick = () => Live.bulkClearSchedule();
     }
+    Live.sel = new Set();           // ids selected while in select mode
+    Live.selecting = false;
 
     await Live.refresh(true);
     Live.pollTimer = setInterval(() => Live.refresh(false), 3000);
   },
 
-  destroy() { clearInterval(Live.pollTimer); Live.feeds.forEach(stop => stop()); Live.feeds.clear(); },
+  destroy() { clearInterval(Live.pollTimer); Live.feeds.forEach(stop => stop()); Live.feeds.clear();
+    Live.selecting = false; Live.sel && Live.sel.clear(); document.body.classList.remove("is-selecting"); },
 
   async refresh(first) {
     let cams, status;
@@ -504,8 +547,10 @@ const Live = {
     const el = h(`<div class="cam" data-id="${c.id}" style="animation-delay:${Math.min(i*30,300)}ms">
       <img class="cam__feed" alt="${esc(c.label)}">
       <div class="cam__offline hidden">${icon("camoff")}<span></span></div>
+      <div class="cam__check" aria-hidden="true">${icon("check")}</div>
       <div class="cam__top">
         <span class="cam__status"><span class="dot"></span><span class="cam__status-t"></span></span>
+        <span class="cam__sched hidden" title="Only detects during set hours">${icon("clock")}<span class="cam__sched-t"></span></span>
         <span class="cam__ai">${icon("shield")} AI</span>
       </div>
       <div class="cam__actions"></div>
@@ -522,9 +567,11 @@ const Live = {
       actions.appendChild(btn("more", "More", (ev) => Live.tileMenu(c, el)));
     }
     el.tabIndex = 0; el.setAttribute("role", "button"); el.setAttribute("aria-label", `${c.label} — open fullscreen`);
-    el.onclick = () => Focus.open(c);
-    el.onkeydown = (e) => { if ((e.key === "Enter" || e.key === " ") && e.target === el) { e.preventDefault(); Focus.open(c); } };
+    // In select mode a click toggles this camera; otherwise it opens fullscreen.
+    el.onclick = () => Live.selecting ? Live.toggleSelect(c.id) : Focus.open(c);
+    el.onkeydown = (e) => { if ((e.key === "Enter" || e.key === " ") && e.target === el) { e.preventDefault(); Live.selecting ? Live.toggleSelect(c.id) : Focus.open(c); } };
     el.oncontextmenu = (e) => { e.preventDefault(); Live.tileMenu(c, el, e.clientX, e.clientY); };
+    el.classList.toggle("is-selected", Live.sel && Live.sel.has(c.id));
 
     if (isAdmin()) {
       el.draggable = true;
@@ -539,15 +586,18 @@ const Live = {
   tileMenu(c, el, x, y) {
     const r = el.getBoundingClientRect();
     const st = state.status[c.id] || (c.enabled === false ? "paused" : "offline");
+    const sch = schedule(c);
     const items = [
       { label: `${sourceLabel(c.source)} · ${st.charAt(0).toUpperCase() + st.slice(1)}`, header: true },
       { label: "Open fullscreen", icon: "maximize", onClick: () => Focus.open(c) },
     ];
+    if (sch) items.push({ label: `Detects ${scheduleLabel(c)}`, icon: "clock", onClick: () => CameraForm.open(c) });
     if (isAdmin()) {
       const paused = c.enabled === false;
       items.push(
         { label: "Edit camera", icon: "edit", onClick: () => CameraForm.open(c) },
         { label: paused ? "Resume" : "Pause", icon: paused ? "play" : "pause", onClick: () => Live.toggleCam(c) },
+        { label: "Select cameras…", icon: "check", onClick: () => Live.enterSelect(c.id) },
         { sep: true },
         { label: "Remove camera", icon: "trash", danger: true, onClick: () => Live.removeCam(c) },
       );
@@ -559,15 +609,25 @@ const Live = {
     const dot = $(".cam__status .dot", el), t = $(".cam__status-t", el);
     const off = $(".cam__offline", el), feed = $(".cam__feed", el);
     el.classList.toggle("is-offline", st === "offline");
-    dot.className = "dot " + (st === "online" ? "dot--live" : st === "paused" ? "dot--warn" : "dot--danger");
-    t.textContent = st === "online" ? "Live" : st === "paused" ? "Paused" : "Offline";
+    dot.className = "dot " + (st === "online" ? "dot--live"
+      : (st === "paused" || st === "scheduled") ? "dot--warn" : "dot--danger");
+    t.textContent = st === "online" ? "Live" : st === "paused" ? "Paused"
+      : st === "scheduled" ? "Scheduled" : "Offline";
     if (st === "online") {
       off.classList.add("hidden"); feed.classList.remove("hidden");
       if (!Live.feeds.has(c.id)) Live.feeds.set(c.id, startFeed(feed, c.id));
     } else {
       if (Live.feeds.has(c.id)) { Live.feeds.get(c.id)(); Live.feeds.delete(c.id); }
       feed.classList.add("hidden"); off.classList.remove("hidden");
-      $("span", off).textContent = st === "paused" ? "Paused" : "Camera offline";
+      $("span", off).textContent = st === "paused" ? "Paused"
+        : st === "scheduled" ? `Detects ${scheduleLabel(c)}` : "Camera offline";
+    }
+    // A quiet clock chip on any camera that only detects during set hours.
+    const chip = $(".cam__sched", el);
+    const sch = schedule(c);
+    if (chip) {
+      chip.classList.toggle("hidden", !sch);
+      if (sch) $(".cam__sched-t", chip).textContent = scheduleLabel(c, false);
     }
   },
 
@@ -605,6 +665,78 @@ const Live = {
     if (anyOn) { await api.pauseAll(); toast("All cameras paused", { kind: "ok" }); }
     else { await api.resumeAll(); toast("All cameras resumed", { kind: "ok" }); }
     Live.refresh(true);
+  },
+
+  /* ---- Bulk selection (admin) — pick cameras, then set their hours at once ---- */
+  enterSelect(seedId) {
+    if (!isAdmin()) return;
+    Live.selecting = true;
+    Live.sel = Live.sel || new Set();
+    if (seedId) Live.sel.add(seedId);
+    document.body.classList.add("is-selecting");
+    $("#camGrid")?.classList.add("is-selecting");
+    $("#selBar")?.classList.remove("hidden");
+    const b = $("#selectCams"); if (b) b.innerHTML = `${icon("x")} Cancel`;
+    Live.syncSel();
+  },
+  exitSelect() {
+    Live.selecting = false;
+    Live.sel && Live.sel.clear();
+    document.body.classList.remove("is-selecting");
+    $("#camGrid")?.classList.remove("is-selecting");
+    $("#selBar")?.classList.add("hidden");
+    const b = $("#selectCams"); if (b) b.innerHTML = `${icon("check")} Select`;
+    $$(".cam.is-selected").forEach(el => el.classList.remove("is-selected"));
+  },
+  toggleSelect(id) {
+    if (!Live.selecting) Live.enterSelect();
+    if (Live.sel.has(id)) Live.sel.delete(id); else Live.sel.add(id);
+    Live.syncSel();
+  },
+  selectAll() {
+    const all = state.cameras.every(c => Live.sel.has(c.id));
+    Live.sel = new Set(all ? [] : state.cameras.map(c => c.id));   // toggle all/none
+    Live.syncSel();
+  },
+  syncSel() {
+    $$(".cam").forEach(el => el.classList.toggle("is-selected", Live.sel.has(el.dataset.id)));
+    const n = Live.sel.size;
+    const cnt = $("#selCount"); if (cnt) cnt.textContent = `${n} selected`;
+    const allBtn = $("#selAll"); if (allBtn) allBtn.textContent = (n && n === state.cameras.length) ? "Select none" : "Select all";
+    ["#selSetSched", "#selClearSched", "#selPause"].forEach(sel => { const b = $(sel); if (b) b.disabled = n === 0; });
+    // Smart Pause/Resume: if any selected camera is on, the action pauses them all.
+    const pause = $("#selPause");
+    if (pause) {
+      const anyOn = Live.selectedCams().some(c => c.enabled !== false);
+      pause.innerHTML = anyOn ? `${icon("pause")} Pause` : `${icon("play")} Resume`;
+    }
+  },
+  selectedCams() { return state.cameras.filter(c => Live.sel.has(c.id)); },
+  bulkSchedule() {
+    const cams = Live.selectedCams();
+    if (!cams.length) { toast("Select at least one camera", { kind: "info" }); return; }
+    BulkSchedule.open(cams);
+  },
+  async bulkPause() {
+    const cams = Live.selectedCams();
+    if (!cams.length) { toast("Select at least one camera", { kind: "info" }); return; }
+    const anyOn = cams.some(c => c.enabled !== false);      // on -> pause all; all paused -> resume
+    const targets = cams.filter(c => (c.enabled !== false) === anyOn);   // only those that actually change
+    try {
+      await Promise.all(targets.map(c => api.editCamera(c.id, { enabled: !anyOn })));
+      toast(`${targets.length} camera${targets.length > 1 ? "s" : ""} ${anyOn ? "paused" : "resumed"}`, { kind: "ok" });
+      Live.exitSelect(); Live.refresh(true);
+    } catch { toast("Could not update every camera", { kind: "danger" }); }
+  },
+  async bulkClearSchedule() {
+    const cams = Live.selectedCams().filter(c => schedule(c));
+    if (!cams.length) { toast("None of the selected cameras have set hours", { kind: "info" }); return; }
+    if (!await confirmDialog({ title: "Clear detection hours?", body: `${cams.length} camera${cams.length > 1 ? "s" : ""} will go back to always detecting.`, confirmText: "Clear hours" })) return;
+    try {
+      await Promise.all(cams.map(c => api.editCamera(c.id, { schedule: null })));
+      toast(`Detection hours cleared on ${cams.length} camera${cams.length > 1 ? "s" : ""}`, { kind: "ok" });
+      Live.exitSelect(); Live.refresh(true);
+    } catch { toast("Could not update every camera", { kind: "danger" }); }
   },
 };
 
@@ -680,6 +812,43 @@ const Focus = {
   },
 };
 
+/* Shared "detection hours" editor — a toggle that reveals From/To + weekday
+   chips. Used by both the single-camera form and the bulk-schedule modal so
+   the two never drift apart. */
+const Sched = {
+  fields(sch, { label = "Only detect during set hours", hint = "Outside these hours the camera idles — no detection, no recording." } = {}) {
+    const dayBtns = WEEKDAYS.map((d, i) =>
+      `<button type="button" class="daychip${sch && sch.days.includes(i) ? " is-active" : ""}" data-day="${i}">${d}</button>`).join("");
+    return `<div class="field sched-row">
+        <div class="sched-row__text"><div class="label" style="margin:0">${label}</div>
+          <span class="hint" style="margin:0">${hint}</span></div>
+        <label class="toggle"><input type="checkbox" data-sched-on ${sch ? "checked" : ""}><span class="toggle__track"></span></label>
+      </div>
+      <div class="sched-body${sch ? "" : " hidden"}" data-sched-body>
+        <div class="sched-times">
+          <div class="field"><label class="label">From</label><input type="time" class="input" data-sched-start value="${sch ? sch.start : "10:00"}"></div>
+          <div class="field"><label class="label">To</label><input type="time" class="input" data-sched-end value="${sch ? sch.end : "13:00"}"></div>
+        </div>
+        <div class="field"><label class="label">Days <span class="muted">(none selected = every day)</span></label>
+          <div class="daychips" data-days>${dayBtns}</div></div>
+      </div>`;
+  },
+  wire(node) {
+    const body = $("[data-sched-body]", node);
+    $("[data-sched-on]", node).onchange = (e) => body.classList.toggle("hidden", !e.target.checked);
+    $("[data-days]", node).onclick = (e) => { const b = e.target.closest("[data-day]"); if (b) b.classList.toggle("is-active"); };
+  },
+  /* Returns { schedule: {...}|null } on success, or { error: "…" } to show. */
+  read(node) {
+    if (!$("[data-sched-on]", node).checked) return { schedule: null };   // null = always on
+    const start = $("[data-sched-start]", node).value, end = $("[data-sched-end]", node).value;
+    if (!start || !end) return { error: "Set both a start and end time" };
+    if (start === end) return { error: "Start and end can't be the same time" };
+    const days = $$("[data-day].is-active", node).map(b => +b.dataset.day);
+    return { schedule: { start, end, days } };
+  },
+};
+
 /* Add / edit camera */
 const CameraForm = {
   open(cam = null) {
@@ -691,20 +860,60 @@ const CameraForm = {
         <div class="field"><label class="label">Location <span class="muted">(optional)</span></label><input class="input" data-f="location" placeholder="e.g. Building A · Lobby" value="${esc(cam?.location || "")}"></div>
         <div class="field"><label class="label">Source</label><input class="input mono" data-f="source" placeholder="rtsp://… , http://…/video , or 0 for this Mac" value="${esc(cam?.source || "")}">
           <span class="hint">RTSP for CCTV, an IP-camera URL, or <b>0</b> for the built-in webcam.</span></div>
+        ${Sched.fields(schedule(cam))}
       </div>
       <div class="modal__foot"><button class="btn" data-x>Cancel</button><button class="btn btn--primary" data-save>${editing ? "Save changes" : "Add camera"}</button></div></div>`);
     const close = openModal(node);
     $$("[data-x]", node).forEach(b => b.onclick = close);
     $("[data-f='label']", node).focus();
+    Sched.wire(node);
+
     $("[data-save]", node).onclick = async () => {
       const body = {}; $$("[data-f]", node).forEach(i => body[i.dataset.f] = i.value.trim());
       if (!body.label) { toast("Name is required", { kind: "danger" }); return; }
       if (!body.source) body.source = "0";
+      const sch = Sched.read(node);
+      if (sch.error) { toast(sch.error, { kind: "danger" }); return; }
+      body.schedule = sch.schedule;
       try {
         if (editing) { await api.editCamera(cam.id, body); toast("Camera updated", { kind: "ok" }); }
         else { await api.addCamera(body); toast("Camera added", { kind: "ok" }); }
         close(); Live.refresh(true);
       } catch { toast("Could not save camera", { kind: "danger" }); }
+    };
+  },
+};
+
+/* Bulk detection-hours editor — applies one schedule (or clears it) to every
+   selected camera at once. Same "selected cameras + time range" job, done to a
+   batch. */
+const BulkSchedule = {
+  open(cams) {
+    if (!cams.length) return;
+    // Seed from a shared schedule if every camera already has the same one.
+    const first = schedule(cams[0]);
+    const allSame = first && cams.every(c => JSON.stringify(schedule(c)) === JSON.stringify(first));
+    const node = h(`<div class="modal" role="dialog" aria-modal="true">
+      <div class="modal__head"><div class="modal__title">Detection hours</div><div class="spacer"></div><button class="btn btn--icon btn--ghost" data-x>${icon("x")}</button></div>
+      <div class="modal__body">
+        <p class="muted" style="margin:0 0 var(--s2)">Applies to <b>${cams.length} camera${cams.length > 1 ? "s" : ""}</b>: ${esc(cams.map(c => c.label).join(", "))}</p>
+        ${Sched.fields(allSame ? first : null, { label: "Only detect during set hours", hint: "Turn off to have these cameras always detect." })}
+      </div>
+      <div class="modal__foot"><button class="btn" data-x>Cancel</button><button class="btn btn--primary" data-save>Apply to ${cams.length}</button></div></div>`);
+    const close = openModal(node);
+    $$("[data-x]", node).forEach(b => b.onclick = close);
+    Sched.wire(node);
+
+    $("[data-save]", node).onclick = async () => {
+      const sch = Sched.read(node);
+      if (sch.error) { toast(sch.error, { kind: "danger" }); return; }
+      const saveBtn = $("[data-save]", node); saveBtn.disabled = true;
+      try {
+        await Promise.all(cams.map(c => api.editCamera(c.id, { schedule: sch.schedule })));
+        toast(sch.schedule ? `Detection hours set on ${cams.length} camera${cams.length > 1 ? "s" : ""}`
+                           : `Detection hours cleared on ${cams.length} camera${cams.length > 1 ? "s" : ""}`, { kind: "ok" });
+        close(); Live.exitSelect(); Live.refresh(true);
+      } catch { saveBtn.disabled = false; toast("Could not update every camera", { kind: "danger" }); }
     };
   },
 };
@@ -1229,6 +1438,47 @@ const Notify = {
 };
 
 /* =========================================================================
+   9c. UPDATES  (automatic — publish a release and every running app learns)
+   The app quietly asks its own server (which asks GitHub, cached 1h) shortly
+   after launch and every few hours. A new version paints a sidebar chip and
+   shows one toast; "skip this version" is remembered until the next one.
+   ========================================================================= */
+const Updates = {
+  info: null, timer: null,
+  start() {
+    setTimeout(() => Updates.check(), 15000);              // never slow launch
+    Updates.timer = setInterval(() => Updates.check(), 6 * 3600 * 1000);
+  },
+  async check() {
+    let d;
+    try { d = await api.updateCheck(); } catch { return; } // offline → silent
+    if (!d || !d.update_available) return;
+    if (localStorage.getItem("vigil.skipVer") === d.latest) return;
+    const fresh = !Updates.info || Updates.info.latest !== d.latest;
+    Updates.info = d;
+    Updates.paint();
+    if (fresh && sessionStorage.getItem("vigil.updateToast") !== d.latest) {
+      sessionStorage.setItem("vigil.updateToast", d.latest);
+      toast(`Vigil ${d.latest} is available`, {
+        msg: "Click to download the update", kind: "info", timeout: 9000,
+        onClick: () => openExternal(d.url),
+      });
+    }
+  },
+  paint() {
+    const chip = $("#updateChip");
+    if (!chip || !Updates.info) return;
+    $("#updateChipLabel", chip).textContent = `Update ${Updates.info.latest}`;
+    chip.classList.remove("hidden");
+  },
+  skip() {
+    if (Updates.info) localStorage.setItem("vigil.skipVer", Updates.info.latest);
+    const chip = $("#updateChip"); if (chip) chip.classList.add("hidden");
+    toast("Okay — skipping this version", { msg: "You'll be told about the next one.", kind: "info" });
+  },
+};
+
+/* =========================================================================
    10. SHELL + ROUTER
    ========================================================================= */
 const ROUTES = {
@@ -1253,6 +1503,10 @@ function shell() {
       ${nav("users","users","Users")}
       ${nav("settings","settings","Settings")}
       <div class="nav__spacer"></div>
+      <div class="nav__update hidden" id="updateChip" role="button" tabindex="0" title="A new version of Vigil is ready — click to download">
+        ${icon("download")}<span id="updateChipLabel">Update</span>
+        <button class="nav__update-x" id="updateSkip" title="Skip this version" aria-label="Skip this version">${icon("x")}</button>
+      </div>
       <div class="nav__user" id="navUser">
         <span class="avatar">${initials(state.me.username)}</span>
         <div class="nav__user-meta"><div class="nav__user-name">${esc(state.me.username||"—")}</div><div class="nav__user-role">${state.me.role==="admin"?"Administrator":"Invigilator"}</div></div>
@@ -1287,6 +1541,11 @@ function shell() {
   $("#navToggle").onclick = toggleSidebar;
   navResizer($("#navResize"));
   applyNav();
+  const chip = $("#updateChip");
+  chip.onclick = () => { if (Updates.info) openExternal(Updates.info.url); };
+  chip.onkeydown = (e) => { if (e.key === "Enter" && Updates.info) openExternal(Updates.info.url); };
+  $("#updateSkip").onclick = (e) => { e.stopPropagation(); Updates.skip(); };
+  Updates.paint();                 // repaint if a check already found one
   Notify.paintBell();
   // macOS desktop uses the native inset titlebar (real traffic lights drawn by
   // the OS over our content) — nothing to render here; .is-inset only pads the
@@ -1531,8 +1790,9 @@ async function boot() {
   document.addEventListener("keydown", shortcuts);
   await mount();
   Notify.start();               // app-wide detection awareness (bell + toasts)
+  Updates.start();              // automatic update notice (chip + one toast)
 }
 // Dev hook — only exposed in mock mode (?mock=1), never in the real app.
-if (MOCK) window.__vigil = { recoverNode, RECOVER, Live, Evidence, Settings, Notify, Palette, ShortcutsHelp, toast, go, state };
+if (MOCK) window.__vigil = { recoverNode, RECOVER, Live, Evidence, Settings, Notify, Updates, Palette, ShortcutsHelp, toast, go, state };
 boot();
 })();

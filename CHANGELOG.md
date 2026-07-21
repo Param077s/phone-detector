@@ -3,6 +3,16 @@
 All notable changes to Vigil. Dates are the release date.
 
 ## 1.2.0
+- **Detection schedules** — a camera can be set to only run detection during
+  set hours (e.g. Exam Hall 1, 10:00–13:00, weekdays) instead of always-on.
+  Set it per camera in the camera form, or select several cameras on the Live
+  wall and apply one schedule — or pause/resume — to all of them at once.
+  Outside its hours a camera idles: no detection, no recording. Overnight
+  windows (e.g. 22:00–06:00) are supported. Cameras with no schedule are
+  unchanged (always on).
+- **Automatic update notice** — Vigil now checks for a newer version shortly
+  after launch and every few hours, showing a quiet sidebar chip and one
+  toast when an update is ready (in addition to the manual check in Settings).
 - **Complete redesign** — Vigil no longer looks like a dashboard. The
   cameras are the page: a deep stage with luminous feed panels, one quiet
   status line instead of stat cards, a glass command bar, and a sidebar

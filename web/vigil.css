@@ -230,6 +230,30 @@ svg[viewBox="0 0 24 24"] { width: 16px; height: 16px; flex: none; }
   background: var(--danger-quiet); color: var(--danger); border-radius: var(--r-full);
 }
 .nav__spacer { flex: 1; }
+
+/* "Update available" chip — quiet, accent-tinted, appears above the user */
+.nav__update {
+  display: flex; align-items: center; gap: var(--s3);
+  height: 36px; padding: 0 var(--s3); margin-bottom: var(--s1);
+  border-radius: var(--r-md); cursor: pointer; white-space: nowrap;
+  background: var(--accent-quiet); color: var(--accent);
+  font-weight: var(--w-medium);
+  animation: rise var(--t-glide) var(--spring);
+  transition: background var(--t-fast) var(--ease), transform var(--t-fast) var(--spring);
+}
+.nav__update:hover { background: color-mix(in srgb, var(--accent) 20%, transparent); }
+.nav__update:active { transform: scale(0.985); }
+.nav__update svg { width: 16px; height: 16px; flex: none; }
+.nav__update-x {
+  margin-left: auto; width: 20px; height: 20px; padding: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  border: none; background: none; color: var(--text-3);
+  border-radius: var(--r-sm); cursor: pointer; opacity: 0;
+  transition: opacity var(--t-fast) var(--ease), background var(--t-fast) var(--ease);
+}
+.nav__update:hover .nav__update-x { opacity: 1; }
+.nav__update-x:hover { background: var(--surface-3); color: var(--text); }
+.nav__update-x svg { width: 12px; height: 12px; }
 .nav__user {
   display: flex; align-items: center; gap: var(--s3);
   padding: var(--s2) var(--s3); margin: 0 calc(-1 * var(--s1));
@@ -250,8 +274,11 @@ svg[viewBox="0 0 24 24"] { width: 16px; height: 16px; flex: none; }
 :root.is-navrail .nav__item span,
 :root.is-navrail .nav__badge,
 :root.is-navrail .nav__user-meta,
+:root.is-navrail .nav__update span,
+:root.is-navrail .nav__update-x,
 :root.is-navrail .nav__resize { display: none; }
 :root.is-navrail .nav__item { width: 40px; height: 40px; justify-content: center; padding: 0; }
+:root.is-navrail .nav__update { width: 40px; height: 40px; justify-content: center; padding: 0; }
 :root.is-navrail .nav__item.is-active::before { left: -9px; }
 :root.is-navrail .nav__user { padding: var(--s2); margin: 0; }
 
@@ -396,6 +423,27 @@ svg[viewBox="0 0 24 24"] { width: 16px; height: 16px; flex: none; }
 }
 .toggle input:checked + .toggle__track { background: var(--accent); border-color: transparent; }
 .toggle input:checked + .toggle__track::after { transform: translateX(16px); background: #fff; }
+
+/* Detection-schedule editor (camera form) */
+.sched-row { display: flex; align-items: flex-start; gap: var(--s4); }
+.sched-row__text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.sched-row .toggle { margin-top: 2px; }
+.sched-body {
+  border-top: 1px solid var(--border); margin-top: var(--s1); padding-top: var(--s3);
+  animation: rise var(--t-glide) var(--spring);
+}
+.sched-body.hidden { display: none; }
+.sched-times { display: flex; gap: var(--s3); }
+.sched-times .field { flex: 1; }
+.daychips { display: flex; flex-wrap: wrap; gap: var(--s1); }
+.daychip {
+  padding: 5px 10px; border-radius: var(--r-full); cursor: pointer;
+  background: var(--surface-2); color: var(--text-2);
+  border: 1px solid var(--border); font-size: var(--fs-sm); font-weight: var(--w-medium);
+  transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease), border-color var(--t-fast) var(--ease);
+}
+.daychip:hover { background: var(--surface-3); color: var(--text); }
+.daychip.is-active { background: var(--accent); color: #fff; border-color: transparent; }
 
 /* ==========================================================================
    PANELS / TABLES

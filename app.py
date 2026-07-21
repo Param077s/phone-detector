@@ -570,6 +570,97 @@ def _camera_enabled(cam_id):
 
 
 # ---------------------------------------------------------------------------
+# SCHEDULES — a camera can be told to only detect during set hours (e.g. run
+# Exam Hall 1 from 10:00–13:00, every weekday). Outside that window it idles
+# exactly like a paused camera: no connection, no detection, no disk cost.
+# A camera with no schedule is always on, so nothing changes for existing setups.
+# ---------------------------------------------------------------------------
+_WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]  # 0=Mon (datetime.weekday())
+
+
+def _parse_hhmm(s):
+    """'09:30' -> minutes since midnight (570); anything invalid -> None."""
+    try:
+        hh, mm = str(s).strip().split(":")
+        hh, mm = int(hh), int(mm)
+        if 0 <= hh < 24 and 0 <= mm < 60:
+            return hh * 60 + mm
+    except Exception:
+        pass
+    return None
+
+
+def _clean_schedule(sch):
+    """Validate/normalise a schedule dict from the API. Returns a clean
+    {start, end, days} dict, or None when the schedule is absent/invalid
+    (which means 'always on'). days is a sorted list of 0..6 (0=Mon), or []
+    for every day."""
+    if not isinstance(sch, dict):
+        return None
+    start, end = str(sch.get("start", "")).strip(), str(sch.get("end", "")).strip()
+    if _parse_hhmm(start) is None or _parse_hhmm(end) is None:
+        return None
+    if _parse_hhmm(start) == _parse_hhmm(end):
+        return None                      # a zero-length window would never run
+    days = sch.get("days")
+    if isinstance(days, list):
+        days = sorted({int(d) for d in days if isinstance(d, (int, float)) and 0 <= int(d) <= 6})
+    else:
+        days = []
+    return {"start": start, "end": end, "days": days}
+
+
+def _in_schedule(sch, now):
+    """Is `now` (a datetime) inside this schedule's window? Handles overnight
+    windows (end <= start wraps past midnight, e.g. 22:00–06:00), where the
+    after-midnight half belongs to the previous day's weekday."""
+    s, e = _parse_hhmm(sch["start"]), _parse_hhmm(sch["end"])
+    if s is None or e is None:
+        return True
+    minutes = now.hour * 60 + now.minute
+    days = sch.get("days") or []
+    wd = now.weekday()
+    day_ok = (not days) or (wd in days)
+    prev_day_ok = (not days) or ((wd - 1) % 7 in days)
+    if s < e:                            # same-day window, e.g. 10:00–13:00
+        return day_ok and (s <= minutes < e)
+    # overnight window, e.g. 22:00–06:00
+    if minutes >= s:                     # evening half — counts against today
+        return day_ok
+    if minutes < e:                      # morning half — belongs to yesterday's start
+        return prev_day_ok
+    return False
+
+
+def _fmt_window(sch):
+    days = sch.get("days") or []
+    span = "%s–%s" % (sch["start"], sch["end"])
+    if not days or len(days) == 7:
+        return span
+    return "%s · %s" % (span, ", ".join(_WEEKDAYS[d] for d in days))
+
+
+def _camera_gate(cam_id):
+    """The single source of truth for whether a camera should be running right
+    now. Returns (state, message) where state is one of:
+      'on'        -> connect + detect (message is None)
+      'paused'    -> manually paused
+      'scheduled' -> enabled but currently outside its detection hours
+      'gone'      -> camera was removed
+    """
+    with cameras_lock:
+        c = next((x for x in cameras if x["id"] == cam_id), None)
+        if c is None:
+            return ("gone", None)
+        if not c.get("enabled", True):
+            return ("paused", "Paused\nPress the play button to resume")
+        sch = _clean_schedule(c.get("schedule"))
+    if sch and not _in_schedule(sch, datetime.now()):
+        return ("scheduled", "Monitoring scheduled\n%s" % _fmt_window(sch))
+    return ("on", None)
+
+
+# ---------------------------------------------------------------------------
 # DATABASE (SQLite)
 # ---------------------------------------------------------------------------
 def _db():
@@ -1183,27 +1274,31 @@ class Producer:
 
     def _run(self):
         last_browser_seq = -1
-        was_paused = False
+        idle_state = None
         while self.running:
             source, label = _find_camera(self.camera_id)
             if source is None:                          # camera removed
                 break
 
-            # Paused: release the camera/network connection, skip detection, and
-            # idle cheaply. All details stay saved; resume picks up instantly.
-            if not _camera_enabled(self.camera_id):
-                if not was_paused:
+            # Off right now (manually paused, or outside its detection hours):
+            # release the camera/network connection, skip detection, and idle
+            # cheaply. All details stay saved; it picks up the moment it's due.
+            gate, gate_msg = _camera_gate(self.camera_id)
+            if gate == "gone":
+                break
+            if gate != "on":
+                if idle_state != gate:                  # repaint once when it changes
                     _release_stream(self.camera_id)
                     with status_lock:
-                        camera_status[self.camera_id] = "paused"
-                    ok, buf = cv2.imencode(".jpg", _placeholder("Paused\nPress the play button to resume"),
+                        camera_status[self.camera_id] = gate   # "paused" or "scheduled"
+                    ok, buf = cv2.imencode(".jpg", _placeholder(gate_msg),
                                            [cv2.IMWRITE_JPEG_QUALITY, JPEG_QUALITY])
                     if ok:
                         _store_snapshot(self.camera_id, buf.tobytes())
-                    was_paused = True
+                    idle_state = gate
                 time.sleep(0.3)
                 continue
-            was_paused = False
+            idle_state = None
 
             is_webcam = source.isdigit()
             is_browser = source == "browser"
@@ -1549,6 +1644,9 @@ def add_camera(payload: dict):
     location = str(payload.get("location", "")).strip()
     source = str(payload.get("source", "0")).strip() or "0"
     cam = {"id": uuid.uuid4().hex[:8], "label": label, "location": location, "source": source}
+    sch = _clean_schedule(payload.get("schedule"))
+    if sch:
+        cam["schedule"] = sch
     with cameras_lock:
         cameras.append(cam)
         _save_cameras()
@@ -1569,6 +1667,12 @@ def edit_camera(cam_id: str, payload: dict):
                     c["source"] = str(payload["source"]).strip() or c["source"]
                 if "enabled" in payload:
                     c["enabled"] = bool(payload["enabled"])
+                if "schedule" in payload:
+                    sch = _clean_schedule(payload["schedule"])
+                    if sch:
+                        c["schedule"] = sch      # set / update the detection hours
+                    else:
+                        c.pop("schedule", None)  # cleared -> always on again
                 _save_cameras()
                 return c
     return {"ok": False}
@@ -1745,10 +1849,17 @@ def _version_tuple(v):
     return tuple(nums) or (0,)
 
 
+_update_cache = {"at": 0.0, "data": None}
+
+
 @app.get("/api/update-check")
 def api_update_check():
     """Ask GitHub for the latest release and compare to this build. Done
-    server-side so it isn't blocked by the page's Content-Security-Policy."""
+    server-side so it isn't blocked by the page's Content-Security-Policy.
+    Cached for an hour: the UI now checks automatically (launch + every few
+    hours), and GitHub allows only 60 anonymous requests/hour per IP."""
+    if _update_cache["data"] and time.time() - _update_cache["at"] < 3600:
+        return _update_cache["data"]
     try:
         req = urllib.request.Request(
             "https://api.github.com/repos/%s/releases/latest" % _UPDATE_REPO,
@@ -1761,8 +1872,10 @@ def api_update_check():
             status_code=502)
     latest = (data.get("tag_name") or "").lstrip("vV")
     url = data.get("html_url") or "https://github.com/%s/releases/latest" % _UPDATE_REPO
-    return {"current": VIGIL_VERSION, "latest": latest, "url": url,
-            "update_available": bool(latest) and _version_tuple(latest) > _version_tuple(VIGIL_VERSION)}
+    out = {"current": VIGIL_VERSION, "latest": latest, "url": url,
+           "update_available": bool(latest) and _version_tuple(latest) > _version_tuple(VIGIL_VERSION)}
+    _update_cache["at"], _update_cache["data"] = time.time(), out
+    return out
 
 
 # Serve the redesigned app. html=True makes /app -> web/index.html; hash
@@ -2947,10 +3060,10 @@ DASHBOARD_HTML = """<!doctype html>
       document.querySelectorAll('.status-pill').forEach(p => {
         const s = st[p.dataset.cam];
         p.classList.toggle('online', s === 'online');
-        p.classList.toggle('paused', s === 'paused');
-        p.classList.toggle('offline', s !== 'online' && s !== 'paused');
+        p.classList.toggle('paused', s === 'paused' || s === 'scheduled');
+        p.classList.toggle('offline', s !== 'online' && s !== 'paused' && s !== 'scheduled');
         const el = p.querySelector('.stext'),
-              txt = s === 'online' ? 'LIVE' : (s === 'paused' ? 'PAUSED' : 'OFFLINE');
+              txt = s === 'online' ? 'LIVE' : (s === 'paused' ? 'PAUSED' : (s === 'scheduled' ? 'SCHEDULED' : 'OFFLINE'));
         if (el.textContent !== txt) el.textContent = txt;   // write only on change
       });
     }
