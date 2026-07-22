@@ -1397,6 +1397,7 @@ const Settings = {
       ${Settings.row("AI second look", "A vision model re-checks each detection to filter false alarms.", tog("VLM_ENABLED", d.VLM_ENABLED))}</div>`;
     else if (Settings.section === "notifications") html = `<div class="settings__group"><h2>Notifications</h2><p>Get alerted the instant a phone is detected — on this device, or on any phone via Telegram.</p>
       ${Settings.row("Notify me on this device", "A pop‑up + buzz on this phone or computer when a phone is spotted. On iPhone, open Vigil over the secure link and tap Share → Add to Home Screen first.", `<button class="btn" id="notifToggle">…</button>`)}
+      ${Settings.row("Test notification", "Sends a real push to this device now. To prove it works when closed, tap Send, then lock your phone or fully close Vigil — it should still arrive.", `<button class="btn btn--sm" id="notifTest">Send test</button>`)}
       <h2 style="margin-top:var(--s5)">Telegram <span class="muted" style="font-weight:400;font-size:var(--fs-sm)">— any phone, even when Vigil is closed</span></h2>
       ${Settings.row("Bot token", "Create a bot with @BotFather on Telegram, then paste its token here.", `<input class="input mono" data-k="TELEGRAM_TOKEN" value="${esc(d.TELEGRAM_TOKEN||"")}" placeholder="123456:ABC-DEF…">`)}
       ${Settings.row("Chat", "Message your bot on Telegram (say “hi”), then find the chat automatically — no ID hunting.", `<div class="row" style="gap:var(--s2);align-items:stretch"><input class="input mono" data-k="TELEGRAM_CHAT_IDS" style="flex:1;min-width:0" value="${esc(d.TELEGRAM_CHAT_IDS||"")}" placeholder="Not set"><button class="btn btn--sm" id="tgFind">Find my chat</button></div>`)}
@@ -1442,6 +1443,23 @@ const Settings = {
         paintNt();
       };
     }
+    // Send a REAL server push to every subscribed device — the honest way to
+    // confirm the closed-app path (lock the phone, then tap Send).
+    const ntTest = $("#notifTest");
+    if (ntTest) ntTest.onclick = async () => {
+      const old = ntTest.textContent; ntTest.disabled = true; ntTest.textContent = "Sending…";
+      try {
+        if (MOCK) { PhoneNotify.fire({ _test: true }); toast("Test sent (demo)", { kind: "ok" }); }
+        else {
+          const r = await fetch("/api/push/test", { method: "POST" });
+          const d2 = await r.json().catch(() => ({}));
+          if (d2 && d2.ok && d2.count) toast(`Test push sent to ${d2.count} device${d2.count === 1 ? "" : "s"}`, { msg: "Lock your phone — it should still arrive.", kind: "ok" });
+          else if (d2 && d2.ok) toast("No devices subscribed yet", { msg: 'Tap "Turn on" above on the phone first.', kind: "info" });
+          else toast("Couldn't send test", { msg: "Push may be unavailable on this server.", kind: "info" });
+        }
+      } catch { toast("Couldn't send test", { kind: "info" }); }
+      ntTest.disabled = false; ntTest.textContent = old;
+    };
     const readTg = () => ({ token: ($("[data-k='TELEGRAM_TOKEN']")?.value || "").trim(), chat_ids: ($("[data-k='TELEGRAM_CHAT_IDS']")?.value || "").trim() });
     const tgMsg = (html) => { const m = $("#tgMsg"); if (m) m.innerHTML = html; };
     const tgFind = $("#tgFind");
@@ -1636,6 +1654,9 @@ const PhoneNotify = {
     if ("serviceWorker" in navigator) {
       try { PhoneNotify.reg = await navigator.serviceWorker.register("/app/sw.js", { scope: "/app/" }); } catch {}
     }
+    // Already opted in? Make sure the server still has this phone's push
+    // subscription (survives server restarts / re-installs).
+    if (PhoneNotify.on()) PhoneNotify.subscribePush();
   },
   supported() { return "Notification" in window; },
   on() { return localStorage.getItem(PhoneNotify.KEY) === "1" && PhoneNotify.supported() && Notification.permission === "granted"; },
@@ -1645,10 +1666,55 @@ const PhoneNotify = {
     if (p !== "granted") { try { p = await Notification.requestPermission(); } catch { p = "denied"; } }
     if (p !== "granted") { localStorage.setItem(PhoneNotify.KEY, "0"); toast("Notifications are blocked", { msg: "Allow them for this site in your browser settings.", kind: "info" }); return false; }
     localStorage.setItem(PhoneNotify.KEY, "1");
+    await PhoneNotify.subscribePush();                 // real push (fires when app is CLOSED)
     PhoneNotify.fire({ _test: true });                 // confirm it works right away
     return true;
   },
-  disable() { localStorage.setItem(PhoneNotify.KEY, "0"); },
+  disable() { localStorage.setItem(PhoneNotify.KEY, "0"); PhoneNotify.unsubscribePush(); },
+
+  // Convert the server's base64url VAPID public key to the byte array the
+  // Push API wants for applicationServerKey.
+  _urlB64ToUint8Array(base64String) {
+    const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
+    const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
+    const raw = atob(base64);
+    const arr = new Uint8Array(raw.length);
+    for (let i = 0; i < raw.length; i++) arr[i] = raw.charCodeAt(i);
+    return arr;
+  },
+  // Subscribe this phone to server-sent push and register it with Vigil. Safe
+  // to call repeatedly — reuses an existing subscription. Fails quietly; the
+  // in-app local notification still works even if push can't be set up.
+  async subscribePush() {
+    try {
+      if (!PhoneNotify.reg || !("PushManager" in window)) return;
+      const r = await fetch("/api/push/vapid").then(x => x.json()).catch(() => null);
+      if (!r || !r.enabled || !r.key) return;
+      let sub = await PhoneNotify.reg.pushManager.getSubscription();
+      if (!sub) {
+        sub = await PhoneNotify.reg.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: PhoneNotify._urlB64ToUint8Array(r.key),
+        });
+      }
+      await fetch("/api/push/subscribe", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(sub),
+      });
+    } catch (e) { /* push is best-effort; local notifications remain */ }
+  },
+  async unsubscribePush() {
+    try {
+      if (!PhoneNotify.reg || !("PushManager" in window)) return;
+      const sub = await PhoneNotify.reg.pushManager.getSubscription();
+      if (!sub) return;
+      await fetch("/api/push/unsubscribe", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ endpoint: sub.endpoint }),
+      }).catch(() => {});
+      await sub.unsubscribe().catch(() => {});
+    } catch {}
+  },
   fire(a) {
     if (!PhoneNotify.on()) return;
     const test = a && a._test;

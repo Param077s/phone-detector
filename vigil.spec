@@ -28,7 +28,12 @@ VERSION = os.environ.get("VIGIL_VERSION") or _vigil_version()
 
 datas = [("web", "web")]
 binaries = []
-hiddenimports = (["app", "mac_native"] if sys.platform == "darwin" else ["app"]) + ["qrcode"]
+hiddenimports = (["app", "mac_native"] if sys.platform == "darwin" else ["app"]) + [
+    "qrcode",
+    # Web Push (real phone notifications) — pulled in dynamically, so PyInstaller
+    # needs these named explicitly or they won't make it into the bundle.
+    "pywebpush", "py_vapid", "http_ece", "cryptography",
+]
 
 # Ship a default model inside the bundle so the first launch works offline.
 for _m in ("yolo11m.pt", "yolo11n.pt"):

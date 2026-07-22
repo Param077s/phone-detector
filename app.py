@@ -970,6 +970,156 @@ def _alert_caption(thing, confidence, camera_label, description=""):
     return caption
 
 
+# --- Web Push (real phone push, fires even when the app is CLOSED) ----------
+# The teacher's phone runs Vigil as an installed PWA. When it's closed, the only
+# way to wake it is through the browser's push service (APNs/FCM). We sign each
+# push with a VAPID keypair (generated once, saved next to secret.key) and send
+# it with pywebpush. This runs ALONGSIDE Telegram for now; Telegram stays until
+# push is confirmed on a real phone, then it can be removed.
+try:
+    from pywebpush import webpush, WebPushException
+    _WEBPUSH_OK = True
+except Exception as _e:                                # pragma: no cover
+    _WEBPUSH_OK = False
+    print(f"[push] pywebpush unavailable ({_e}); web push disabled")
+
+VAPID_PRIV_FILE = os.path.join(_DATA_DIR, "vapid_private.pem")
+VAPID_PUB_FILE  = os.path.join(_DATA_DIR, "vapid_public.txt")
+PUSH_SUBS_FILE  = os.path.join(_DATA_DIR, "push_subs.json")
+# Contact address embedded in the VAPID claim — push services want a way to
+# reach the sender's operator. Not shown to teachers.
+VAPID_SUB = "mailto:admin@vigil.local"
+
+_push_lock = threading.Lock()
+
+
+def _b64url(b):
+    return base64.urlsafe_b64encode(b).rstrip(b"=").decode()
+
+
+def _load_or_make_vapid():
+    """Return (private_pem_str, public_b64url). Generate + persist on first run
+    so the key is STABLE across restarts (subscriptions are bound to it)."""
+    try:
+        with open(VAPID_PRIV_FILE) as f:
+            priv_pem = f.read()
+        with open(VAPID_PUB_FILE) as f:
+            pub_b64 = f.read().strip()
+        if priv_pem.strip() and pub_b64:
+            return priv_pem, pub_b64
+    except Exception:
+        pass
+    if not _WEBPUSH_OK:
+        return "", ""
+    from cryptography.hazmat.primitives.asymmetric import ec
+    from cryptography.hazmat.primitives import serialization
+    priv = ec.generate_private_key(ec.SECP256R1())
+    priv_pem = priv.private_bytes(
+        serialization.Encoding.PEM,
+        serialization.PrivateFormat.PKCS8,
+        serialization.NoEncryption()).decode()
+    nums = priv.public_key().public_numbers()
+    # Browser applicationServerKey = uncompressed EC point: 0x04 || X(32) || Y(32)
+    pub_raw = b"\x04" + nums.x.to_bytes(32, "big") + nums.y.to_bytes(32, "big")
+    pub_b64 = _b64url(pub_raw)
+    try:
+        with open(VAPID_PRIV_FILE, "w") as f:
+            f.write(priv_pem)
+        with open(VAPID_PUB_FILE, "w") as f:
+            f.write(pub_b64)
+    except Exception as e:
+        print(f"[push] could not persist VAPID keys: {e}")
+    return priv_pem, pub_b64
+
+
+VAPID_PRIVATE_PEM, VAPID_PUBLIC = _load_or_make_vapid()
+
+
+def _load_subs():
+    try:
+        with open(PUSH_SUBS_FILE) as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def _save_subs(subs):
+    try:
+        tmp = PUSH_SUBS_FILE + ".tmp"
+        with open(tmp, "w") as f:
+            json.dump(subs, f)
+        os.replace(tmp, PUSH_SUBS_FILE)
+    except Exception as e:
+        print(f"[push] could not save subscriptions: {e}")
+
+
+def add_push_sub(subscription, username=""):
+    """Store one browser subscription, keyed by its endpoint (dedupes)."""
+    endpoint = (subscription or {}).get("endpoint")
+    if not endpoint:
+        return False
+    with _push_lock:
+        subs = _load_subs()
+        subs[endpoint] = {"sub": subscription, "username": username,
+                          "ts": int(time.time())}
+        _save_subs(subs)
+    return True
+
+
+def remove_push_sub(endpoint):
+    if not endpoint:
+        return
+    with _push_lock:
+        subs = _load_subs()
+        if endpoint in subs:
+            del subs[endpoint]
+            _save_subs(subs)
+
+
+def send_push_alert(thing, confidence, camera_label, alert_id, description=""):
+    """Fire a Web Push to every subscribed phone, in the background. Prunes any
+    subscription the push service reports as gone (404/410)."""
+    if not (_WEBPUSH_OK and VAPID_PRIVATE_PEM):
+        return
+    with _push_lock:
+        subs = _load_subs()
+    if not subs:
+        return
+    body = f"{round((confidence or 0) * 100)}% confidence · tap to review"
+    if description:
+        body = description
+    payload = json.dumps({
+        "title": f"{thing} detected · {camera_label}",
+        "body": body,
+        "id": alert_id,
+        "camera": camera_label,
+    })
+
+    def _worker():
+        dead = []
+        for endpoint, rec in list(subs.items()):
+            try:
+                webpush(
+                    subscription_info=rec.get("sub"),
+                    data=payload,
+                    vapid_private_key=VAPID_PRIVATE_PEM,
+                    vapid_claims={"sub": VAPID_SUB},
+                    timeout=10,
+                )
+            except WebPushException as e:
+                code = getattr(getattr(e, "response", None), "status_code", None)
+                if code in (404, 410):
+                    dead.append(endpoint)           # subscription expired — prune
+                else:
+                    print(f"[push] send failed ({code}): {e}")
+            except Exception as e:
+                print(f"[push] send error: {e}")
+        for endpoint in dead:
+            remove_push_sub(endpoint)
+
+    threading.Thread(target=_worker, daemon=True).start()
+
+
 # --- AI review queue: the vision model runs HERE, on its own thread, so it never
 #     blocks detection or the video pipeline (that was the source of the lag). The
 #     alert is saved instantly; the worker then fills in the description and drops
@@ -994,6 +1144,7 @@ def _vlm_worker():
             if description:
                 _set_alert_description(alert_id, description)
             send_telegram_alert(photo_jpg, _alert_caption(thing, confidence, camera_label, description))
+            send_push_alert(thing, confidence, camera_label, alert_id, description)
         except Exception as e:
             print(f"[vlm] worker error on #{alert_id}: {type(e).__name__}: {e}")
 
@@ -1031,6 +1182,7 @@ def maybe_add_alert(crop, confidence, camera_label, camera_id, context=None):
         except queue.Full:
             pass                                   # backed up — fall through to Telegram now
     send_telegram_alert(jpg, _alert_caption(thing, confidence, camera_label))
+    send_push_alert(thing, confidence, camera_label, alert_id)
 
 
 def _placeholder(text):
@@ -1436,7 +1588,11 @@ def ensure_producers():
 app = FastAPI(title="Vigil")
 
 # Paths reachable without logging in
-_PUBLIC = {"/login", "/setup", "/logout", "/favicon.svg", "/auth/google"}
+# PWA install assets must be readable BEFORE login (and before first-run setup)
+# so the browser can offer "Install Vigil" on the login/setup pages.
+_PWA_ASSETS = {"/app/manifest.json", "/app/sw.js", "/app/icon-192.png",
+               "/app/icon-512.png", "/app/apple-touch-icon.png"}
+_PUBLIC = {"/login", "/setup", "/logout", "/favicon.svg", "/auth/google"} | _PWA_ASSETS
 # API paths that should return 401 (not redirect) when not authed
 _API_PREFIXES = ("/alerts", "/cameras", "/evidence/list", "/evidence/image", "/snapshot", "/stream", "/camera_status", "/push", "/api")
 
@@ -1446,9 +1602,11 @@ async def auth_gate(request: Request, call_next):
     path = request.url.path
 
     # First run: no accounts yet -> force the create-admin setup page
-    # (/auth/google stays reachable so "Sign in with Google" can bootstrap the admin)
+    # (/auth/google stays reachable so "Sign in with Google" can bootstrap the
+    # admin; the PWA install assets stay reachable so the "Install Vigil" card
+    # works on the setup page too.)
     if user_count() == 0:
-        if path == "/setup" or path == "/auth/google":
+        if path == "/setup" or path == "/auth/google" or path in _PWA_ASSETS:
             return await call_next(request)
         return RedirectResponse("/setup")
 
@@ -1994,6 +2152,48 @@ def api_remote_disable(request: Request):
     st["ok"] = rc == 0 and not st["funnel_on"]
     st["message"] = (se or so) if rc != 0 else ""
     return st
+
+
+# ---- Web Push: the phone subscribes here so it can be alerted when CLOSED ---
+@app.get("/api/push/vapid")
+def api_push_vapid(request: Request):
+    """Public VAPID key the browser needs to create a push subscription."""
+    return {"key": VAPID_PUBLIC, "enabled": bool(_WEBPUSH_OK and VAPID_PUBLIC)}
+
+
+@app.post("/api/push/subscribe")
+async def api_push_subscribe(request: Request):
+    """Store this phone's push subscription (any logged-in teacher may enroll)."""
+    if not (_WEBPUSH_OK and VAPID_PUBLIC):
+        return JSONResponse({"ok": False, "error": "push unavailable"}, status_code=503)
+    try:
+        sub = await request.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "bad request"}, status_code=400)
+    user = getattr(request.state, "user", None) or {}
+    if not add_push_sub(sub, user.get("username", "")):
+        return JSONResponse({"ok": False, "error": "no endpoint"}, status_code=400)
+    return {"ok": True}
+
+
+@app.post("/api/push/unsubscribe")
+async def api_push_unsubscribe(request: Request):
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    remove_push_sub((body or {}).get("endpoint"))
+    return {"ok": True}
+
+
+@app.post("/api/push/test")
+async def api_push_test(request: Request):
+    """Send a test push to all subscribed phones (used by the Settings toggle
+    and for verifying the closed-app path)."""
+    send_push_alert("Test", 1.0, "Vigil", 0, "Push notifications are working.")
+    with _push_lock:
+        n = len(_load_subs())
+    return {"ok": True, "count": n}
 
 
 # ---- Telegram phone alerts: easy setup (find chat, send test) --------------
@@ -4203,6 +4403,10 @@ AUTH_TEMPLATE = """<!doctype html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Vigil — __TITLE__</title>
 <link rel="icon" href="/favicon.svg">
+<link rel="manifest" href="/app/manifest.json">
+<link rel="apple-touch-icon" href="/app/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
 <style>
   :root{--bg:#0B0D10;--surface:#111419;--surface-2:#161A20;--border:#21262E;
     --border-strong:#2C333D;--text:#E8EBEF;--text-2:#A4ADB8;--text-3:#6C7580;
@@ -4235,6 +4439,16 @@ AUTH_TEMPLATE = """<!doctype html>
     padding:9px 12px;border-radius:8px;margin-bottom:14px}
   .foot{margin-top:22px;color:var(--text-3);font-size:12px;display:flex;align-items:center;gap:7px}
   .foot .d{width:6px;height:6px;border-radius:50%;background:var(--accent)}
+  .getapp{margin-top:20px;width:372px;max-width:92vw;background:var(--surface);border:1px solid var(--border);
+    border-radius:14px;padding:16px 18px;text-align:center;animation:in .5s cubic-bezier(.2,.6,.2,1) .1s backwards}
+  .getapp__t{font-size:13.5px;font-weight:600;margin-bottom:4px}
+  .getapp__s{font-size:12px;color:var(--text-3);line-height:1.5;margin-bottom:12px}
+  .getapp__btn{width:100%;background:var(--surface-2);color:var(--text);border:1px solid var(--border-strong);
+    height:38px;border-radius:8px;font-size:13.5px;font-weight:600;cursor:pointer;transition:border-color .15s,background .15s}
+  .getapp__btn:hover{border-color:var(--accent);background:#1b2028}
+  .getapp__ios{font-size:12.5px;color:var(--text-2);line-height:1.7}
+  .getapp__ios b{color:var(--text)}
+  .getapp__ios kbd{font:inherit;background:var(--surface-2);border:1px solid var(--border-strong);border-radius:5px;padding:1px 5px}
 </style></head>
 <body>
   <div class="brand"><svg viewBox="0 0 24 24" fill="none"><rect width="24" height="24" rx="7" fill="#161A20"/><path d="M6 10V7.5A1.5 1.5 0 0 1 7.5 6H10M14 6h2.5A1.5 1.5 0 0 1 18 7.5V10M18 14v2.5a1.5 1.5 0 0 1-1.5 1.5H14M10 18H7.5A1.5 1.5 0 0 1 6 16.5V14" stroke="#6C7580" stroke-width="1.8" stroke-linecap="round"/><circle cx="12" cy="12" r="2.6" fill="#2FB37D"/></svg><b>Vigil</b></div>
@@ -4251,7 +4465,52 @@ AUTH_TEMPLATE = """<!doctype html>
     <button class="primary" type="submit">__BUTTON__</button>
   </form>
   <div class="foot"><span class="d"></span> On-device AI · runs entirely on this machine</div>
+  __INSTALL__
 </body></html>"""
+
+# "Get the app" card shown on the LOGIN page. Because Vigil's phone app is a PWA,
+# "download" = install: on Android/desktop Chrome & Edge the browser fires
+# beforeinstallprompt and we offer a one-tap Install; on iPhone (which never
+# fires it) we show the Share → Add to Home Screen steps. Hidden once installed.
+# Whatever URL the teacher installs from IS the app, so it's auto-connected to
+# this school's Vigil. Inline script is allowed by our CSP ('unsafe-inline').
+INSTALL_PROMPT = """
+  <div class="getapp" id="getapp" style="display:none">
+    <div class="getapp__t">Get Vigil on your phone</div>
+    <div class="getapp__s" id="getappHint">Install it for one‑tap access and instant alerts — no app store.</div>
+    <button class="getapp__btn" id="installBtn" type="button" style="display:none">Install Vigil</button>
+    <div class="getapp__ios" id="iosHint" style="display:none">Tap <b>Share</b> <kbd>&#x2191;</kbd>, then <b>Add to Home Screen</b>.</div>
+  </div>
+  <script>
+  (function(){
+    // Pre-register the service worker so the installed app is ready to push.
+    if ("serviceWorker" in navigator) { navigator.serviceWorker.register("/app/sw.js", { scope: "/app/" }).catch(function(){}); }
+    var wrap = document.getElementById("getapp"), btn = document.getElementById("installBtn"),
+        ios = document.getElementById("iosHint"), hint = document.getElementById("getappHint");
+    if (!wrap) return;
+    var standalone = (window.matchMedia && window.matchMedia("(display-mode: standalone)").matches) || window.navigator.standalone === true;
+    if (standalone) return;                                  // already installed
+    var ua = navigator.userAgent || "";
+    var isIOS = /iPhone|iPad|iPod/.test(ua) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+    var deferred = null;
+    window.addEventListener("beforeinstallprompt", function(e){   // Android / desktop Chrome & Edge
+      e.preventDefault(); deferred = e;
+      wrap.style.display = "block"; btn.style.display = "block"; ios.style.display = "none";
+    });
+    btn.addEventListener("click", async function(){
+      if (!deferred) return;
+      btn.disabled = true;
+      deferred.prompt();
+      try { await deferred.userChoice; } catch (_) {}
+      deferred = null; wrap.style.display = "none";
+    });
+    window.addEventListener("appinstalled", function(){ wrap.style.display = "none"; });
+    if (isIOS) {                                            // iOS never fires the event — show manual steps
+      wrap.style.display = "block"; ios.style.display = "block"; btn.style.display = "none";
+      hint.textContent = "Add Vigil to your Home Screen for one‑tap access and alerts:";
+    }
+  })();
+  </script>"""
 
 # Google Sign-In block (only rendered when a client ID is configured).
 # The button comes from Google's own script; its callback hands us an ID token
@@ -4301,7 +4560,7 @@ def _google_ok_for(request):
 
 
 def _auth_page(title, heading, hint, action, button, error="", google_text="signin_with",
-               allow_google=False):
+               allow_google=False, show_install=False):
     err = f'<div class="err">{error}</div>' if error else ""
     google = ""
     if allow_google and GOOGLE_CLIENT_ID.strip():
@@ -4309,7 +4568,8 @@ def _auth_page(title, heading, hint, action, button, error="", google_text="sign
     return (AUTH_TEMPLATE.replace("__STYLE__", STYLE).replace("__LOGO__", LOGO_MARK).replace("__TITLE__", title)
             .replace("__HEADING__", heading).replace("__HINT__", hint)
             .replace("__ACTION__", action).replace("__BUTTON__", button)
-            .replace("__ERROR__", err).replace("__GOOGLE__", google))
+            .replace("__ERROR__", err).replace("__GOOGLE__", google)
+            .replace("__INSTALL__", INSTALL_PROMPT if show_install else ""))
 
 
 _COOKIE_KW = dict(httponly=True, samesite="lax", max_age=60 * 60 * 24 * 30)
@@ -4323,7 +4583,8 @@ def setup_page(request: Request):
     hint = ("This first account manages cameras and other users. "
             + ("Use Google, or create a username and password below." if g else ""))
     return _auth_page("Setup", "Create the admin account", hint,
-                      "/setup", "Create admin", google_text="continue_with", allow_google=g)
+                      "/setup", "Create admin", google_text="continue_with",
+                      allow_google=g, show_install=True)
 
 
 @app.post("/setup")
@@ -4335,7 +4596,8 @@ def setup_submit(request: Request, username: str = Form(...), password: str = Fo
         return HTMLResponse(_auth_page("Setup", "Create the admin account",
                             "This first account manages cameras and other users.",
                             "/setup", "Create admin", err,
-                            allow_google=_google_ok_for(request)), status_code=400)
+                            allow_google=_google_ok_for(request), show_install=True),
+                            status_code=400)
     resp = RedirectResponse("/", status_code=303)
     resp.set_cookie("vigil_session", _sign(username.strip()), **_COOKIE_KW)
     return resp
@@ -4347,7 +4609,8 @@ def login_page(request: Request):
         return RedirectResponse("/setup")
     g = _google_ok_for(request)
     hint = "Use your Google account, or a local username." if g else "Enter your credentials."
-    return _auth_page("Login", "Sign in to Vigil", hint, "/login", "Sign in", allow_google=g)
+    return _auth_page("Login", "Sign in to Vigil", hint, "/login", "Sign in",
+                      allow_google=g, show_install=True)
 
 
 # --- Brute-force throttle -------------------------------------------------
