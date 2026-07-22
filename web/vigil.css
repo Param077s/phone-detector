@@ -514,6 +514,8 @@ svg[viewBox="0 0 24 24"] { width: 16px; height: 16px; flex: none; }
 .rmt-err svg { width: 18px; height: 18px; color: var(--danger); flex: none; margin-top: 1px; }
 .rmt-err code { font-size: var(--fs-xs); background: var(--surface-3); padding: 1px 5px; border-radius: var(--r-sm); }
 
+.tg-chats { display: flex; flex-wrap: wrap; gap: var(--s2); margin-top: var(--s2); }
+
 /* Update download progress bar */
 .progress {
   height: 7px; border-radius: var(--r-full); background: var(--surface-3);

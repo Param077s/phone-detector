@@ -1395,9 +1395,13 @@ const Settings = {
       ${Settings.row("Confidence threshold", "How sure the AI must be. 0.5 is a good balance.", num("CONFIDENCE", d.CONFIDENCE, "0.05"))}
       ${Settings.row("Image size", "Higher catches smaller/farther phones, slightly slower.", num("IMG_SIZE", d.IMG_SIZE, "32"))}
       ${Settings.row("AI second look", "A vision model re-checks each detection to filter false alarms.", tog("VLM_ENABLED", d.VLM_ENABLED))}</div>`;
-    else if (Settings.section === "notifications") html = `<div class="settings__group"><h2>Notifications</h2><p>Where alerts are sent, beyond the dashboard.</p>
-      ${Settings.row("Telegram bot token", "Optional — send alerts to a Telegram chat.", `<input class="input mono" data-k="TELEGRAM_TOKEN" value="${esc(d.TELEGRAM_TOKEN||"")}" placeholder="Not set">`)}
-      ${Settings.row("Telegram chat IDs", "Comma-separated chat IDs to notify.", `<input class="input mono" data-k="TELEGRAM_CHAT_IDS" value="${esc(d.TELEGRAM_CHAT_IDS||"")}" placeholder="Not set">`)}</div>`;
+    else if (Settings.section === "notifications") html = `<div class="settings__group"><h2>Notifications</h2><p>Get alerted the instant a phone is detected — on this device, or on any phone via Telegram.</p>
+      ${Settings.row("Notify me on this device", "A pop‑up + buzz on this phone or computer when a phone is spotted. On iPhone, open Vigil over the secure link and tap Share → Add to Home Screen first.", `<button class="btn" id="notifToggle">…</button>`)}
+      <h2 style="margin-top:var(--s5)">Telegram <span class="muted" style="font-weight:400;font-size:var(--fs-sm)">— any phone, even when Vigil is closed</span></h2>
+      ${Settings.row("Bot token", "Create a bot with @BotFather on Telegram, then paste its token here.", `<input class="input mono" data-k="TELEGRAM_TOKEN" value="${esc(d.TELEGRAM_TOKEN||"")}" placeholder="123456:ABC-DEF…">`)}
+      ${Settings.row("Chat", "Message your bot on Telegram (say “hi”), then find the chat automatically — no ID hunting.", `<div class="row" style="gap:var(--s2);align-items:stretch"><input class="input mono" data-k="TELEGRAM_CHAT_IDS" style="flex:1;min-width:0" value="${esc(d.TELEGRAM_CHAT_IDS||"")}" placeholder="Not set"><button class="btn btn--sm" id="tgFind">Find my chat</button></div>`)}
+      ${Settings.row("Test it", "Send yourself a sample alert to confirm it works.", `<button class="btn btn--sm" id="tgTest">Send test alert</button>`)}
+      <div id="tgMsg"></div></div>`;
     else if (Settings.section === "cameras") html = `<div class="settings__group"><h2>Cameras</h2><p>Defaults applied to camera feeds.</p>
       ${Settings.row("Manage cameras", "Add, edit, and arrange cameras from Live Footage.", `<a class="btn" href="#/live">Go to Live Footage</a>`)}</div>`;
     else if (Settings.section === "remote") html = `<div class="settings__group"><h2>Remote access</h2><p>Let teachers open the live wall from any classroom — or off-campus — on a fixed link, not just the same Wi‑Fi.</p>
@@ -1425,6 +1429,46 @@ const Settings = {
     const save = $("#setSave"); if (save) save.onclick = () => Settings.save();
     const cu = $("#checkUpdate"); if (cu) cu.onclick = () => Settings.checkUpdate(cu);
     if (Settings.section === "remote") RemoteAccess.render();
+
+    // Notifications section: device toggle + one-tap Telegram
+    const nt = $("#notifToggle");
+    if (nt) {
+      const ntOn = () => MOCK ? localStorage.getItem(PhoneNotify.KEY) === "1" : PhoneNotify.on();
+      const paintNt = () => { const on = ntOn(); nt.textContent = on ? "On — turn off" : (MOCK || PhoneNotify.supported() ? "Turn on" : "Not supported here"); nt.classList.toggle("btn--primary", !on); };
+      paintNt();
+      nt.onclick = async () => {
+        if (ntOn()) { PhoneNotify.disable(); toast("Device notifications off", { kind: "ok" }); }
+        else { if (MOCK) { toast("Notifications on (demo)", { kind: "ok" }); localStorage.setItem(PhoneNotify.KEY, "1"); } else await PhoneNotify.enable(); }
+        paintNt();
+      };
+    }
+    const readTg = () => ({ token: ($("[data-k='TELEGRAM_TOKEN']")?.value || "").trim(), chat_ids: ($("[data-k='TELEGRAM_CHAT_IDS']")?.value || "").trim() });
+    const tgMsg = (html) => { const m = $("#tgMsg"); if (m) m.innerHTML = html; };
+    const tgFind = $("#tgFind");
+    if (tgFind) tgFind.onclick = async () => {
+      tgFind.disabled = true; tgFind.textContent = "Finding…";
+      try {
+        const r = await fetch("/api/telegram/detect", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(readTg()) });
+        const d2 = await r.json();
+        if (!d2.ok) tgMsg(`<div class="rmt-err">${icon("alert")}<div>${esc(d2.error || "Couldn't find a chat.")}</div></div>`);
+        else if (!d2.chats.length) tgMsg(`<div class="row muted" style="margin-top:var(--s2)">${icon("info")} ${esc(d2.hint || "No chats found yet.")}</div>`);
+        else {
+          tgMsg(`<div class="tg-chats">${d2.chats.map(c => `<button class="btn btn--sm" data-cid="${esc(c.id)}">${icon("plus")} ${esc(c.name)}</button>`).join("")}</div>`);
+          $$("[data-cid]").forEach(b => b.onclick = () => { const inp = $("[data-k='TELEGRAM_CHAT_IDS']"); const cur = inp.value.split(",").map(x => x.trim()).filter(Boolean); if (!cur.includes(b.dataset.cid)) cur.push(b.dataset.cid); inp.value = cur.join(", "); toast("Chat added — Save to keep it", { kind: "ok" }); });
+        }
+      } catch { tgMsg(`<div class="rmt-err">${icon("alert")}<div>Couldn't reach the server.</div></div>`); }
+      tgFind.disabled = false; tgFind.textContent = "Find my chat";
+    };
+    const tgTest = $("#tgTest");
+    if (tgTest) tgTest.onclick = async () => {
+      tgTest.disabled = true; tgTest.textContent = "Sending…";
+      try {
+        const r = await fetch("/api/telegram/test", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(readTg()) });
+        const d2 = await r.json();
+        tgMsg(d2.ok ? `<div class="row" style="color:var(--ok);margin-top:var(--s2)">${icon("check")} Sent — check Telegram.</div>` : `<div class="rmt-err">${icon("alert")}<div>${esc(d2.error || "Couldn't send.")}</div></div>`);
+      } catch { tgMsg(`<div class="rmt-err">${icon("alert")}<div>Couldn't reach the server.</div></div>`); }
+      tgTest.disabled = false; tgTest.textContent = "Send test alert";
+    };
     const cd = $("#clearDismissed"); if (cd) cd.onclick = async () => {
       if (!await confirmDialog({ title: "Clear dismissed evidence?",
           body: "All dismissed events and their snapshots will be permanently deleted. Confirmed evidence is kept.",
@@ -1541,6 +1585,7 @@ const Notify = {
         kind: "danger", timeout: 6500,
         onClick: () => { Evidence.pendingOpen = a.id; go("evidence"); },
       }));
+      fresh.forEach(a => PhoneNotify.fire(a));    // system notification + vibrate on the phone
     }
   },
   paintBell() {
@@ -1575,6 +1620,49 @@ const Notify = {
     addEventListener("hashchange", close, { once: true });
     $("[data-snooze]", panel).onclick = (e) => { e.stopPropagation(); state.snoozeUntil = Date.now() + 15 * 60 * 1000; toast("Notifications snoozed for 15 minutes", { kind: "ok" }); close(); };
     $$("[data-id]", panel).forEach(n => n.onclick = () => { close(); Evidence.pendingOpen = +n.dataset.id; go("evidence"); });
+  },
+};
+
+/* =========================================================================
+   9a2. PHONE NOTIFICATIONS  ("Allow notifications" — a system notification +
+   vibrate on each new detection, on the device the teacher is using. Works on
+   Android and on iPhone once Vigil is Added to Home Screen over the secure
+   (https) link. Registers a service worker so it's an installable app.
+   ========================================================================= */
+const PhoneNotify = {
+  reg: null, KEY: "vigil.notify",
+  async init() {
+    if (MOCK) return;
+    if ("serviceWorker" in navigator) {
+      try { PhoneNotify.reg = await navigator.serviceWorker.register("/app/sw.js", { scope: "/app/" }); } catch {}
+    }
+  },
+  supported() { return "Notification" in window; },
+  on() { return localStorage.getItem(PhoneNotify.KEY) === "1" && PhoneNotify.supported() && Notification.permission === "granted"; },
+  async enable() {
+    if (!PhoneNotify.supported()) { toast("This device can't show notifications", { msg: "On iPhone, tap Share → Add to Home Screen first.", kind: "info" }); return false; }
+    let p = Notification.permission;
+    if (p !== "granted") { try { p = await Notification.requestPermission(); } catch { p = "denied"; } }
+    if (p !== "granted") { localStorage.setItem(PhoneNotify.KEY, "0"); toast("Notifications are blocked", { msg: "Allow them for this site in your browser settings.", kind: "info" }); return false; }
+    localStorage.setItem(PhoneNotify.KEY, "1");
+    PhoneNotify.fire({ _test: true });                 // confirm it works right away
+    return true;
+  },
+  disable() { localStorage.setItem(PhoneNotify.KEY, "0"); },
+  fire(a) {
+    if (!PhoneNotify.on()) return;
+    const test = a && a._test;
+    const title = test ? "Vigil notifications are on" : `Phone detected · ${a.camera}`;
+    const body = test ? "You'll be alerted here the moment a phone is spotted."
+                      : `${Math.round((a.confidence || 0) * 100)}% confidence · tap to review`;
+    const opts = { body, icon: "/app/icon-192.png", badge: "/app/icon-192.png",
+                   tag: "vigil-" + ((a && a.id) || "test"), renotify: true,
+                   vibrate: [140, 70, 140], data: { id: a && a.id } };
+    try {
+      if (PhoneNotify.reg && PhoneNotify.reg.showNotification) PhoneNotify.reg.showNotification(title, opts);
+      else new Notification(title, opts);
+    } catch {}
+    try { navigator.vibrate && navigator.vibrate([140, 70, 140]); } catch {}
   },
 };
 
@@ -2007,9 +2095,10 @@ async function boot() {
   document.addEventListener("keydown", shortcuts);
   await mount();
   Notify.start();               // app-wide detection awareness (bell + toasts)
+  PhoneNotify.init();           // register the service worker (installable + notifications)
   Updates.start();              // automatic update notice (chip + one toast)
 }
 // Dev hook — only exposed in mock mode (?mock=1), never in the real app.
-if (MOCK) window.__vigil = { recoverNode, RECOVER, Live, Evidence, Settings, Notify, Updates, PhoneAccess, RemoteAccess, Palette, ShortcutsHelp, toast, go, state };
+if (MOCK) window.__vigil = { recoverNode, RECOVER, Live, Evidence, Settings, Notify, Updates, PhoneAccess, RemoteAccess, PhoneNotify, Palette, ShortcutsHelp, toast, go, state };
 boot();
 })();

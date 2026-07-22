@@ -1996,9 +1996,73 @@ def api_remote_disable(request: Request):
     return st
 
 
+# ---- Telegram phone alerts: easy setup (find chat, send test) --------------
+@app.post("/api/telegram/detect")
+async def api_telegram_detect(request: Request):
+    """After the teacher messages the bot (or adds it to a group), find the
+    chat id automatically so nobody has to hunt for it."""
+    _, err = _require_admin(request)
+    if err:
+        return err
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    token = (body.get("token") or TELEGRAM_TOKEN or "").strip()
+    if not token:
+        return {"ok": False, "error": "Add your bot token first."}
+    try:
+        req = urllib.request.Request("https://api.telegram.org/bot%s/getUpdates" % token,
+                                     headers={"User-Agent": "Vigil"})
+        data = json.loads(urllib.request.urlopen(req, timeout=15).read().decode())
+    except Exception:
+        return {"ok": False, "error": "Couldn't reach Telegram — double-check the bot token."}
+    if not data.get("ok"):
+        return {"ok": False, "error": data.get("description") or "Telegram rejected that token."}
+    chats = {}
+    for u in data.get("result", []):
+        chat = ((u.get("message") or u.get("channel_post") or u.get("my_chat_member") or {}).get("chat")) or {}
+        cid = chat.get("id")
+        if cid is None:
+            continue
+        name = (chat.get("title")
+                or " ".join(x for x in [chat.get("first_name"), chat.get("last_name")] if x)
+                or chat.get("username") or str(cid))
+        chats[str(cid)] = name
+    return {"ok": True, "chats": [{"id": k, "name": v} for k, v in chats.items()],
+            "hint": "" if chats else "Message your bot on Telegram (say “hi”), then try again."}
+
+
+@app.post("/api/telegram/test")
+async def api_telegram_test(request: Request):
+    _, err = _require_admin(request)
+    if err:
+        return err
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    token = (body.get("token") or TELEGRAM_TOKEN or "").strip()
+    ids = str(body.get("chat_ids") or TELEGRAM_CHAT_IDS or "").replace(";", ",")
+    chat_ids = [c.strip() for c in ids.split(",") if c.strip()]
+    if not token:
+        return {"ok": False, "error": "Add your bot token first."}
+    if not chat_ids:
+        return {"ok": False, "error": "No chat yet — use “Find my chat” after messaging the bot."}
+    sent, errs = 0, []
+    for cid in chat_ids:
+        try:
+            _telegram_send_message(token, cid, "✅ Vigil test alert — phone notifications are working.")
+            sent += 1
+        except Exception as e:
+            errs.append(str(e))
+    return {"ok": sent > 0, "sent": sent,
+            "error": "" if sent else ("; ".join(errs) or "Couldn't send. Check the token and chat.")}
+
+
 # ---- Updates --------------------------------------------------------------
 # Bump this on every release (it's what Check for updates compares against).
-VIGIL_VERSION = "1.2.5"
+VIGIL_VERSION = "1.2.6"
 _UPDATE_REPO = "Param077s/vigil"
 
 

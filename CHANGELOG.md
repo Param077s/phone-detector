@@ -2,6 +2,19 @@
 
 All notable changes to Vigil. Dates are the release date.
 
+## 1.2.6
+- **Phone notifications (no Telegram needed)** — Settings → Notifications →
+  "Notify me on this device". Get a pop‑up + buzz the instant a phone is
+  detected, right on the phone or computer you're using. Vigil is now an
+  installable app too — over the secure link, tap Share → Add to Home Screen
+  (this is also what lets iPhones show notifications).
+- **Easier Telegram** — paste your bot token, message the bot, then tap
+  "Find my chat" and Vigil fills in the chat for you (no more hunting for chat
+  IDs). A "Send test alert" button confirms it works.
+- **Fixed the Windows/Linux download** — the download button pointed at a file
+  that wasn't there ("Not found"). Windows/Linux builds are attached to
+  releases again.
+
 ## 1.2.5
 - **Watch from anywhere** — new Settings → Remote access. A one‑time setup
   (install Tailscale, sign in, turn it on) gives Vigil a fixed public HTTPS

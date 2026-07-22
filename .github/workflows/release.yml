@@ -176,6 +176,7 @@ jobs:
 
       # -------------------------------------------------------------- Publish
       - name: Upload build artifact
+        continue-on-error: true          # artifact storage quota must never block the release attach below
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.asset }}
