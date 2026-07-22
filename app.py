@@ -4071,6 +4071,18 @@ LANDING_HTML = """<!doctype html>
     color:var(--grn); font-family:var(--mono); font-size:11.5px; }
   @media (max-width:920px){ .setups { grid-template-columns:1fr; } }
 
+  /* invigilator app — "open your school's Vigil" */
+  .invig-go { display:flex; flex-direction:column; gap:14px; margin-top:18px; }
+  .invig-go input { width:100%; background:#0a0e13; border:1px solid var(--line); border-radius:9px;
+    color:var(--txt); font-family:var(--mono); font-size:13px; padding:13px 14px; outline:none;
+    transition:border-color .3s var(--ease), box-shadow .3s var(--ease); }
+  .invig-go input:focus { border-color:rgba(62,207,142,.5); box-shadow:0 0 0 3px rgba(62,207,142,.12); }
+  .invig-go input::placeholder { color:var(--dim); }
+  .invig-go .btn { align-self:flex-start; }
+  .igo-hint { font-size:12.5px; color:var(--mut); line-height:1.7; margin:2px 0 0; }
+  .igo-hint code { background:#0a0e13; border:1px solid var(--line); padding:1px 6px; border-radius:5px;
+    color:var(--grn); font-family:var(--mono); font-size:11px; }
+
   /* final */
   .final { text-align:center; padding:130px 0 120px; }
   .final h2 { font-size:clamp(32px,4.4vw,56px); }
@@ -4163,7 +4175,7 @@ LANDING_HTML = """<!doctype html>
   <a class="brand" href="/">__LOGO__<b>Vig<span>i</span>l</b></a>
   <nav class="site-nav">
     <a href="#capabilities">CAPABILITIES</a><a href="#detection">DETECTION</a>
-    <a href="#deployment">DEPLOYMENT</a><a href="#privacy">PRIVACY</a><a href="#faq">FAQ</a>
+    <a href="#deployment">DEPLOYMENT</a><a href="#invigilators">GET THE APP</a><a href="#privacy">PRIVACY</a><a href="#faq">FAQ</a>
   </nav>
   <a class="btn btn-grn" href="/login">OPEN DASHBOARD</a>
 </div></div>
@@ -4275,8 +4287,47 @@ LANDING_HTML = """<!doctype html>
       alerts reached invigilators faster than walking the aisles. Vigil logs all three for you.</span></div>
   </section>
 
+  <section id="invigilators">
+    <div class="sec-head reveal"><span class="sec-no">04 / FOR INVIGILATORS</span></div>
+    <h2 class="reveal" style="--d:.05s">The app in your pocket,<br>on exam day.</h2>
+    <p class="sec-sub reveal" style="--d:.08s">If your school already runs Vigil, put the invigilator app on your
+      phone. Get an alert the instant a phone is spotted in your room, and open any camera you're assigned to — on
+      demand. No app store, no configuration, and it keeps working when the app is closed.</p>
+    <div class="spec">
+      <div class="spec-col reveal"><div class="sc-head">GET THE APP — 3 STEPS</div>
+        <div class="spec-row"><span class="k">1</span><div><b>Open your school link</b><span>Your Vigil admin gives you a secure link — or a QR to scan. Enter it on the right, or scan the QR with your phone camera.</span></div></div>
+        <div class="spec-row"><span class="k">2</span><div><b>Add to Home Screen</b><span>iPhone: tap Share, then Add to Home Screen. Android: tap Install. Vigil becomes a real app icon.</span></div></div>
+        <div class="spec-row"><span class="k">3</span><div><b>Sign in &amp; allow alerts</b><span>Log in with the invigilator account your admin created, tap Allow for notifications — that's it.</span></div></div>
+      </div>
+      <div class="spec-col reveal" style="--d:.08s"><div class="sc-head">OPEN YOUR SCHOOL'S VIGIL</div>
+        <form class="invig-go" id="invigGo">
+          <input id="invigUrl" type="url" inputmode="url" autocomplete="off" spellcheck="false" placeholder="https://your-school.ts.net">
+          <button class="btn btn-grn" type="submit">OPEN THE APP &#8594;</button>
+          <p class="igo-hint" id="invigHint">The link must start with <code>https://</code> for alerts to work. No link yet? Ask your exam office.</p>
+        </form>
+      </div>
+    </div>
+    <div class="note reveal"><span class="nico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg></span>
+      <span><b>Why a link and not an app-store download?</b> Vigil runs inside your school and streams only to its own people. Installing from your school's own address is what keeps footage private and your alerts instant.</span></div>
+  </section>
+  <script>
+  (function(){
+    var f = document.getElementById('invigGo'); if (!f) return;
+    f.addEventListener('submit', function(e){
+      e.preventDefault();
+      var el = document.getElementById('invigUrl'), h = document.getElementById('invigHint');
+      var v = (el.value || '').trim(); if (!v) return;
+      var lv = v.toLowerCase();
+      if (lv.indexOf('http://') !== 0 && lv.indexOf('https://') !== 0) v = 'https://' + v;
+      var u; try { u = new URL(v); } catch (_) { h.textContent = "That doesn't look like a link — check with your exam office."; return; }
+      if (u.protocol !== 'https:') { h.textContent = 'For notifications to work, the link must start with https://.'; return; }
+      window.location.href = u.href;   // hand off to the school's Vigil (install card + sign-in live there)
+    });
+  })();
+  </script>
+
   <section id="privacy" class="doctrine">
-    <div class="sec-head reveal"><span class="sec-no">04 / PRIVACY DOCTRINE</span></div>
+    <div class="sec-head reveal"><span class="sec-no">05 / PRIVACY DOCTRINE</span></div>
     <h2 class="reveal" style="--d:.05s">Footage never leaves<br>the building. <em>Ever.</em></h2>
     <div class="ledge reveal" style="--d:.1s">
       <div><span class="k">PROCESSING</span><span class="v">ON DEVICE — LOCAL GPU/CPU</span></div>
@@ -4287,7 +4338,7 @@ LANDING_HTML = """<!doctype html>
   </section>
 
   <section id="faq">
-    <div class="sec-head reveal"><span class="sec-no">05 / QUESTIONS</span></div>
+    <div class="sec-head reveal"><span class="sec-no">06 / QUESTIONS</span></div>
     <h2 class="reveal" style="--d:.05s">Quick answers.</h2>
     <div class="faq">
       <div class="qa reveal"><button><span class="qno">Q1</span>Does it need an internet connection?<i>+</i></button>

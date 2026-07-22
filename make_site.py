@@ -54,9 +54,11 @@ page = page.replace('Sign in to your control room, or set Vigil up on the comput
 page = page.replace('<a href="/login">SIGN IN</a>',
                     f'<a class="js-dl" href="{DMG}">DOWNLOAD</a>'
                     '<a href="privacy.html">PRIVACY POLICY</a><a href="terms.html">TERMS</a>')
-# renumber sections after the injected ACCESS section
-page = page.replace('04 / PRIVACY DOCTRINE', '05 / PRIVACY DOCTRINE')
-page = page.replace('05 / QUESTIONS', '06 / QUESTIONS')
+# ACCESS is injected as "04" (before FOR INVIGILATORS on the public site only),
+# so bump every section that follows it in the in-app source numbering.
+page = page.replace('04 / FOR INVIGILATORS', '05 / FOR INVIGILATORS')
+page = page.replace('05 / PRIVACY DOCTRINE', '06 / PRIVACY DOCTRINE')
+page = page.replace('06 / QUESTIONS', '07 / QUESTIONS')
 page = page.replace('<link rel="icon" href="favicon.svg">',
                     f'<link rel="canonical" href="{SITE}">\n<link rel="icon" href="favicon.svg">\n'
                     '<script type="application/ld+json">{"@context":"https://schema.org","@type":"SoftwareApplication",'
@@ -90,7 +92,7 @@ GET = f'''
     </div>
   </section>
 '''
-page = page.replace('  <section id="privacy" class="doctrine">', GET + '\n  <section id="privacy" class="doctrine">')
+page = page.replace('  <section id="invigilators">', GET + '\n  <section id="invigilators">')
 
 # Platform-aware download CTAs:
 #  - iOS / Android → download buttons become a "coming soon for iOS/Android" pill
