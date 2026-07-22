@@ -43,6 +43,8 @@ import queue
 import socket
 import io
 import base64
+import shutil
+import subprocess
 from datetime import datetime
 
 import cv2
@@ -1891,9 +1893,112 @@ def api_lan_info(request: Request):
             "on_lan": not ip.startswith("127.")}
 
 
+# ---- Remote access ("watch from anywhere") via Tailscale Funnel -----------
+# Funnel gives the Mac a fixed public HTTPS URL (e.g. https://mac.tail1234.ts.net)
+# that works from any classroom/network — no QR, no same-Wi-Fi. Vigil detects
+# Tailscale, turns Funnel on for its own port, and surfaces the URL + a QR. The
+# one-time "install Tailscale + sign in + allow Funnel" is the user's to do; we
+# guide it and show exactly what the CLI says when something's missing.
+def _tailscale_bin():
+    for p in (shutil.which("tailscale"),
+              "/Applications/Tailscale.app/Contents/MacOS/Tailscale",
+              "/usr/local/bin/tailscale", "/opt/homebrew/bin/tailscale"):
+        if p and os.path.exists(p):
+            return p
+    return None
+
+
+def _run_ts(args, timeout=20):
+    """Run the tailscale CLI; returns (rc, stdout, stderr). rc=127 if missing."""
+    tb = _tailscale_bin()
+    if not tb:
+        return 127, "", "Tailscale isn't installed."
+    try:
+        r = subprocess.run([tb, *args], capture_output=True, text=True, timeout=timeout)
+        return r.returncode, r.stdout.strip(), r.stderr.strip()
+    except Exception as e:
+        return 1, "", str(e)
+
+
+def _remote_status():
+    tb = _tailscale_bin()
+    out = {"installed": bool(tb), "logged_in": False, "funnel_on": False,
+           "url": "", "qr": "", "error": ""}
+    if not tb:
+        return out
+    # Logged in? Grab this node's public DNS name.
+    rc, so, se = _run_ts(["status", "--json"], timeout=15)
+    if rc == 0 and so:
+        try:
+            st = json.loads(so)
+            out["logged_in"] = st.get("BackendState") == "Running"
+            dns = ((st.get("Self") or {}).get("DNSName") or "").rstrip(".")
+            if dns:
+                out["url"] = "https://" + dns
+        except Exception:
+            pass
+    # Funnel currently on for our port? Parse `serve status --json`.
+    port = int(os.environ.get("VIGIL_PORT", "8000") or 8000)
+    rc, so, se = _run_ts(["serve", "status", "--json"], timeout=15)
+    if rc == 0 and so:
+        try:
+            cfg = json.loads(so)
+            allow = cfg.get("AllowFunnel") or {}
+            out["funnel_on"] = any(bool(v) for v in allow.values())
+            for hostport, web in (cfg.get("Web") or {}).items():
+                for _, h in (web.get("Handlers") or {}).items():
+                    if str(port) in str(h.get("Proxy") or ""):
+                        out["url"] = "https://" + hostport.split(":")[0]
+        except Exception:
+            pass
+    if out["funnel_on"] and out["url"]:
+        try:
+            img = qrcode.make(out["url"])
+            buf = io.BytesIO(); img.save(buf, format="PNG")
+            out["qr"] = "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
+        except Exception:
+            pass
+    return out
+
+
+@app.get("/api/remote/status")
+def api_remote_status(request: Request):
+    _, err = _require_admin(request)
+    if err:
+        return err
+    return _remote_status()
+
+
+@app.post("/api/remote/enable")
+def api_remote_enable(request: Request):
+    _, err = _require_admin(request)
+    if err:
+        return err
+    port = int(os.environ.get("VIGIL_PORT", "8000") or 8000)
+    # Serve our local port publicly over HTTPS, in the background.
+    rc, so, se = _run_ts(["funnel", "--bg", str(port)], timeout=40)
+    st = _remote_status()
+    st["ok"] = rc == 0 or st["funnel_on"]
+    st["message"] = (se or so) if rc != 0 else ""
+    st["command"] = "tailscale funnel --bg %d" % port     # so the user can run it manually
+    return st
+
+
+@app.post("/api/remote/disable")
+def api_remote_disable(request: Request):
+    _, err = _require_admin(request)
+    if err:
+        return err
+    rc, so, se = _run_ts(["serve", "reset"], timeout=20)
+    st = _remote_status()
+    st["ok"] = rc == 0 and not st["funnel_on"]
+    st["message"] = (se or so) if rc != 0 else ""
+    return st
+
+
 # ---- Updates --------------------------------------------------------------
 # Bump this on every release (it's what Check for updates compares against).
-VIGIL_VERSION = "1.2.4"
+VIGIL_VERSION = "1.2.5"
 _UPDATE_REPO = "Param077s/vigil"
 
 

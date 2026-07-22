@@ -266,6 +266,11 @@ const api = {
   lanInfo:      () => MOCK
     ? Promise.resolve({ ip: "192.168.1.42", port: 8000, url: "http://192.168.1.42:8000/app/", qr: "", on_lan: true })
     : api._get("/api/lan-info"),
+  remoteStatus: () => MOCK
+    ? Promise.resolve({ installed: false, logged_in: false, funnel_on: false, url: "", qr: "" })
+    : api._get("/api/remote/status"),
+  remoteEnable: () => fetch("/api/remote/enable", { method: "POST" }).then(r => r.json()),
+  remoteDisable:() => fetch("/api/remote/disable", { method: "POST" }).then(r => r.json()),
   updateState:  () => api._get("/api/update/state"),
   updateStart:  () => fetch("/api/update/start", { method: "POST" }).then(r => r.json()),
   updateApply:  (relaunch) => fetch("/api/update/apply", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ relaunch }) }).then(r => r.json()),
@@ -965,6 +970,67 @@ const PhoneAccess = {
   },
 };
 
+/* Remote access (Settings → Remote access) — Tailscale Funnel gives a fixed
+   public HTTPS link teachers open from anywhere. Guides the one-time setup,
+   then shows the link + QR. */
+const RemoteAccess = {
+  async render() {
+    const box = $("#remoteBody"); if (!box) return;
+    let s; try { s = await api.remoteStatus(); } catch { s = null; }
+    if (!s) { box.innerHTML = `<div class="phone-share--warn">${icon("wifioff")}<div>Couldn't check remote access.</div></div>`; return; }
+    RemoteAccess._paint(s);
+  },
+  _paint(s) {
+    const box = $("#remoteBody"); if (!box) return;
+    const step = (n, txt, done) => `<li class="rmt-step${done ? " is-done" : ""}"><span class="rmt-step__n">${done ? icon("check") : n}</span><span>${txt}</span></li>`;
+    if (s.funnel_on && s.url) {
+      box.innerHTML = `<div class="phone-share">
+        <span class="badge badge--ok">${icon("check")} Remote access is on</span>
+        ${s.qr ? `<div class="phone-share__qr"><img src="${s.qr}" width="200" height="200" alt="QR code"></div>` : ""}
+        <p style="margin:0;align-self:stretch">Teachers open this link on their phone (bookmark it, or <b>Add to Home Screen</b> for an app icon):</p>
+        <div class="phone-share__url"><span class="mono" title="${esc(s.url)}">${esc(s.url)}</span><button class="btn btn--sm" id="rmtCopy">${icon("share")} Copy</button></div>
+        <p class="hint">Works from any classroom or network — no Wi‑Fi match needed. They log in with a Vigil account, and can tap “Allow notifications” on the phone.</p>
+        <button class="btn btn--sm" id="rmtOff">Turn off remote access</button></div>`;
+      $("#rmtCopy").onclick = () => { (navigator.clipboard?.writeText(s.url) || Promise.resolve()).then(() => toast("Link copied", { kind: "ok" }), () => toast(s.url, { kind: "info" })); };
+      $("#rmtOff").onclick = () => RemoteAccess.disable();
+      return;
+    }
+    let cta;
+    if (!s.installed) cta = `<button class="btn btn--primary" id="rmtInstall">${icon("download")} Install Tailscale</button>`;
+    else if (!s.logged_in) cta = `<button class="btn btn--primary" id="rmtRecheck">I've signed in — re-check</button>`;
+    else cta = `<button class="btn btn--primary" id="rmtOn">Turn on remote access</button>`;
+    box.innerHTML = `<div class="rmt-setup">
+      <p class="muted" style="margin-top:0">A one‑time setup gives Vigil a fixed public web address (via Tailscale Funnel — free). After this, teachers just open the link from anywhere.</p>
+      <ol class="rmt-steps">
+        ${step(1, `Install <b>Tailscale</b> on this Mac`, s.installed)}
+        ${step(2, `Open Tailscale and <b>sign in</b> (free account)`, s.logged_in)}
+        ${step(3, `Turn on remote access here`, s.funnel_on)}
+      </ol>
+      <div id="rmtMsg"></div>
+      <div class="row" style="gap:var(--s2)">${cta}</div></div>`;
+    const ins = $("#rmtInstall"); if (ins) ins.onclick = () => openExternal("https://tailscale.com/download/mac");
+    const rc = $("#rmtRecheck"); if (rc) rc.onclick = () => RemoteAccess.render();
+    const on = $("#rmtOn"); if (on) on.onclick = () => RemoteAccess.enable(on);
+  },
+  async enable(btn) {
+    if (btn) { btn.disabled = true; btn.textContent = "Turning on…"; }
+    let s; try { s = await api.remoteEnable(); } catch { s = null; }
+    if (!s) { toast("Couldn't turn on remote access", { kind: "danger" }); return RemoteAccess.render(); }
+    if (s.funnel_on) { toast("Remote access is on", { kind: "ok" }); return RemoteAccess._paint(s); }
+    RemoteAccess._paint(s);                       // back to setup, then explain what's missing
+    const msg = $("#rmtMsg");
+    if (msg) msg.innerHTML = `<div class="rmt-err">${icon("alert")}<div>
+      <div class="strong">Tailscale needs Funnel allowed for your network first.</div>
+      <div class="muted" style="white-space:pre-wrap;margin-top:2px">${esc(s.message || "")}</div>
+      ${s.command ? `<div class="muted" style="margin-top:4px">Or run in Terminal: <code>${esc(s.command)}</code></div>` : ""}</div></div>`;
+  },
+  async disable() {
+    let s; try { s = await api.remoteDisable(); } catch { s = null; }
+    toast(s && !s.funnel_on ? "Remote access turned off" : "Turned off — re-checking", { kind: "ok" });
+    RemoteAccess.render();
+  },
+};
+
 /* =========================================================================
    7. EVIDENCE
    ========================================================================= */
@@ -1290,7 +1356,8 @@ const Settings = {
   groups: [
     ["general", "General", "info"], ["appearance", "Appearance", "sun"],
     ["ai", "AI Models", "cpu"], ["notifications", "Notifications", "bell"],
-    ["cameras", "Cameras", "live"], ["storage", "Storage", "db"],
+    ["cameras", "Cameras", "live"], ["remote", "Remote access", "phone"],
+    ["storage", "Storage", "db"],
     ["privacy", "Privacy", "lock"], ["updates", "Updates", "download"],
     ["account", "Account", "users"],
   ],
@@ -1333,6 +1400,8 @@ const Settings = {
       ${Settings.row("Telegram chat IDs", "Comma-separated chat IDs to notify.", `<input class="input mono" data-k="TELEGRAM_CHAT_IDS" value="${esc(d.TELEGRAM_CHAT_IDS||"")}" placeholder="Not set">`)}</div>`;
     else if (Settings.section === "cameras") html = `<div class="settings__group"><h2>Cameras</h2><p>Defaults applied to camera feeds.</p>
       ${Settings.row("Manage cameras", "Add, edit, and arrange cameras from Live Footage.", `<a class="btn" href="#/live">Go to Live Footage</a>`)}</div>`;
+    else if (Settings.section === "remote") html = `<div class="settings__group"><h2>Remote access</h2><p>Let teachers open the live wall from any classroom — or off-campus — on a fixed link, not just the same Wi‑Fi.</p>
+      <div id="remoteBody"><div class="phone-share__loading">${icon("phone")}<span>Checking remote access…</span></div></div></div>`;
     else if (Settings.section === "storage") html = `<div class="settings__group"><h2>Storage</h2><p>Where evidence lives on this machine.</p>
       ${Settings.row("Evidence location", "Snapshots and the database are stored locally on this device.", `<span class="badge">Local disk</span>`)}
       ${Settings.row("Clear dismissed evidence", "Permanently delete events you've dismissed.", `<button class="btn btn--danger" id="clearDismissed">Clear…</button>`)}</div>`;
@@ -1355,6 +1424,7 @@ const Settings = {
     const dp = $("[data-k='_density']"); if (dp) dp.onchange = () => { state.density = dp.value; localStorage.setItem("vigil.density", state.density); toast("Default density updated", { kind: "ok" }); };
     const save = $("#setSave"); if (save) save.onclick = () => Settings.save();
     const cu = $("#checkUpdate"); if (cu) cu.onclick = () => Settings.checkUpdate(cu);
+    if (Settings.section === "remote") RemoteAccess.render();
     const cd = $("#clearDismissed"); if (cd) cd.onclick = async () => {
       if (!await confirmDialog({ title: "Clear dismissed evidence?",
           body: "All dismissed events and their snapshots will be permanently deleted. Confirmed evidence is kept.",
@@ -1940,6 +2010,6 @@ async function boot() {
   Updates.start();              // automatic update notice (chip + one toast)
 }
 // Dev hook — only exposed in mock mode (?mock=1), never in the real app.
-if (MOCK) window.__vigil = { recoverNode, RECOVER, Live, Evidence, Settings, Notify, Updates, PhoneAccess, Palette, ShortcutsHelp, toast, go, state };
+if (MOCK) window.__vigil = { recoverNode, RECOVER, Live, Evidence, Settings, Notify, Updates, PhoneAccess, RemoteAccess, Palette, ShortcutsHelp, toast, go, state };
 boot();
 })();

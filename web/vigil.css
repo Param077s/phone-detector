@@ -497,6 +497,23 @@ svg[viewBox="0 0 24 24"] { width: 16px; height: 16px; flex: none; }
 .phone-share--warn { flex-direction: row; align-items: flex-start; gap: var(--s3); text-align: left; padding: var(--s2) 0; }
 .phone-share--warn svg { width: 22px; height: 22px; color: var(--warn); flex: none; margin-top: 2px; }
 
+/* Remote access setup (Settings → Remote access) */
+.rmt-setup { display: flex; flex-direction: column; gap: var(--s3); max-width: 560px; }
+.rmt-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--s2); }
+.rmt-step { display: flex; align-items: center; gap: var(--s3); color: var(--text-2); }
+.rmt-step__n {
+  flex: none; width: 24px; height: 24px; border-radius: var(--r-full);
+  display: inline-flex; align-items: center; justify-content: center;
+  background: var(--surface-3); color: var(--text-3); font-size: var(--fs-sm); font-weight: var(--w-semi);
+}
+.rmt-step.is-done { color: var(--text); }
+.rmt-step.is-done .rmt-step__n { background: var(--ok-quiet, var(--accent-quiet)); color: var(--ok, var(--accent)); }
+.rmt-step.is-done .rmt-step__n svg { width: 14px; height: 14px; }
+.rmt-err { display: flex; gap: var(--s2); align-items: flex-start; padding: var(--s3);
+  background: var(--danger-quiet); border-radius: var(--r-md); font-size: var(--fs-sm); }
+.rmt-err svg { width: 18px; height: 18px; color: var(--danger); flex: none; margin-top: 1px; }
+.rmt-err code { font-size: var(--fs-xs); background: var(--surface-3); padding: 1px 5px; border-radius: var(--r-sm); }
+
 /* Update download progress bar */
 .progress {
   height: 7px; border-radius: var(--r-full); background: var(--surface-3);

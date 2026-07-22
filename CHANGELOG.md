@@ -2,6 +2,15 @@
 
 All notable changes to Vigil. Dates are the release date.
 
+## 1.2.5
+- **Watch from anywhere** — new Settings → Remote access. A one‑time setup
+  (install Tailscale, sign in, turn it on) gives Vigil a fixed public HTTPS
+  link teachers open from any classroom, any network, even off‑campus — no QR
+  and no same‑Wi‑Fi needed. Vigil detects Tailscale, turns on Funnel for its
+  own port, and shows the link + a QR to share; teachers bookmark it or Add to
+  Home Screen. This is also what enables real "Allow notifications" push on
+  phones (it needs the secure https link).
+
 ## 1.2.4
 - **Watch on your phone** — a new phone button (top bar) shows a QR code and
   link that teachers scan to open the live camera wall on their phone. They
