@@ -38,6 +38,7 @@ SITE = "https://phone-detector-one.vercel.app/"
 # Stable "latest release" asset URLs — public 'vigil' repo hosts the app builds
 # (source stays in the private phone-detector repo).
 DMG = "https://github.com/Param077s/vigil/releases/latest/download/Vigil.dmg"
+EXE = "https://github.com/Param077s/vigil/releases/latest/download/Vigil-Setup.exe"
 ZIP = "https://github.com/Param077s/vigil/releases/latest/download/Vigil.zip"
 
 page = page.replace("__LOGO__", LOGO)
@@ -72,17 +73,17 @@ GET = f'''
       launch after that is instant.</p>
     <div class="ctas reveal" style="--d:.1s; margin-top:30px; display:flex; gap:12px; flex-wrap:wrap">
       <a class="btn btn-grn" href="{DMG}" download>{APPLE} DOWNLOAD FOR MAC</a>
-      <a class="btn btn-ghost" href="{ZIP}" download>{WIN} WINDOWS &amp; LINUX (.ZIP)</a>
+      <a class="btn btn-ghost" href="{EXE}" download>{WIN} DOWNLOAD FOR WINDOWS</a>
     </div>
     <div class="setups">
       <div class="setup-c reveal"><span class="ico">{APPLE}</span><h3>Mac — drag &amp; drop</h3>
         <p>Open <code>Vigil.dmg</code> and drag <b>Vigil</b> into <b>Applications</b>. Double-click to open.
         First time only: right-click → <b>Open</b> → <b>Open</b>. Your browser opens to Vigil — create the
         admin account and you're watching.</p></div>
-      <div class="setup-c reveal" style="--d:.08s"><span class="ico">{WIN}</span><h3>Windows</h3>
-        <p>Unzip and double-click <code>Vigil-Windows.bat</code>. If SmartScreen warns, choose
-        <b>More info → Run anyway</b>. If asked, install Python with <b>"Add Python to PATH"</b> ticked,
-        then run it again.</p></div>
+      <div class="setup-c reveal" style="--d:.08s"><span class="ico">{WIN}</span><h3>Windows — one‑click</h3>
+        <p>Run <code>Vigil-Setup.exe</code> and follow the prompts — it installs like any app and adds a
+        Start&nbsp;Menu shortcut. If SmartScreen warns, choose <b>More info → Run anyway</b> (the app is
+        just new, not unsafe). No unzipping, no Python.</p></div>
       <div class="setup-c reveal" style="--d:.16s"><span class="ico">{TUX}</span><h3>Linux</h3>
         <p>Unzip and run <code>./Vigil-Linux.sh</code> — it sets itself up on the first run and opens the
         dashboard when ready.</p></div>
@@ -112,7 +113,9 @@ DLSWAP = ("<script>(function(){var ua=navigator.userAgent||'';"
           "if(a.style.display==='none')return;"
           "a.removeAttribute('href');a.removeAttribute('download');a.classList.add('soon');"
           "a.textContent=a.closest('.site-head')?'COMING SOON':'COMING SOON FOR '+os;});}"
-          "else if(/Win|Linux/.test(navigator.platform)&&!/Mac/.test(navigator.platform)){"
+          "else if(/Win/.test(navigator.platform)&&!/Mac/.test(navigator.platform)){"
+          f"document.querySelectorAll('.js-dl').forEach(function(a){{a.href='{EXE}';}});}}"
+          "else if(/Linux/.test(navigator.platform)){"
           f"document.querySelectorAll('.js-dl').forEach(function(a){{a.href='{ZIP}';}});}}}})();</script>")
 page = page.replace('</body></html>', SOON_CSS + DLSWAP + '\n</body></html>')
 

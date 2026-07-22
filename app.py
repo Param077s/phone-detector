@@ -2062,7 +2062,7 @@ async def api_telegram_test(request: Request):
 
 # ---- Updates --------------------------------------------------------------
 # Bump this on every release (it's what Check for updates compares against).
-VIGIL_VERSION = "1.2.6"
+VIGIL_VERSION = "1.2.7"
 _UPDATE_REPO = "Param077s/vigil"
 
 

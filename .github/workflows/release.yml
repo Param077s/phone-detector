@@ -170,9 +170,21 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "signtool failed" }
           Remove-Item $pfx
 
-      - name: Package Windows (.zip)
+      - name: Package Windows (installer + zip)
         if: runner.os == 'Windows'
-        run: Compress-Archive -Path dist\Vigil\* -DestinationPath Vigil.zip -Force
+        shell: pwsh
+        run: |
+          # Portable .zip (fallback for advanced users)
+          Compress-Archive -Path dist\Vigil\* -DestinationPath Vigil.zip -Force
+          # Proper one-click installer via Inno Setup — no unzip, no "load Python DLL"
+          python make_icon.py
+          choco install innosetup -y --no-progress
+          $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
+          $ver = (python print_version.py).Trim()
+          & $iscc "/DAppVersion=$ver" vigil-installer.iss
+          if (-not (Test-Path "dist\Vigil-Setup-$ver.exe")) { throw "Inno Setup did not produce the installer" }
+          Copy-Item "dist\Vigil-Setup-$ver.exe" "Vigil-Setup.exe" -Force
+          Write-Host "Built Vigil-Setup.exe (v$ver)"
 
       # -------------------------------------------------------------- Publish
       - name: Upload build artifact
@@ -186,4 +198,8 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
-          files: ${{ matrix.asset }}
+          # Each runner only produced its own OS's files; missing ones are skipped.
+          files: |
+            Vigil.dmg
+            Vigil.zip
+            Vigil-Setup.exe

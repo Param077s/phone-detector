@@ -2,6 +2,13 @@
 
 All notable changes to Vigil. Dates are the release date.
 
+## 1.2.7
+- **Proper Windows installer** — Vigil now installs on Windows with a
+  one‑click **Vigil‑Setup.exe** (Start Menu shortcut, standard uninstall
+  entry) instead of a zip you had to extract. This fixes the "failed to load
+  Python DLL" error, which happened when the app was run without fully
+  unzipping it. No unzipping, no Python.
+
 ## 1.2.6
 - **Phone notifications (no Telegram needed)** — Settings → Notifications →
   "Notify me on this device". Get a pop‑up + buzz the instant a phone is
