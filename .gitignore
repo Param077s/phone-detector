@@ -22,6 +22,11 @@ cameras.json
 # Per-install secret for signing login cookies (never commit)
 secret.key
 
+# Per-install Web Push signing keys + phone subscriptions (never commit)
+vapid_private.pem
+vapid_public.txt
+push_subs.json
+
 # Live settings saved from the in-app Settings page (per-install)
 settings.json
 
