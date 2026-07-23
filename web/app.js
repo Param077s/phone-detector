@@ -751,6 +751,16 @@ const Live = {
    Mirrors the backend's proven snapshot approach (no MJPEG freeze). */
 function startFeed(img, id) {
   if (MOCK) { img.src = mockFrame(id); return () => {}; }
+  // The installed system (desktop app, or a browser on the Vigil machine itself)
+  // watches its own cameras over localhost — stream MJPEG so it plays at the
+  // camera's FULL native frame rate, with no snapshot-polling cap. Remote/phone
+  // keeps chained snapshots: bandwidth-friendly and immune to MJPEG stalls.
+  const onDevice = (state.me && state.me.desktop)
+    || ["localhost", "127.0.0.1", "::1"].includes(location.hostname);
+  if (onDevice) {
+    img.src = `/stream/${id}`;                 // continuous, full-fps
+    return () => { try { img.src = ""; } catch (_) {} };
+  }
   let stopped = false;
   const gap = () => document.hidden ? 1000 : ({ comfortable: 90, cozy: 120, compact: 160, dense: 220 }[state.density] || 130);
   const tick = () => { if (!stopped) img.src = `/snapshot/${id}?t=${Date.now()}`; };
@@ -2097,7 +2107,9 @@ const TeacherMobile = {
     await this.load();
     this.render();
     try { PhoneNotify.init(); } catch {}
-    this._poll = setInterval(() => this.load().then(() => this.softUpdate()), 10000);
+    // Auto-refresh on its own: pull fresh cameras/alerts/status every 6s and
+    // re-render if anything changed (live camera tiles refresh continuously).
+    this._poll = setInterval(() => this.load().then(() => this.softUpdate()), 6000);
   },
 
   async load() {

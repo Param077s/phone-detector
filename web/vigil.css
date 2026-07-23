@@ -9,6 +9,9 @@
    Dark is home (operators, night shifts); light mirrors it faithfully.
    ========================================================================== */
 
+/* No blue/grey highlight flash when tapping controls on touch devices. */
+* { -webkit-tap-highlight-color: transparent; }
+
 :root {
   /* ---- The room (plane 0) ---- */
   --bg:            #0A0C0F;
