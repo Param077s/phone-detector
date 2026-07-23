@@ -38,6 +38,11 @@ jobs:
           - os: windows-latest
             asset: Vigil.zip
     runs-on: ${{ matrix.os }}
+    # Whether the cross-repo publish token is configured (see the final step).
+    # Kept as an env so that step can be skipped cleanly until the secret exists
+    # — no failed builds in the meantime.
+    env:
+      HAS_VIGIL_TOKEN: ${{ secrets.VIGIL_RELEASE_TOKEN != '' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -199,6 +204,31 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           # Each runner only produced its own OS's files; missing ones are skipped.
+          files: |
+            Vigil.dmg
+            Vigil.zip
+            Vigil-Setup.exe
+
+      # Publish the SAME installers to the PUBLIC Param077s/vigil repo — that is
+      # the repo installed apps check for updates (the update check is an
+      # anonymous GitHub API call, so it must be public; phone-detector is
+      # private). Without this, vigil drifts behind and apps never see updates.
+      #
+      # Requires a repo secret VIGIL_RELEASE_TOKEN = a Personal Access Token with
+      # Contents:write on Param077s/vigil (the default GITHUB_TOKEN can only touch
+      # this repo). Until that secret exists the step is skipped and releases
+      # still land on phone-detector above (mirror by hand as a fallback).
+      - name: Publish to the public vigil release
+        if: startsWith(github.ref, 'refs/tags/') && env.HAS_VIGIL_TOKEN == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          repository: Param077s/vigil
+          token: ${{ secrets.VIGIL_RELEASE_TOKEN }}
+          tag_name: ${{ github.ref_name }}
+          name: Vigil ${{ github.ref_name }}
+          make_latest: true
+          # Both matrix legs run this; the first creates the vigil release, the
+          # second appends its installer. Missing files on a given runner are skipped.
           files: |
             Vigil.dmg
             Vigil.zip
