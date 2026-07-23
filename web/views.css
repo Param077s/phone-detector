@@ -227,6 +227,32 @@
   display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
   gap: var(--s5); padding: var(--s6) var(--edge) var(--s10);
 }
+
+/* Phone: stop rendering the desktop two-column layout (filter rail + list) that
+   squished the list off-screen. Filters become a horizontal chip bar; the list
+   goes full-width, single column — same feel as the Live wall. */
+@media (max-width: 720px) {
+  .evidence { grid-template-columns: 1fr; height: auto; }
+  .evidence__side {
+    border-right: none; border-bottom: 1px solid var(--border);
+    padding: var(--s3) var(--edge);
+    display: flex; align-items: center; gap: var(--s4);
+    overflow-x: auto; overflow-y: hidden;
+    -webkit-overflow-scrolling: touch; scrollbar-width: none;
+  }
+  .evidence__side::-webkit-scrollbar { display: none; }
+  .filtergroup { margin-bottom: 0; display: flex; align-items: center; gap: var(--s2); flex: none; }
+  .filtergroup__label { display: none; }
+  .filter-item {
+    flex: none; height: 34px; white-space: nowrap;
+    border: 1px solid var(--border); background: var(--surface);
+  }
+  .filter-item .count { margin-left: var(--s1); }
+  .ev-grid { grid-template-columns: 1fr; gap: var(--s3); padding: var(--s4) var(--edge) var(--s10); }
+}
+@media (max-width: 560px) {
+  .ev-card__thumb { aspect-ratio: 16 / 10; }
+}
 .ev-card {
   background: var(--surface); border: none; border-radius: var(--r-lg);
   overflow: hidden; cursor: pointer;
