@@ -2170,7 +2170,7 @@ async def api_push_test(request: Request):
 
 # ---- Updates --------------------------------------------------------------
 # Bump this on every release (it's what Check for updates compares against).
-VIGIL_VERSION = "1.3.5"
+VIGIL_VERSION = "1.3.6"
 _UPDATE_REPO = "Param077s/vigil"
 
 
@@ -3596,12 +3596,17 @@ def _admin_nav(user):
 
 @app.get("/", response_class=HTMLResponse)
 def dashboard(request: Request):
-    # In the native desktop app the redesigned UI (/app) is home. Every login
-    # path (password, Google, first-run setup) lands on "/", so redirecting here
-    # sends the desktop window straight into /app. The browser launcher leaves
-    # VIGIL_DESKTOP unset and keeps this classic dashboard as the fallback UI.
-    if os.environ.get("VIGIL_DESKTOP") == "1":
-        return RedirectResponse("/app/")
+    # The redesigned SPA at /app is now home for EVERYONE — desktop app and
+    # browser alike — and on a phone it becomes the purpose-built teacher UI.
+    # Every login path (password, Google, first-run setup) lands on "/", so this
+    # sends them all straight into /app. (The classic inline dashboard below is
+    # kept only as an emergency fallback and is no longer the default.)
+    return RedirectResponse("/app/")
+
+
+@app.get("/classic", response_class=HTMLResponse)
+def classic_dashboard(request: Request):
+    """The old inline dashboard, kept reachable as a fallback (not linked)."""
     user = getattr(request.state, "user", None) or {"username": "", "role": "invigilator"}
     html = (DASHBOARD_HTML
             .replace("__STYLE__", STYLE).replace("__LOGO__", LOGO_MARK)
