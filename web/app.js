@@ -749,14 +749,16 @@ const Live = {
 
 /* Snapshot polling — chained on load so a slow frame never piles up.
    Mirrors the backend's proven snapshot approach (no MJPEG freeze). */
-function startFeed(img, id) {
+function startFeed(img, id, opts) {
   if (MOCK) { img.src = mockFrame(id); return () => {}; }
-  // The installed system (desktop app, or a browser on the Vigil machine itself)
-  // watches its own cameras over localhost — stream MJPEG so it plays at the
-  // camera's FULL native frame rate, with no snapshot-polling cap. Remote/phone
-  // keeps chained snapshots: bandwidth-friendly and immune to MJPEG stalls.
-  const onDevice = ["localhost", "127.0.0.1", "::1"].includes(location.hostname);
-  if (onDevice) {
+  // MJPEG plays at the camera's FULL native frame rate (no snapshot-polling
+  // cap). Used on the Vigil machine itself (localhost), and whenever a caller
+  // asks for it via opts.stream — e.g. the phone's full-screen live view, where
+  // smoothness matters more than bandwidth. Grid thumbnails keep chained
+  // snapshots: light, and immune to one stalled stream freezing a wall of tiles.
+  const stream = (opts && opts.stream)
+    || ["localhost", "127.0.0.1", "::1"].includes(location.hostname);
+  if (stream) {
     img.src = `/stream/${id}`;                 // continuous, full-fps
     return () => { try { img.src = ""; } catch (_) {} };
   }
@@ -2104,6 +2106,7 @@ const TeacherMobile = {
   tab: "home",
   cameras: [], status: {}, alerts: [],
   _feeds: [], _poll: null, _sig: "",
+  _seen: new Set(), _seeded: false,
 
   async start() {
     document.documentElement.classList.add("is-teacher");
@@ -2122,7 +2125,24 @@ const TeacherMobile = {
       this.cameras = (cams || []).filter(c => c.enabled !== false);
       this.status = st || {};
       this.alerts = (ev || []).slice(0, 40);
+      this.notifyFresh();
     } catch (_) {}
+  },
+
+  // Fire a phone notification for each NEW pending detection. Seeds silently on
+  // the first load so opening the app doesn't replay old alerts. boot() returns
+  // early for phones — before Notify.start() — so this is the ONLY place teacher
+  // mobile turns detections into notifications. Requires the Settings toggle on.
+  notifyFresh() {
+    const fresh = [];
+    this.alerts.forEach(a => {
+      if (!this._seen.has(a.id)) {
+        this._seen.add(a.id);
+        if (this._seeded && a.status === "pending") fresh.push(a);
+      }
+    });
+    this._seeded = true;
+    fresh.forEach(a => { try { PhoneNotify.fire(a); } catch (_) {} });
   },
 
   // ---- derived ----
@@ -2201,7 +2221,7 @@ const TeacherMobile = {
     const pct = Math.round((a.confidence || 0) * 100);
     const kind = a.status === "pending" ? "warn" : a.status === "confirmed" ? "alert" : "dim";
     const label = a.status === "pending" ? "New" : a.status === "confirmed" ? "Confirmed" : "Dismissed";
-    return `<button class="tm-alert" data-live="${esc(this.camId(a.camera))}" data-alert="${a.id}" style="animation-delay:${i * 30}ms">
+    return `<button class="tm-alert" data-photo="${a.id}" style="animation-delay:${i * 30}ms">
       <div class="tm-alert__thumb"><img src="${this.imgFor(a)}" alt=""></div>
       <div class="tm-alert__body">
         <div class="tm-alert__title">${esc(a.thing || "Phone")} · ${pct}%</div>
@@ -2247,6 +2267,7 @@ const TeacherMobile = {
     const el = $("#tm");
     $$("[data-tab]", el).forEach(b => b.onclick = () => this.go(b.dataset.tab));
     $$("[data-live]", el).forEach(b => b.onclick = () => this.openLive(b.dataset.live, b.dataset.alert));
+    $$("[data-photo]", el).forEach(b => b.onclick = () => this.openPhoto(b.dataset.photo));
     const nt = $("#tmNotif", el);
     if (nt) nt.onclick = async () => {
       if (MOCK) { nt.classList.toggle("is-on"); toast("Notifications " + (nt.classList.contains("is-on") ? "on" : "off") + " (demo)", { kind: "ok" }); return; }
@@ -2278,13 +2299,50 @@ const TeacherMobile = {
       </div>` : ""}</div>`);
     $("#overlays").appendChild(node);
     const img = $("#tmLiveImg", node);
-    const stop = startFeed(img, id);
+    const stop = startFeed(img, id, { stream: true });   // full native frame rate
     const close = () => { stop(); node.remove(); };
     $("[data-back]", node).onclick = close;
     $$("[data-review]", node).forEach(btn => btn.onclick = async () => {
       const action = btn.dataset.review;
       if (!MOCK) { try { await api.reviewAlert(a.id, action); } catch (_) {} }
       if (a) a.status = action === "confirm" ? "confirmed" : "dismissed";
+      toast(action === "confirm" ? "Marked as confirmed" : "Dismissed", { kind: "ok" });
+      close(); this.render();
+    });
+  },
+
+  // Tapping an alert enlarges its captured photo (NOT the live camera). Shows
+  // the detection frame full-screen with the details, plus review actions and
+  // an optional jump to the live camera.
+  openPhoto(alertId) {
+    const a = this.alerts.find(x => String(x.id) === String(alertId));
+    if (!a) { toast("That alert isn't available", { kind: "info" }); return; }
+    const pct = Math.round((a.confidence || 0) * 100);
+    const cam = this.camId(a.camera);
+    const node = h(`<div class="tm-live">
+      <div class="tm-live__bar"><button class="tm-back" data-back>${icon("chevron")}Back</button>
+        <div class="tm-live__title">${esc(a.thing || "Phone")} · ${pct}%</div><div style="width:78px"></div></div>
+      <div class="tm-live__stage tm-photo__stage"><img src="${this.imgFor(a)}" alt=""></div>
+      <div class="tm-live__incident">
+        <div class="tm-inc__row"><span class="tm-inc__badge">${icon("alert")} ${esc(a.camera)}</span>
+          <span class="tm-inc__time">${esc(a.time || "")}</span></div>
+        ${a.description ? `<div class="tm-inc__desc">${esc(a.description)}</div>` : ""}
+        <div class="tm-inc__actions">
+          ${cam ? `<button class="tm-btn tm-btn--ghost" data-live-cam>View live</button>` : ""}
+          ${a.status === "pending" ? `<button class="tm-btn tm-btn--ghost" data-review="dismiss">Dismiss</button>
+          <button class="tm-btn" data-review="confirm">Confirm</button>` : ""}
+        </div>
+      </div>
+    </div>`);
+    $("#overlays").appendChild(node);
+    const close = () => node.remove();
+    $("[data-back]", node).onclick = close;
+    const liveBtn = $("[data-live-cam]", node);
+    if (liveBtn) liveBtn.onclick = () => { close(); this.openLive(cam, a.id); };
+    $$("[data-review]", node).forEach(btn => btn.onclick = async () => {
+      const action = btn.dataset.review;
+      if (!MOCK) { try { await api.reviewAlert(a.id, action); } catch (_) {} }
+      a.status = action === "confirm" ? "confirmed" : "dismissed";
       toast(action === "confirm" ? "Marked as confirmed" : "Dismissed", { kind: "ok" });
       close(); this.render();
     });
