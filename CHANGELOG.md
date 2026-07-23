@@ -2,6 +2,9 @@
 
 All notable changes to Vigil. Dates are the release date.
 
+## 1.3.9 — 2026-07-24
+- A better phone experience for invigilators
+
 ## 1.3.8 — 2026-07-24
 - **Phones get the right app again** — when a teacher opened the "Watch on
   your phone" link, Vigil was showing the full desktop dashboard shrunk to fit
