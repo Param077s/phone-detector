@@ -2040,7 +2040,8 @@ def _lan_ip():
 def _bonjour_host():
     """The .local (mDNS/Bonjour) name — reachable by other devices on the LAN
     regardless of IPv4/IPv6, so the phone can still find the Mac on an IPv6-only
-    / NAT64 Wi-Fi. Needs the server listening on IPv6 (Vigil binds dual-stack)."""
+    / NAT64 Wi-Fi. Needs the server listening on IPv6 (Vigil binds dual-stack).
+    Great on iPhone; some Android phones can't resolve .local (use _lan_ipv6)."""
     try:
         if sys.platform == "darwin":
             r = subprocess.run(["scutil", "--get", "LocalHostName"],
@@ -2056,6 +2057,38 @@ def _bonjour_host():
     return hn
 
 
+def _lan_ipv6():
+    """A stable, global IPv6 on the primary NIC — a NUMERIC address any phone
+    (incl. Android, which can't do .local) can open as http://[addr]:port/ on an
+    IPv6-only Wi-Fi. Prefers the SLAAC 'secured' address; skips 'temporary'
+    (rotating) and 'clat46' (NAT64 shim) and link-local (fe80)."""
+    if sys.platform.startswith("win"):
+        return ""
+    try:
+        out = subprocess.run(["ifconfig"], capture_output=True, text=True, timeout=6).stdout
+    except Exception:
+        return ""
+    best, cur = "", ""
+    for line in out.splitlines():
+        if line and not line[0].isspace():
+            cur = line.split(":")[0]
+        m = re.search(r"\binet6 ([0-9a-fA-F:]+)", line)
+        if not m:
+            continue
+        addr = m.group(1)
+        if addr.lower().startswith(("fe80", "::1", "fd", "fc")):
+            continue                       # link-local / loopback / unique-local
+        if "temporary" in line or "clat46" in line:
+            continue                       # rotating / NAT64 shim
+        if not addr[0] in "23":            # global unicast 2000::/3
+            continue
+        if cur in ("en0", "en1") and "secured" in line:
+            return addr                    # stable primary-NIC address — best
+        if not best:
+            best = addr
+    return best
+
+
 @app.get("/api/lan-info")
 def api_lan_info(request: Request):
     """The address + QR a teacher scans to open the live wall on their phone
@@ -2065,11 +2098,20 @@ def api_lan_info(request: Request):
     # The port we're actually served on = the port the client reached us on.
     port = request.url.port or int(os.environ.get("VIGIL_PORT", "8000") or 8000)
     ip = _lan_ip()
-    host = ip
     ipv6_only = False
-    if not host:                       # no routable IPv4 → IPv6-only network
-        host = _bonjour_host()
+    alt = ""                            # a second link to try if the first won't open
+    if ip:                              # normal IPv4 Wi-Fi
+        host = ip
+    else:                               # IPv6-only / NAT64 Wi-Fi
         ipv6_only = True
+        v6 = _lan_ipv6()
+        bonjour = _bonjour_host()
+        if v6:
+            host = "[%s]" % v6          # numeric IPv6 — works on Android AND iPhone
+            if bonjour:
+                alt = "http://%s:%d/app/" % (bonjour, port)   # iPhone-friendly name
+        else:
+            host = bonjour              # last resort (iPhone-only)
     url = ("http://%s:%d/app/" % (host, port)) if host else ""
     qr = ""
     if url:
@@ -2080,7 +2122,7 @@ def api_lan_info(request: Request):
             qr = "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
         except Exception:
             pass
-    return {"ip": ip, "host": host, "port": port, "url": url, "qr": qr,
+    return {"ip": ip, "host": host, "port": port, "url": url, "alt": alt, "qr": qr,
             "ipv6_only": ipv6_only, "on_lan": bool(host)}
 
 
@@ -2128,7 +2170,7 @@ async def api_push_test(request: Request):
 
 # ---- Updates --------------------------------------------------------------
 # Bump this on every release (it's what Check for updates compares against).
-VIGIL_VERSION = "1.3.4"
+VIGIL_VERSION = "1.3.5"
 _UPDATE_REPO = "Param077s/vigil"
 
 

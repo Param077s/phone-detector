@@ -950,7 +950,7 @@ const PhoneAccess = {
         <div class="phone-share__url"><span class="mono" title="${esc(d.url)}">${esc(d.url)}</span>
           <button class="btn btn--sm" id="phoneCopy">${icon("share")} Copy link</button></div>
         ${d.ipv6_only
-          ? `<p class="hint">This Wi‑Fi is IPv6‑only, so Vigil uses this Mac's name instead of a number. It works great on <b>iPhone</b>; some <b>Android</b> phones can't open <code>.local</code> links — if it won't open, use an iPhone or a normal (IPv4) Wi‑Fi.</p>`
+          ? `<p class="hint">This Wi‑Fi is IPv6‑only, so the link uses a numeric IPv6 address — it opens on <b>Android and iPhone</b>.${d.alt ? ` On iPhone you can also use <span class="mono">${esc(d.alt)}</span>.` : ""} If it still won't open, your hotspot is blocking device‑to‑device — use a normal Wi‑Fi router instead.</p>`
           : `<p class="hint">Anyone on this Wi‑Fi with a login can watch, and gets alerts while Vigil is open. Some campus networks block device‑to‑device — if the link won't open, join the same Wi‑Fi network.</p>`}
       </div>`;
     const copy = $("#phoneCopy", box);
