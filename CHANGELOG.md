@@ -2,6 +2,15 @@
 
 All notable changes to Vigil. Dates are the release date.
 
+## 1.3.8 — 2026-07-24
+- **Phones get the right app again** — when a teacher opened the "Watch on
+  your phone" link, Vigil was showing the full desktop dashboard shrunk to fit
+  instead of the purpose-built mobile invigilator view. The app now decides
+  desktop-vs-phone per device (the Mac window loads over localhost; a phone
+  loads the LAN address), so phones get the Home/Live/Alerts/Settings mobile
+  UI as intended. Phone live feeds also go back to bandwidth-friendly snapshot
+  streaming instead of the localhost-only full-rate video path.
+
 ## 1.2.7
 - **Proper Windows installer** — Vigil now installs on Windows with a
   one‑click **Vigil‑Setup.exe** (Start Menu shortcut, standard uninstall
