@@ -2044,7 +2044,7 @@ async def api_push_test(request: Request):
 
 # ---- Updates --------------------------------------------------------------
 # Bump this on every release (it's what Check for updates compares against).
-VIGIL_VERSION = "1.3.0"
+VIGIL_VERSION = "1.3.1"
 _UPDATE_REPO = "Param077s/vigil"
 
 
@@ -4073,19 +4073,19 @@ LANDING_HTML = """<!doctype html>
     <div class="sec-head reveal"><span class="sec-no">04 / FOR INVIGILATORS</span></div>
     <h2 class="reveal" style="--d:.05s">The app in your pocket,<br>on exam day.</h2>
     <p class="sec-sub reveal" style="--d:.08s">If your school already runs Vigil, put the invigilator app on your
-      phone. Get an alert the instant a phone is spotted in your room, and open any camera you're assigned to — on
-      demand. No app store, no configuration, and it keeps working when the app is closed.</p>
+      phone. Get an alert the instant a phone is spotted in your room, and open any camera — on
+      demand. No app store, no configuration; it works over your school's Wi‑Fi.</p>
     <div class="spec">
       <div class="spec-col reveal"><div class="sc-head">GET THE APP — 3 STEPS</div>
-        <div class="spec-row"><span class="k">1</span><div><b>Open your school link</b><span>Your Vigil admin gives you a secure link — or a QR to scan. Enter it on the right, or scan the QR with your phone camera.</span></div></div>
+        <div class="spec-row"><span class="k">1</span><div><b>Open your school link</b><span>Your Vigil admin sends you a link (or a QR). Enter it on the right, or scan the QR — you and the Vigil must be on the same Wi‑Fi.</span></div></div>
         <div class="spec-row"><span class="k">2</span><div><b>Add to Home Screen</b><span>iPhone: tap Share, then Add to Home Screen. Android: tap Install. Vigil becomes a real app icon.</span></div></div>
-        <div class="spec-row"><span class="k">3</span><div><b>Sign in &amp; allow alerts</b><span>Log in with the invigilator account your admin created, tap Allow for notifications — that's it.</span></div></div>
+        <div class="spec-row"><span class="k">3</span><div><b>Sign in &amp; watch</b><span>Log in with the account your admin created — you'll see your cameras and get alerts while Vigil is open.</span></div></div>
       </div>
       <div class="spec-col reveal" style="--d:.08s"><div class="sc-head">OPEN YOUR SCHOOL'S VIGIL</div>
         <form class="invig-go" id="invigGo">
-          <input id="invigUrl" type="url" inputmode="url" autocomplete="off" spellcheck="false" placeholder="https://your-school.ts.net">
+          <input id="invigUrl" type="text" inputmode="url" autocomplete="off" spellcheck="false" placeholder="http://192.168.1.50:8000/app/">
           <button class="btn btn-grn" type="submit">OPEN THE APP &#8594;</button>
-          <p class="igo-hint" id="invigHint">The link must start with <code>https://</code> for alerts to work. No link yet? Ask your exam office.</p>
+          <p class="igo-hint" id="invigHint">Paste the link from your school's Vigil (Settings → <b>Watch on your phone</b>). You and the Vigil must be on the same Wi‑Fi.</p>
         </form>
       </div>
     </div>
@@ -4100,10 +4100,9 @@ LANDING_HTML = """<!doctype html>
       var el = document.getElementById('invigUrl'), h = document.getElementById('invigHint');
       var v = (el.value || '').trim(); if (!v) return;
       var lv = v.toLowerCase();
-      if (lv.indexOf('http://') !== 0 && lv.indexOf('https://') !== 0) v = 'https://' + v;
-      var u; try { u = new URL(v); } catch (_) { h.textContent = "That doesn't look like a link — check with your exam office."; return; }
-      if (u.protocol !== 'https:') { h.textContent = 'For notifications to work, the link must start with https://.'; return; }
-      window.location.href = u.href;   // hand off to the school's Vigil (install card + sign-in live there)
+      if (lv.indexOf('http://') !== 0 && lv.indexOf('https://') !== 0) v = 'http://' + v;
+      var u; try { u = new URL(v); } catch (_) { h.textContent = "That doesn't look like a link — check with your school's Vigil admin."; return; }
+      window.location.href = u.href;   // hand off to the school's Vigil (sign-in lives there)
     });
   })();
   </script>

@@ -281,6 +281,11 @@ svg[viewBox="0 0 24 24"] { width: 16px; height: 16px; flex: none; }
 :root.is-navrail .nav__update { width: 40px; height: 40px; justify-content: center; padding: 0; }
 :root.is-navrail .nav__item.is-active::before { left: -9px; }
 :root.is-navrail .nav__user { padding: var(--s2); margin: 0; }
+/* The rail collapse is for the MAIN sidebar only — never the settings sub-nav
+   (it lives in the content area and must always show full labels + icons). */
+:root.is-navrail .settings__nav .nav__item {
+  width: auto; height: 36px; justify-content: flex-start; padding: 0 var(--s3);
+}
 
 /* ---- Topbar — one glass command layer over the content ---- */
 .topbar {
