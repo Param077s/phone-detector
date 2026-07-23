@@ -12,7 +12,7 @@ mkdir -p "$OUT"
 # no Dockerfile, no docs site. Keeps the download clean and un-scary.
 FILES=(
   "READ ME FIRST.txt"
-  app.py vlm.py requirements.txt
+  app.py vlm.py serve.py requirements.txt
   Vigil.command Vigil-Windows.bat Vigil-Linux.sh
   INSTALL.md README.md GOOGLE-SIGNIN.md UNIVERSITY-CCTV.md
 )

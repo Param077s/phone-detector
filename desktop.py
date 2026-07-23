@@ -287,10 +287,27 @@ def _boot(window):
         _js(window, "vigilSetup.set(4, null, 'Finalizing setup…')")
         os.environ["VIGIL_PORT"] = str(PORT)
         import uvicorn
-        config = uvicorn.Config(vigil.app, host="0.0.0.0", port=PORT,
-                                log_level="warning", access_log=False)
+        import asyncio
+        import socket as _sock
+        # Bind DUAL-STACK: one IPv6 socket with V6ONLY off, so a phone can reach
+        # Vigil on normal IPv4 Wi-Fi AND on IPv6-only / NAT64 Wi-Fi (via the Mac's
+        # .local name). Plain host="::" is IPv6-only on some setups, so build the
+        # socket explicitly; fall back to plain IPv4 if dual-stack isn't available.
+        config = uvicorn.Config(vigil.app, log_level="warning", access_log=False)
         server = uvicorn.Server(config)
-        threading.Thread(target=server.run, daemon=True).start()
+
+        def _serve():
+            try:
+                if _sock.has_dualstack_ipv6():
+                    sk = _sock.create_server(("", PORT), family=_sock.AF_INET6, dualstack_ipv6=True)
+                else:
+                    sk = _sock.create_server(("0.0.0.0", PORT))
+                asyncio.run(server.serve(sockets=[sk]))
+            except Exception as e:
+                print("dual-stack bind failed, falling back to IPv4:", e)
+                uvicorn.Server(uvicorn.Config(vigil.app, host="0.0.0.0", port=PORT,
+                               log_level="warning", access_log=False)).run()
+        threading.Thread(target=_serve, daemon=True).start()
 
         if not _wait_port(PORT):
             raise RuntimeError("the local service did not start in time")

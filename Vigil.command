@@ -70,4 +70,6 @@ echo "  ------------------------------------------------------------"
 echo ""
 
 ( sleep 5; open "http://localhost:$PORT" >/dev/null 2>&1 ) &
-./venv/bin/python -m uvicorn app:app --host 0.0.0.0 --port "$PORT"
+# serve.py binds dual-stack (IPv4 + IPv6), so a phone can reach Vigil on normal
+# Wi-Fi and on IPv6-only / NAT64 Wi-Fi (via the Mac's .local name).
+./venv/bin/python serve.py

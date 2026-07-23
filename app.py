@@ -18,6 +18,8 @@ Camera source rules:
 
 import os
 import sys
+import re
+import ipaddress
 
 # Quiet OpenCV/FFmpeg so a disconnected camera doesn't flood the terminal.
 # (must be set before cv2 is imported)
@@ -1960,44 +1962,126 @@ def api_settings(request: Request):
 
 
 # ---- "Watch on your phone" (LAN sharing) ----------------------------------
+# A real, phone-reachable LAN IPv4 lives in one of these private ranges…
+_PRIVATE_V4 = [ipaddress.ip_network(n) for n in ("192.168.0.0/16", "10.0.0.0/8", "172.16.0.0/12")]
+# …and NEVER in these: loopback, link-local, CGNAT/Tailscale, and the IETF
+# service-continuity block (192.0.0.0/24) that macOS uses for the NAT64/CLAT
+# shim — a 192.0.0.x /32 that is per-device and NOT reachable between phones.
+_BAD_V4 = [ipaddress.ip_network(n) for n in (
+    "127.0.0.0/8", "169.254.0.0/16", "100.64.0.0/10",
+    "192.0.0.0/24", "192.0.2.0/24", "198.18.0.0/15")]
+
+
+def _good_v4(ip):
+    try:
+        a = ipaddress.ip_address(ip)
+    except Exception:
+        return False
+    if any(a in n for n in _BAD_V4):
+        return False
+    return any(a in n for n in _PRIVATE_V4)
+
+
+def _iface_v4s():
+    """(interface, IPv4) pairs on this machine — best effort, stdlib only."""
+    pairs = []
+    try:
+        if sys.platform.startswith("win"):
+            out = subprocess.run(["ipconfig"], capture_output=True, text=True, timeout=6).stdout
+            cur = "?"
+            for line in out.splitlines():
+                if line and not line.startswith(" "):
+                    cur = line.strip().rstrip(":")
+                m = re.search(r"IPv4.*?:\s*(\d+\.\d+\.\d+\.\d+)", line)
+                if m:
+                    pairs.append((cur, m.group(1)))
+        else:
+            out = subprocess.run(["ifconfig"], capture_output=True, text=True, timeout=6).stdout
+            cur = "?"
+            for line in out.splitlines():
+                if line and not line[0].isspace():
+                    cur = line.split(":")[0]
+                m = re.search(r"\binet (\d+\.\d+\.\d+\.\d+)", line)
+                if m:
+                    pairs.append((cur, m.group(1)))
+    except Exception:
+        pass
+    return pairs
+
+
 def _lan_ip():
-    """This machine's primary LAN IPv4, so a phone on the same Wi-Fi can reach
-    Vigil. No packet is actually sent — connecting a UDP socket just makes the
-    OS pick the interface it WOULD use to reach the internet."""
+    """This machine's best routable private-LAN IPv4, so a phone on the same
+    Wi-Fi can reach Vigil. Returns "" when there ISN'T one — e.g. an IPv6-only /
+    NAT64 Wi-Fi, where the only IPv4 is a per-device 192.0.0.x /32 shim that is
+    NOT reachable between devices (callers fall back to the .local name)."""
+    # 1) route-to-the-internet trick — usually the right interface.
+    guess = ""
     s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
         s.connect(("8.8.8.8", 80))
-        ip = s.getsockname()[0]
+        guess = s.getsockname()[0]
     except Exception:
-        try:
-            ip = socket.gethostbyname(socket.gethostname())
-        except Exception:
-            ip = "127.0.0.1"
+        pass
     finally:
         s.close()
-    return ip
+    if _good_v4(guess):
+        return guess
+    # 2) otherwise scan interfaces; prefer a physical NIC with a real LAN IP.
+    cands = [(n, ip) for (n, ip) in _iface_v4s() if _good_v4(ip)]
+
+    def rank(pair):
+        n = pair[0].lower()
+        phys = 0 if re.match(r"(en0|en1|eth0|wlan0)$", n) else (1 if re.match(r"(en|eth|wlan)\d", n) else 2)
+        pref = 0 if pair[1].startswith("192.168.") else 1 if pair[1].startswith("10.") else 2
+        return (phys, pref, pair[1])
+    return sorted(cands, key=rank)[0][1] if cands else ""
+
+
+def _bonjour_host():
+    """The .local (mDNS/Bonjour) name — reachable by other devices on the LAN
+    regardless of IPv4/IPv6, so the phone can still find the Mac on an IPv6-only
+    / NAT64 Wi-Fi. Needs the server listening on IPv6 (Vigil binds dual-stack)."""
+    try:
+        if sys.platform == "darwin":
+            r = subprocess.run(["scutil", "--get", "LocalHostName"],
+                               capture_output=True, text=True, timeout=4)
+            n = (r.stdout or "").strip()
+            if n:
+                return n + ".local"
+    except Exception:
+        pass
+    hn = (socket.gethostname() or "").strip()
+    if hn and "." not in hn:
+        hn += ".local"
+    return hn
 
 
 @app.get("/api/lan-info")
 def api_lan_info(request: Request):
-    """The address + QR a teacher scans to open the live wall on their phone.
-    Same-Wi-Fi only; login still required. `on_lan` is False when we couldn't
-    find a real network address (so the UI can explain instead of showing a
-    dead link)."""
-    ip = _lan_ip()
+    """The address + QR a teacher scans to open the live wall on their phone
+    (same Wi-Fi; login still required). Prefers a real IPv4 LAN address; on an
+    IPv6-only / NAT64 Wi-Fi (no routable IPv4) it uses the Mac's .local name,
+    which the phone reaches over IPv6 (Vigil listens dual-stack)."""
     # The port we're actually served on = the port the client reached us on.
     port = request.url.port or int(os.environ.get("VIGIL_PORT", "8000") or 8000)
-    url = "http://%s:%d/app/" % (ip, port)
+    ip = _lan_ip()
+    host = ip
+    ipv6_only = False
+    if not host:                       # no routable IPv4 → IPv6-only network
+        host = _bonjour_host()
+        ipv6_only = True
+    url = ("http://%s:%d/app/" % (host, port)) if host else ""
     qr = ""
-    try:
-        img = qrcode.make(url)
-        buf = io.BytesIO()
-        img.save(buf, format="PNG")
-        qr = "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
-    except Exception:
-        pass
-    return {"ip": ip, "port": port, "url": url, "qr": qr,
-            "on_lan": not ip.startswith("127.")}
+    if url:
+        try:
+            img = qrcode.make(url)
+            buf = io.BytesIO()
+            img.save(buf, format="PNG")
+            qr = "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
+        except Exception:
+            pass
+    return {"ip": ip, "host": host, "port": port, "url": url, "qr": qr,
+            "ipv6_only": ipv6_only, "on_lan": bool(host)}
 
 
 # ---- Web Push: the phone subscribes here so it can be alerted when CLOSED ---
@@ -2044,7 +2128,7 @@ async def api_push_test(request: Request):
 
 # ---- Updates --------------------------------------------------------------
 # Bump this on every release (it's what Check for updates compares against).
-VIGIL_VERSION = "1.3.3"
+VIGIL_VERSION = "1.3.4"
 _UPDATE_REPO = "Param077s/vigil"
 
 
