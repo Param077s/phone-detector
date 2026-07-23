@@ -266,11 +266,6 @@ const api = {
   lanInfo:      () => MOCK
     ? Promise.resolve({ ip: "192.168.1.42", port: 8000, url: "http://192.168.1.42:8000/app/", qr: "", on_lan: true })
     : api._get("/api/lan-info"),
-  remoteStatus: () => MOCK
-    ? Promise.resolve({ installed: false, logged_in: false, funnel_on: false, url: "", qr: "" })
-    : api._get("/api/remote/status"),
-  remoteEnable: () => fetch("/api/remote/enable", { method: "POST" }).then(r => r.json()),
-  remoteDisable:() => fetch("/api/remote/disable", { method: "POST" }).then(r => r.json()),
   updateState:  () => api._get("/api/update/state"),
   updateStart:  () => fetch("/api/update/start", { method: "POST" }).then(r => r.json()),
   updateApply:  (relaunch) => fetch("/api/update/apply", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ relaunch }) }).then(r => r.json()),
@@ -310,7 +305,7 @@ const MOCKDATA = {
     { username: "param", email: "", role: "admin", auth: "password", created_at: "2026-05-01", last_login: "Today, 09:12" },
     { username: "invigilator1", email: "", role: "invigilator", auth: "password", created_at: "2026-06-10", last_login: "Yesterday" },
   ],
-  settings: { WATCH_TARGET: "phone", MODEL_NAME: "yolo11m.pt", CONFIDENCE: 0.5, REQUIRED_HITS: 3, ALERT_COOLDOWN: 3, IMG_SIZE: 960, VLM_ENABLED: true, VLM_MODEL: "moondream", VLM_VERIFY: true, TELEGRAM_TOKEN: "", TELEGRAM_CHAT_IDS: "" },
+  settings: { WATCH_TARGET: "phone", MODEL_NAME: "yolo11m.pt", CONFIDENCE: 0.5, REQUIRED_HITS: 3, ALERT_COOLDOWN: 3, IMG_SIZE: 960, VLM_ENABLED: true, VLM_MODEL: "moondream", VLM_VERIFY: true },
 };
 
 /* -------------------------------------------------------------------------
@@ -935,99 +930,47 @@ const BulkSchedule = {
    live wall on their phone; same Wi-Fi, still login-gated)
    ========================================================================= */
 const PhoneAccess = {
-  async open() {
-    const node = h(`<div class="modal modal--phone" role="dialog" aria-modal="true">
-      <div class="modal__head"><div class="modal__title">${icon("phone")} Watch on your phone</div><div class="spacer"></div><button class="btn btn--icon btn--ghost" data-x>${icon("x")}</button></div>
-      <div class="modal__body" id="phoneBody"><div class="phone-share__loading">${icon("phone")}<span>Finding this Mac on the network…</span></div></div></div>`);
-    const close = openModal(node);
-    $$("[data-x]", node).forEach(b => b.onclick = close);
-    let d;
-    try { d = await api.lanInfo(); } catch { d = null; }
-    const body = $("#phoneBody", node);
+  // Shared body for both the modal and the Settings section.
+  _fill(box, d) {
     if (!d || !d.on_lan) {
-      body.innerHTML = `<div class="phone-share phone-share--warn">${icon("wifioff")}
+      box.innerHTML = `<div class="phone-share phone-share--warn">${icon("wifioff")}
         <div><div class="strong">This Mac isn't on a network yet</div>
         <div class="muted">Connect it to Wi‑Fi, then reopen this. Teachers must be on the same Wi‑Fi to watch.</div></div></div>`;
       return;
     }
-    body.innerHTML = `<div class="phone-share">
+    box.innerHTML = `<div class="phone-share">
         <div class="phone-share__qr">${d.qr
           ? `<img src="${d.qr}" alt="Scan to open Vigil on your phone" width="220" height="220">`
           : `<div class="phone-share__noqr">${icon("phone")}</div>`}</div>
         <ol class="phone-share__steps">
           <li>Join the phone to the <b>same Wi‑Fi</b> as this Mac.</li>
           <li><b>Scan the code</b> with the phone camera (or open the link).</li>
-          <li>Log in with a Vigil account to watch the live wall.</li>
+          <li>Log in with the account you gave the teacher to watch the live wall.</li>
         </ol>
         <div class="phone-share__url"><span class="mono" title="${esc(d.url)}">${esc(d.url)}</span>
           <button class="btn btn--sm" id="phoneCopy">${icon("share")} Copy link</button></div>
-        <p class="hint">Anyone on this Wi‑Fi with a login can watch. Some campus networks block device‑to‑device — if the link won't open, tell me and I'll set up an internet link.</p>
+        <p class="hint">Anyone on this Wi‑Fi with a login can watch, and gets alerts while Vigil is open. Some campus networks block device‑to‑device — if the link won't open, join the same Wi‑Fi network.</p>
       </div>`;
-    $("#phoneCopy", node).onclick = () => {
+    const copy = $("#phoneCopy", box);
+    if (copy) copy.onclick = () => {
       (navigator.clipboard?.writeText(d.url) || Promise.resolve()).then(
         () => toast("Link copied", { kind: "ok" }), () => toast(d.url, { kind: "info" }));
     };
   },
-};
-
-/* Remote access (Settings → Remote access) — Tailscale Funnel gives a fixed
-   public HTTPS link teachers open from anywhere. Guides the one-time setup,
-   then shows the link + QR. */
-const RemoteAccess = {
-  async render() {
-    const box = $("#remoteBody"); if (!box) return;
-    let s; try { s = await api.remoteStatus(); } catch { s = null; }
-    if (!s) { box.innerHTML = `<div class="phone-share--warn">${icon("wifioff")}<div>Couldn't check remote access.</div></div>`; return; }
-    RemoteAccess._paint(s);
+  async open() {
+    const node = h(`<div class="modal modal--phone" role="dialog" aria-modal="true">
+      <div class="modal__head"><div class="modal__title">${icon("phone")} Watch on your phone</div><div class="spacer"></div><button class="btn btn--icon btn--ghost" data-x>${icon("x")}</button></div>
+      <div class="modal__body" id="phoneBody"><div class="phone-share__loading">${icon("phone")}<span>Finding this Mac on the network…</span></div></div></div>`);
+    const close = openModal(node);
+    $$("[data-x]", node).forEach(b => b.onclick = close);
+    let d; try { d = await api.lanInfo(); } catch { d = null; }
+    PhoneAccess._fill($("#phoneBody", node), d);
   },
-  _paint(s) {
-    const box = $("#remoteBody"); if (!box) return;
-    const step = (n, txt, done) => `<li class="rmt-step${done ? " is-done" : ""}"><span class="rmt-step__n">${done ? icon("check") : n}</span><span>${txt}</span></li>`;
-    if (s.funnel_on && s.url) {
-      box.innerHTML = `<div class="phone-share">
-        <span class="badge badge--ok">${icon("check")} Remote access is on</span>
-        ${s.qr ? `<div class="phone-share__qr"><img src="${s.qr}" width="200" height="200" alt="QR code"></div>` : ""}
-        <p style="margin:0;align-self:stretch">Teachers open this link on their phone (bookmark it, or <b>Add to Home Screen</b> for an app icon):</p>
-        <div class="phone-share__url"><span class="mono" title="${esc(s.url)}">${esc(s.url)}</span><button class="btn btn--sm" id="rmtCopy">${icon("share")} Copy</button></div>
-        <p class="hint">Works from any classroom or network — no Wi‑Fi match needed. They log in with a Vigil account, and can tap “Allow notifications” on the phone.</p>
-        <button class="btn btn--sm" id="rmtOff">Turn off remote access</button></div>`;
-      $("#rmtCopy").onclick = () => { (navigator.clipboard?.writeText(s.url) || Promise.resolve()).then(() => toast("Link copied", { kind: "ok" }), () => toast(s.url, { kind: "info" })); };
-      $("#rmtOff").onclick = () => RemoteAccess.disable();
-      return;
-    }
-    let cta;
-    if (!s.installed) cta = `<button class="btn btn--primary" id="rmtInstall">${icon("download")} Install Tailscale</button>`;
-    else if (!s.logged_in) cta = `<button class="btn btn--primary" id="rmtRecheck">I've signed in — re-check</button>`;
-    else cta = `<button class="btn btn--primary" id="rmtOn">Turn on remote access</button>`;
-    box.innerHTML = `<div class="rmt-setup">
-      <p class="muted" style="margin-top:0">A one‑time setup gives Vigil a fixed public web address (via Tailscale Funnel — free). After this, teachers just open the link from anywhere.</p>
-      <ol class="rmt-steps">
-        ${step(1, `Install <b>Tailscale</b> on this Mac`, s.installed)}
-        ${step(2, `Open Tailscale and <b>sign in</b> (free account)`, s.logged_in)}
-        ${step(3, `Turn on remote access here`, s.funnel_on)}
-      </ol>
-      <div id="rmtMsg"></div>
-      <div class="row" style="gap:var(--s2)">${cta}</div></div>`;
-    const ins = $("#rmtInstall"); if (ins) ins.onclick = () => openExternal("https://tailscale.com/download/mac");
-    const rc = $("#rmtRecheck"); if (rc) rc.onclick = () => RemoteAccess.render();
-    const on = $("#rmtOn"); if (on) on.onclick = () => RemoteAccess.enable(on);
-  },
-  async enable(btn) {
-    if (btn) { btn.disabled = true; btn.textContent = "Turning on…"; }
-    let s; try { s = await api.remoteEnable(); } catch { s = null; }
-    if (!s) { toast("Couldn't turn on remote access", { kind: "danger" }); return RemoteAccess.render(); }
-    if (s.funnel_on) { toast("Remote access is on", { kind: "ok" }); return RemoteAccess._paint(s); }
-    RemoteAccess._paint(s);                       // back to setup, then explain what's missing
-    const msg = $("#rmtMsg");
-    if (msg) msg.innerHTML = `<div class="rmt-err">${icon("alert")}<div>
-      <div class="strong">Tailscale needs Funnel allowed for your network first.</div>
-      <div class="muted" style="white-space:pre-wrap;margin-top:2px">${esc(s.message || "")}</div>
-      ${s.command ? `<div class="muted" style="margin-top:4px">Or run in Terminal: <code>${esc(s.command)}</code></div>` : ""}</div></div>`;
-  },
-  async disable() {
-    let s; try { s = await api.remoteDisable(); } catch { s = null; }
-    toast(s && !s.funnel_on ? "Remote access turned off" : "Turned off — re-checking", { kind: "ok" });
-    RemoteAccess.render();
+  // Render into a Settings-section container (no modal chrome).
+  async renderInline(box) {
+    if (!box) return;
+    let d; try { d = await api.lanInfo(); } catch { d = null; }
+    PhoneAccess._fill(box, d);
   },
 };
 
@@ -1356,7 +1299,7 @@ const Settings = {
   groups: [
     ["general", "General", "info"], ["appearance", "Appearance", "sun"],
     ["ai", "AI Models", "cpu"], ["notifications", "Notifications", "bell"],
-    ["cameras", "Cameras", "live"], ["remote", "Remote access", "phone"],
+    ["cameras", "Cameras", "live"], ["phone", "Watch on your phone", "phone"],
     ["storage", "Storage", "db"],
     ["privacy", "Privacy", "lock"], ["updates", "Updates", "download"],
     ["account", "Account", "users"],
@@ -1395,18 +1338,13 @@ const Settings = {
       ${Settings.row("Confidence threshold", "How sure the AI must be. 0.5 is a good balance.", num("CONFIDENCE", d.CONFIDENCE, "0.05"))}
       ${Settings.row("Image size", "Higher catches smaller/farther phones, slightly slower.", num("IMG_SIZE", d.IMG_SIZE, "32"))}
       ${Settings.row("AI second look", "A vision model re-checks each detection to filter false alarms.", tog("VLM_ENABLED", d.VLM_ENABLED))}</div>`;
-    else if (Settings.section === "notifications") html = `<div class="settings__group"><h2>Notifications</h2><p>Get alerted the instant a phone is detected — on this device, or on any phone via Telegram.</p>
-      ${Settings.row("Notify me on this device", "A pop‑up + buzz on this phone or computer when a phone is spotted. On iPhone, open Vigil over the secure link and tap Share → Add to Home Screen first.", `<button class="btn" id="notifToggle">…</button>`)}
-      ${Settings.row("Test notification", "Sends a real push to this device now. To prove it works when closed, tap Send, then lock your phone or fully close Vigil — it should still arrive.", `<button class="btn btn--sm" id="notifTest">Send test</button>`)}
-      <h2 style="margin-top:var(--s5)">Telegram <span class="muted" style="font-weight:400;font-size:var(--fs-sm)">— any phone, even when Vigil is closed</span></h2>
-      ${Settings.row("Bot token", "Create a bot with @BotFather on Telegram, then paste its token here.", `<input class="input mono" data-k="TELEGRAM_TOKEN" value="${esc(d.TELEGRAM_TOKEN||"")}" placeholder="123456:ABC-DEF…">`)}
-      ${Settings.row("Chat", "Message your bot on Telegram (say “hi”), then find the chat automatically — no ID hunting.", `<div class="row" style="gap:var(--s2);align-items:stretch"><input class="input mono" data-k="TELEGRAM_CHAT_IDS" style="flex:1;min-width:0" value="${esc(d.TELEGRAM_CHAT_IDS||"")}" placeholder="Not set"><button class="btn btn--sm" id="tgFind">Find my chat</button></div>`)}
-      ${Settings.row("Test it", "Send yourself a sample alert to confirm it works.", `<button class="btn btn--sm" id="tgTest">Send test alert</button>`)}
-      <div id="tgMsg"></div></div>`;
+    else if (Settings.section === "notifications") html = `<div class="settings__group"><h2>Notifications</h2><p>Alerts show inside Vigil the instant a phone is detected — the bell, a banner and a sound while the app is open. On the same‑Wi‑Fi link a teacher just keeps Vigil open to get them.</p>
+      ${Settings.row("Notify me on this device", "Also show a system pop‑up + buzz when a phone is spotted. Works on this computer and on phones opened over a secure (https) link.", `<button class="btn" id="notifToggle">…</button>`)}
+      ${Settings.row("Test notification", "Send a sample alert to this device now to check it shows.", `<button class="btn btn--sm" id="notifTest">Send test</button>`)}</div>`;
     else if (Settings.section === "cameras") html = `<div class="settings__group"><h2>Cameras</h2><p>Defaults applied to camera feeds.</p>
       ${Settings.row("Manage cameras", "Add, edit, and arrange cameras from Live Footage.", `<a class="btn" href="#/live">Go to Live Footage</a>`)}</div>`;
-    else if (Settings.section === "remote") html = `<div class="settings__group"><h2>Remote access</h2><p>Let teachers open the live wall from any classroom — or off-campus — on a fixed link, not just the same Wi‑Fi.</p>
-      <div id="remoteBody"><div class="phone-share__loading">${icon("phone")}<span>Checking remote access…</span></div></div></div>`;
+    else if (Settings.section === "phone") html = `<div class="settings__group"><h2>Watch on your phone</h2><p>Teachers on the <b>same Wi‑Fi</b> scan this code (or open the link) to watch the live wall on their phone. Create a login for them in <b>Users</b>, send it over WhatsApp, and they just sign in — no setup on their end.</p>
+      <div id="phoneInline"><div class="phone-share__loading">${icon("phone")}<span>Finding this Mac on the network…</span></div></div></div>`;
     else if (Settings.section === "storage") html = `<div class="settings__group"><h2>Storage</h2><p>Where evidence lives on this machine.</p>
       ${Settings.row("Evidence location", "Snapshots and the database are stored locally on this device.", `<span class="badge">Local disk</span>`)}
       ${Settings.row("Clear dismissed evidence", "Permanently delete events you've dismissed.", `<button class="btn btn--danger" id="clearDismissed">Clear…</button>`)}</div>`;
@@ -1429,9 +1367,9 @@ const Settings = {
     const dp = $("[data-k='_density']"); if (dp) dp.onchange = () => { state.density = dp.value; localStorage.setItem("vigil.density", state.density); toast("Default density updated", { kind: "ok" }); };
     const save = $("#setSave"); if (save) save.onclick = () => Settings.save();
     const cu = $("#checkUpdate"); if (cu) cu.onclick = () => Settings.checkUpdate(cu);
-    if (Settings.section === "remote") RemoteAccess.render();
+    if (Settings.section === "phone") PhoneAccess.renderInline($("#phoneInline"));
 
-    // Notifications section: device toggle + one-tap Telegram
+    // Notifications section: device toggle + test
     const nt = $("#notifToggle");
     if (nt) {
       const ntOn = () => MOCK ? localStorage.getItem(PhoneNotify.KEY) === "1" : PhoneNotify.on();
@@ -1459,33 +1397,6 @@ const Settings = {
         }
       } catch { toast("Couldn't send test", { kind: "info" }); }
       ntTest.disabled = false; ntTest.textContent = old;
-    };
-    const readTg = () => ({ token: ($("[data-k='TELEGRAM_TOKEN']")?.value || "").trim(), chat_ids: ($("[data-k='TELEGRAM_CHAT_IDS']")?.value || "").trim() });
-    const tgMsg = (html) => { const m = $("#tgMsg"); if (m) m.innerHTML = html; };
-    const tgFind = $("#tgFind");
-    if (tgFind) tgFind.onclick = async () => {
-      tgFind.disabled = true; tgFind.textContent = "Finding…";
-      try {
-        const r = await fetch("/api/telegram/detect", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(readTg()) });
-        const d2 = await r.json();
-        if (!d2.ok) tgMsg(`<div class="rmt-err">${icon("alert")}<div>${esc(d2.error || "Couldn't find a chat.")}</div></div>`);
-        else if (!d2.chats.length) tgMsg(`<div class="row muted" style="margin-top:var(--s2)">${icon("info")} ${esc(d2.hint || "No chats found yet.")}</div>`);
-        else {
-          tgMsg(`<div class="tg-chats">${d2.chats.map(c => `<button class="btn btn--sm" data-cid="${esc(c.id)}">${icon("plus")} ${esc(c.name)}</button>`).join("")}</div>`);
-          $$("[data-cid]").forEach(b => b.onclick = () => { const inp = $("[data-k='TELEGRAM_CHAT_IDS']"); const cur = inp.value.split(",").map(x => x.trim()).filter(Boolean); if (!cur.includes(b.dataset.cid)) cur.push(b.dataset.cid); inp.value = cur.join(", "); toast("Chat added — Save to keep it", { kind: "ok" }); });
-        }
-      } catch { tgMsg(`<div class="rmt-err">${icon("alert")}<div>Couldn't reach the server.</div></div>`); }
-      tgFind.disabled = false; tgFind.textContent = "Find my chat";
-    };
-    const tgTest = $("#tgTest");
-    if (tgTest) tgTest.onclick = async () => {
-      tgTest.disabled = true; tgTest.textContent = "Sending…";
-      try {
-        const r = await fetch("/api/telegram/test", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(readTg()) });
-        const d2 = await r.json();
-        tgMsg(d2.ok ? `<div class="row" style="color:var(--ok);margin-top:var(--s2)">${icon("check")} Sent — check Telegram.</div>` : `<div class="rmt-err">${icon("alert")}<div>${esc(d2.error || "Couldn't send.")}</div></div>`);
-      } catch { tgMsg(`<div class="rmt-err">${icon("alert")}<div>Couldn't reach the server.</div></div>`); }
-      tgTest.disabled = false; tgTest.textContent = "Send test alert";
     };
     const cd = $("#clearDismissed"); if (cd) cd.onclick = async () => {
       if (!await confirmDialog({ title: "Clear dismissed evidence?",
@@ -2165,6 +2076,6 @@ async function boot() {
   Updates.start();              // automatic update notice (chip + one toast)
 }
 // Dev hook — only exposed in mock mode (?mock=1), never in the real app.
-if (MOCK) window.__vigil = { recoverNode, RECOVER, Live, Evidence, Settings, Notify, Updates, PhoneAccess, RemoteAccess, PhoneNotify, Palette, ShortcutsHelp, toast, go, state };
+if (MOCK) window.__vigil = { recoverNode, RECOVER, Live, Evidence, Settings, Notify, Updates, PhoneAccess, PhoneNotify, Palette, ShortcutsHelp, toast, go, state };
 boot();
 })();

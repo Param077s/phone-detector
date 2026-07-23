@@ -300,8 +300,6 @@ os.makedirs(EVIDENCE_DIR, exist_ok=True)
 # --- Live-tunable settings (editable from the in-app Settings page) ---------
 # The values above are the DEFAULTS; settings.json (if present) overrides them,
 # and the Settings page updates both the running values and settings.json.
-TELEGRAM_TOKEN    = ""   # Telegram bot token (set from the Settings page)
-TELEGRAM_CHAT_IDS = ""   # comma-separated chat id(s) to send alerts to
 
 # What Vigil watches for. "phone" uses the fine-tuned exam model; any other
 # target (laptop, backpack, book, bottle, person, …) auto-switches to the
@@ -329,7 +327,7 @@ GOOGLE_CLIENT_ID = os.getenv(
 SETTINGS_FILE = "settings.json"
 TUNABLE = ["MODEL_NAME", "CONFIDENCE", "REQUIRED_HITS", "ALERT_COOLDOWN", "IMG_SIZE",
            "TILING", "TILE_COLS", "TILE_ROWS", "TILE_OVERLAP", "TILE_IMGSZ",
-           "TELEGRAM_TOKEN", "TELEGRAM_CHAT_IDS", "WATCH_TARGET",
+           "WATCH_TARGET",
            "VLM_ENABLED", "VLM_MODEL", "VLM_VERIFY"]
 
 
@@ -923,59 +921,12 @@ _cooldown_lock = threading.Lock()
 _last_alert_time = {}    # camera_id -> timestamp
 
 
-# --- Telegram alerts (optional; configured in Settings) --------------------
-def _telegram_chat_ids():
-    return [c.strip() for c in (TELEGRAM_CHAT_IDS or "").replace(";", ",").split(",") if c.strip()]
-
-
-def _telegram_send_message(token, chat_id, text):
-    data = urllib.parse.urlencode({"chat_id": chat_id, "text": text}).encode()
-    req = urllib.request.Request(f"https://api.telegram.org/bot{token}/sendMessage", data=data)
-    urllib.request.urlopen(req, timeout=10).read()
-
-
-def _telegram_send_photo(token, chat_id, jpg_bytes, caption):
-    boundary = "----VigilBoundaryZ9x1"
-    parts = []
-    for name, value in (("chat_id", str(chat_id)), ("caption", caption)):
-        parts.append((f'--{boundary}\r\nContent-Disposition: form-data; name="{name}"\r\n\r\n{value}\r\n').encode())
-    parts.append((f'--{boundary}\r\nContent-Disposition: form-data; name="photo"; filename="alert.jpg"\r\n'
-                  f'Content-Type: image/jpeg\r\n\r\n').encode())
-    body = b"".join(parts) + jpg_bytes + b"\r\n" + f"--{boundary}--\r\n".encode()
-    req = urllib.request.Request(f"https://api.telegram.org/bot{token}/sendPhoto", data=body,
-                                 headers={"Content-Type": f"multipart/form-data; boundary={boundary}"})
-    urllib.request.urlopen(req, timeout=15).read()
-
-
-def send_telegram_alert(jpg_bytes, caption):
-    """Send an alert photo to all configured Telegram chats, in the background."""
-    token = (TELEGRAM_TOKEN or "").strip()
-    chat_ids = _telegram_chat_ids()
-    if not token or not chat_ids:
-        return
-    def _worker():
-        for cid in chat_ids:
-            try:
-                _telegram_send_photo(token, cid, jpg_bytes, caption)
-            except Exception as e:
-                print(f"Telegram send failed for {cid}: {e}")
-    threading.Thread(target=_worker, daemon=True).start()
-
-
-def _alert_caption(thing, confidence, camera_label, description=""):
-    caption = (f"🚨 {thing} detected · {round(confidence * 100)}%\n"
-               f"📍 {camera_label}\n🕐 {datetime.now().strftime('%H:%M:%S')}")
-    if description:
-        caption += f"\n👁 {description}"
-    return caption
-
-
 # --- Web Push (real phone push, fires even when the app is CLOSED) ----------
 # The teacher's phone runs Vigil as an installed PWA. When it's closed, the only
 # way to wake it is through the browser's push service (APNs/FCM). We sign each
 # push with a VAPID keypair (generated once, saved next to secret.key) and send
-# it with pywebpush. This runs ALONGSIDE Telegram for now; Telegram stays until
-# push is confirmed on a real phone, then it can be removed.
+# it with pywebpush. Requires an HTTPS origin, so it's dormant on the plain-http
+# same-Wi-Fi link; the open app still shows alerts via its live poll of /alerts.
 try:
     from pywebpush import webpush, WebPushException
     _WEBPUSH_OK = True
@@ -1143,7 +1094,6 @@ def _vlm_worker():
             description = (verdict or {}).get("description", "") or ""
             if description:
                 _set_alert_description(alert_id, description)
-            send_telegram_alert(photo_jpg, _alert_caption(thing, confidence, camera_label, description))
             send_push_alert(thing, confidence, camera_label, alert_id, description)
         except Exception as e:
             print(f"[vlm] worker error on #{alert_id}: {type(e).__name__}: {e}")
@@ -1178,10 +1128,9 @@ def maybe_add_alert(crop, confidence, camera_label, camera_id, context=None):
         try:
             _vlm_queue.put_nowait((alert_id, cbuf.tobytes() if okc else jpg, jpg,
                                    confidence, camera_label, thing))
-            return                                 # worker will Telegram (with description)
+            return                                 # worker will alert (with description)
         except queue.Full:
-            pass                                   # backed up — fall through to Telegram now
-    send_telegram_alert(jpg, _alert_caption(thing, confidence, camera_label))
+            pass                                   # backed up — alert now
     send_push_alert(thing, confidence, camera_label, alert_id)
 
 
@@ -2051,109 +2000,6 @@ def api_lan_info(request: Request):
             "on_lan": not ip.startswith("127.")}
 
 
-# ---- Remote access ("watch from anywhere") via Tailscale Funnel -----------
-# Funnel gives the Mac a fixed public HTTPS URL (e.g. https://mac.tail1234.ts.net)
-# that works from any classroom/network — no QR, no same-Wi-Fi. Vigil detects
-# Tailscale, turns Funnel on for its own port, and surfaces the URL + a QR. The
-# one-time "install Tailscale + sign in + allow Funnel" is the user's to do; we
-# guide it and show exactly what the CLI says when something's missing.
-def _tailscale_bin():
-    for p in (shutil.which("tailscale"),
-              "/Applications/Tailscale.app/Contents/MacOS/Tailscale",
-              "/usr/local/bin/tailscale", "/opt/homebrew/bin/tailscale"):
-        if p and os.path.exists(p):
-            return p
-    return None
-
-
-def _run_ts(args, timeout=20):
-    """Run the tailscale CLI; returns (rc, stdout, stderr). rc=127 if missing."""
-    tb = _tailscale_bin()
-    if not tb:
-        return 127, "", "Tailscale isn't installed."
-    try:
-        r = subprocess.run([tb, *args], capture_output=True, text=True, timeout=timeout)
-        return r.returncode, r.stdout.strip(), r.stderr.strip()
-    except Exception as e:
-        return 1, "", str(e)
-
-
-def _remote_status():
-    tb = _tailscale_bin()
-    out = {"installed": bool(tb), "logged_in": False, "funnel_on": False,
-           "url": "", "qr": "", "error": ""}
-    if not tb:
-        return out
-    # Logged in? Grab this node's public DNS name.
-    rc, so, se = _run_ts(["status", "--json"], timeout=15)
-    if rc == 0 and so:
-        try:
-            st = json.loads(so)
-            out["logged_in"] = st.get("BackendState") == "Running"
-            dns = ((st.get("Self") or {}).get("DNSName") or "").rstrip(".")
-            if dns:
-                out["url"] = "https://" + dns
-        except Exception:
-            pass
-    # Funnel currently on for our port? Parse `serve status --json`.
-    port = int(os.environ.get("VIGIL_PORT", "8000") or 8000)
-    rc, so, se = _run_ts(["serve", "status", "--json"], timeout=15)
-    if rc == 0 and so:
-        try:
-            cfg = json.loads(so)
-            allow = cfg.get("AllowFunnel") or {}
-            out["funnel_on"] = any(bool(v) for v in allow.values())
-            for hostport, web in (cfg.get("Web") or {}).items():
-                for _, h in (web.get("Handlers") or {}).items():
-                    if str(port) in str(h.get("Proxy") or ""):
-                        out["url"] = "https://" + hostport.split(":")[0]
-        except Exception:
-            pass
-    if out["funnel_on"] and out["url"]:
-        try:
-            img = qrcode.make(out["url"])
-            buf = io.BytesIO(); img.save(buf, format="PNG")
-            out["qr"] = "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
-        except Exception:
-            pass
-    return out
-
-
-@app.get("/api/remote/status")
-def api_remote_status(request: Request):
-    _, err = _require_admin(request)
-    if err:
-        return err
-    return _remote_status()
-
-
-@app.post("/api/remote/enable")
-def api_remote_enable(request: Request):
-    _, err = _require_admin(request)
-    if err:
-        return err
-    port = int(os.environ.get("VIGIL_PORT", "8000") or 8000)
-    # Serve our local port publicly over HTTPS, in the background.
-    rc, so, se = _run_ts(["funnel", "--bg", str(port)], timeout=40)
-    st = _remote_status()
-    st["ok"] = rc == 0 or st["funnel_on"]
-    st["message"] = (se or so) if rc != 0 else ""
-    st["command"] = "tailscale funnel --bg %d" % port     # so the user can run it manually
-    return st
-
-
-@app.post("/api/remote/disable")
-def api_remote_disable(request: Request):
-    _, err = _require_admin(request)
-    if err:
-        return err
-    rc, so, se = _run_ts(["serve", "reset"], timeout=20)
-    st = _remote_status()
-    st["ok"] = rc == 0 and not st["funnel_on"]
-    st["message"] = (se or so) if rc != 0 else ""
-    return st
-
-
 # ---- Web Push: the phone subscribes here so it can be alerted when CLOSED ---
 @app.get("/api/push/vapid")
 def api_push_vapid(request: Request):
@@ -2196,73 +2042,9 @@ async def api_push_test(request: Request):
     return {"ok": True, "count": n}
 
 
-# ---- Telegram phone alerts: easy setup (find chat, send test) --------------
-@app.post("/api/telegram/detect")
-async def api_telegram_detect(request: Request):
-    """After the teacher messages the bot (or adds it to a group), find the
-    chat id automatically so nobody has to hunt for it."""
-    _, err = _require_admin(request)
-    if err:
-        return err
-    try:
-        body = await request.json()
-    except Exception:
-        body = {}
-    token = (body.get("token") or TELEGRAM_TOKEN or "").strip()
-    if not token:
-        return {"ok": False, "error": "Add your bot token first."}
-    try:
-        req = urllib.request.Request("https://api.telegram.org/bot%s/getUpdates" % token,
-                                     headers={"User-Agent": "Vigil"})
-        data = json.loads(urllib.request.urlopen(req, timeout=15).read().decode())
-    except Exception:
-        return {"ok": False, "error": "Couldn't reach Telegram — double-check the bot token."}
-    if not data.get("ok"):
-        return {"ok": False, "error": data.get("description") or "Telegram rejected that token."}
-    chats = {}
-    for u in data.get("result", []):
-        chat = ((u.get("message") or u.get("channel_post") or u.get("my_chat_member") or {}).get("chat")) or {}
-        cid = chat.get("id")
-        if cid is None:
-            continue
-        name = (chat.get("title")
-                or " ".join(x for x in [chat.get("first_name"), chat.get("last_name")] if x)
-                or chat.get("username") or str(cid))
-        chats[str(cid)] = name
-    return {"ok": True, "chats": [{"id": k, "name": v} for k, v in chats.items()],
-            "hint": "" if chats else "Message your bot on Telegram (say “hi”), then try again."}
-
-
-@app.post("/api/telegram/test")
-async def api_telegram_test(request: Request):
-    _, err = _require_admin(request)
-    if err:
-        return err
-    try:
-        body = await request.json()
-    except Exception:
-        body = {}
-    token = (body.get("token") or TELEGRAM_TOKEN or "").strip()
-    ids = str(body.get("chat_ids") or TELEGRAM_CHAT_IDS or "").replace(";", ",")
-    chat_ids = [c.strip() for c in ids.split(",") if c.strip()]
-    if not token:
-        return {"ok": False, "error": "Add your bot token first."}
-    if not chat_ids:
-        return {"ok": False, "error": "No chat yet — use “Find my chat” after messaging the bot."}
-    sent, errs = 0, []
-    for cid in chat_ids:
-        try:
-            _telegram_send_message(token, cid, "✅ Vigil test alert — phone notifications are working.")
-            sent += 1
-        except Exception as e:
-            errs.append(str(e))
-    return {"ok": sent > 0, "sent": sent,
-            "error": "" if sent else ("; ".join(errs) or "Couldn't send. Check the token and chat.")}
-
-
 # ---- Updates --------------------------------------------------------------
 # Bump this on every release (it's what Check for updates compares against).
-VIGIL_VERSION = "1.2.7"
+VIGIL_VERSION = "1.3.0"
 _UPDATE_REPO = "Param077s/vigil"
 
 
@@ -2746,10 +2528,10 @@ CAMERA_MODAL = """
 
     <div class="step" data-step="3">
       <span class="ob-badge">● Optional</span>
-      <h2>Get alerts on your phone</h2>
-      <p>Want a photo sent to your phone even when you're not at the screen? Open
-         <b>Settings → Telegram alerts</b> and follow the steps there. Great for when the
-         person running an exam is walking the room.</p>
+      <h2>Watch on your phone</h2>
+      <p>Want the live wall and alerts on your phone? On the same Wi‑Fi, open
+         <b>Watch on your phone</b> (the phone icon, top‑right) and scan the code — sign in
+         and you'll see the cameras and get an alert the moment a phone is spotted.</p>
       <div class="ob-opt"><span class="ico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg></span><div><b>You're all set</b>
         <span>Your cameras keep watching as long as Vigil is running. Reopen this guide any time
         from <b>"Setup guide"</b> in the top bar.</span></div></div>
@@ -4238,9 +4020,9 @@ LANDING_HTML = """<!doctype html>
       <div class="cap-row reveal"><span class="no">04</span><h3>Display wall</h3>
         <p>A fullscreen monitoring wall built for the invigilation desk — with an unmissable on-screen
         alarm, flash and tone when something is found.</p></div>
-      <div class="cap-row reveal"><span class="no">05</span><h3>Instant relay</h3>
-        <p>Optional Telegram dispatch sends the photo and location straight to staff phones — the tap on
-        the shoulder for invigilators walking the aisles.</p></div>
+      <div class="cap-row reveal"><span class="no">05</span><h3>On every phone</h3>
+        <p>Invigilators open the live wall on their own phones over the room's Wi‑Fi — an alert the
+        moment a phone is spotted, right in their hand as they walk the aisles.</p></div>
       <div class="cap-row reveal"><span class="no">06</span><h3>Human in command</h3>
         <p>Admin and invigilator roles. Every alert requires a human confirm or dismiss — the AI flags,
         your people decide. Watch targets are configurable beyond phones.</p></div>
@@ -4342,8 +4124,8 @@ LANDING_HTML = """<!doctype html>
     <h2 class="reveal" style="--d:.05s">Quick answers.</h2>
     <div class="faq">
       <div class="qa reveal"><button><span class="qno">Q1</span>Does it need an internet connection?<i>+</i></button>
-        <div class="a"><p>No. Detection, the dashboard and the evidence log all run locally. Internet is only used
-        if you turn on Telegram phone alerts.</p></div></div>
+        <div class="a"><p>No. Detection, the dashboard and the evidence log all run locally — invigilators
+        just open Vigil on their phones over the same Wi‑Fi.</p></div></div>
       <div class="qa reveal"><button><span class="qno">Q2</span>Is it only for phones?<i>+</i></button>
         <div class="a"><p>No — phones are the first target. In Settings → "Watch for", pick or type what matters:
         laptop, bag, book, bottle, person and more. Fully custom targets can be added with training.</p></div></div>
@@ -4355,7 +4137,7 @@ LANDING_HTML = """<!doctype html>
         location, confidence and the reviewer's verdict for every alert.</p></div></div>
       <div class="qa reveal"><button><span class="qno">Q5</span>What happens at the moment of detection?<i>+</i></button>
         <div class="a"><p>The dashboard beeps and shows the photo and location; the Display wall flashes an alarm;
-        and if enabled, Telegram sends the photo to staff phones — all within about a second.</p></div></div>
+        and any invigilator watching on their phone sees it too — all within about a second.</p></div></div>
     </div>
   </section>
 
@@ -4857,12 +4639,6 @@ def settings_page(request: Request, saved: str = "", test: str = ""):
     g = globals()
     banner = ('<div class="saved">✓ Saved — changes apply live (a model change takes a few seconds).</div>'
               if saved else '')
-    if test == "ok":
-        banner += '<div class="saved">✓ Test message sent — check your Telegram.</div>'
-    elif test == "fail":
-        banner += '<div class="saved" style="background:rgba(239,68,68,.15);color:#f87171">✗ Test failed — check the token and chat ID.</div>'
-    elif test == "noconfig":
-        banner += '<div class="saved" style="background:rgba(234,179,8,.15);color:#eab308">Add a bot token and chat ID, click Save, then test.</div>'
     if request.query_params.get("watch") == "unknown":
         banner += ('<div class="saved" style="background:rgba(234,179,8,.15);color:#eab308">'
                    "That target isn't something the current models recognise — kept the previous one. "
@@ -4959,28 +4735,7 @@ def settings_page(request: Request, saved: str = "", test: str = ""):
           never discard a detection.</div>
         </div>
 
-        <div class="sec">Phone alerts via Telegram (optional)</div>
-        <div class="field">
-          <div class="hint">Get alerts on your phone with the photo + location. Setup: in Telegram, message
-          <b>@BotFather</b> → <code>/newbot</code> → copy the <b>token</b>. Then send any message to your new
-          bot, open <code>https://api.telegram.org/bot&lt;token&gt;/getUpdates</code> and copy the <b>chat id</b>.
-          Leave blank to turn off.</div>
-        </div>
-        <div class="field">
-          <label>Bot token</label>
-          <input type="text" name="telegram_token" value="{g['TELEGRAM_TOKEN']}" style="width:340px" placeholder="123456:ABC-DEF...">
-        </div>
-        <div class="field">
-          <label>Chat ID(s)</label>
-          <div class="hint">One or more, comma-separated (one per person who should get alerts).</div>
-          <input type="text" name="telegram_chat_ids" value="{g['TELEGRAM_CHAT_IDS']}" style="width:340px" placeholder="123456789, 987654321">
-        </div>
-
         <div class="save-row"><button type="submit">Save settings</button></div>
-      </form>
-      <form method="post" action="/settings/telegram-test" style="margin-top:12px;display:flex;gap:12px;align-items:center">
-        <button type="submit" style="background:#2b3340;color:#c4ccd8;border:none;padding:10px 18px;border-radius:8px;font-weight:600;cursor:pointer">Send test message</button>
-        <span class="hint" style="margin:0">Uses the saved config — click Save first.</span>
       </form>
     """
     return (SETTINGS_SHELL.replace("__STYLE__", STYLE).replace("__LOGO__", LOGO_MARK)
@@ -5003,8 +4758,6 @@ def settings_save(
     tile_overlap: float = Form(0.15),
     tile_imgsz: int = Form(768),
     model_name: str = Form("yolo11m.pt"),
-    telegram_token: str = Form(""),
-    telegram_chat_ids: str = Form(""),
     watch_target: str = Form("phone"),
     vlm_enabled: str = Form(None),
     vlm_model: str = Form("llava"),
@@ -5026,8 +4779,6 @@ def settings_save(
         "TILE_OVERLAP": min(max(tile_overlap, 0.0), 0.4),
         "TILE_IMGSZ": min(max(_round32(tile_imgsz), 320), 1280),
         "MODEL_NAME": model_name.strip() or old_model,
-        "TELEGRAM_TOKEN": telegram_token.strip(),
-        "TELEGRAM_CHAT_IDS": telegram_chat_ids.strip(),
         "WATCH_TARGET": (watch_target.strip().lower() or "phone"),
     })
     _sync_vlm()                                    # push VLM_* into the vlm module
@@ -5046,22 +4797,6 @@ def settings_save(
         save_settings({"WATCH_TARGET": old_watch})
         watch_flag = "&watch=unknown"
     return RedirectResponse(f"/settings?saved=1{watch_flag}", status_code=303)
-
-
-@app.post("/settings/telegram-test")
-def telegram_test():
-    token = (TELEGRAM_TOKEN or "").strip()
-    chat_ids = _telegram_chat_ids()
-    if not token or not chat_ids:
-        return RedirectResponse("/settings?test=noconfig", status_code=303)
-    ok_any = False
-    for cid in chat_ids:
-        try:
-            _telegram_send_message(token, cid, "✅ Vigil test — phone alerts are working. You'll get a photo here when a phone is detected.")
-            ok_any = True
-        except Exception as e:
-            print(f"Telegram test failed for {cid}: {e}")
-    return RedirectResponse(f"/settings?test={'ok' if ok_any else 'fail'}", status_code=303)
 
 
 # ---------------------------------------------------------------------------
