@@ -755,8 +755,7 @@ function startFeed(img, id) {
   // watches its own cameras over localhost — stream MJPEG so it plays at the
   // camera's FULL native frame rate, with no snapshot-polling cap. Remote/phone
   // keeps chained snapshots: bandwidth-friendly and immune to MJPEG stalls.
-  const onDevice = (state.me && state.me.desktop)
-    || ["localhost", "127.0.0.1", "::1"].includes(location.hostname);
+  const onDevice = ["localhost", "127.0.0.1", "::1"].includes(location.hostname);
   if (onDevice) {
     img.src = `/stream/${id}`;                 // continuous, full-fps
     return () => { try { img.src = ""; } catch (_) {} };
@@ -2064,7 +2063,7 @@ function shortcuts(e) {
 async function boot() {
   setTheme(state.theme);
   try { state.me = await api.me(); } catch { /* redirected to /login by api._get */ return; }
-  if (state.me.desktop) {
+  if (state.me.desktop && ["localhost", "127.0.0.1", "::1"].includes(location.hostname)) {
     document.documentElement.classList.add("is-desktop");
     if (/mac/i.test(navigator.platform) || /mac/i.test(navigator.userAgent))
       document.documentElement.classList.add("is-inset");
@@ -2096,7 +2095,12 @@ async function boot() {
    server routes. Takes over #app on phones (see boot). Styled by teacher.css.
    ========================================================================= */
 const TeacherMobile = {
-  enabled: () => !state.me.desktop && isMobile(),
+  // "desktop" must be judged per-client, NOT from state.me.desktop: that flag
+  // is a server-wide env var (VIGIL_DESKTOP) that's true for EVERY client when
+  // Vigil runs as the desktop app — including a teacher's phone over the LAN,
+  // which then wrongly gets the scaled-down desktop UI. The native window loads
+  // over localhost; a phone loads the LAN IP, so the hostname tells them apart.
+  enabled: () => isMobile() && !["localhost", "127.0.0.1", "::1"].includes(location.hostname),
   tab: "home",
   cameras: [], status: {}, alerts: [],
   _feeds: [], _poll: null, _sig: "",

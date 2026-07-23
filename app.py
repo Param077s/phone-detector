@@ -1936,8 +1936,19 @@ def api_me(request: Request):
     u = getattr(request.state, "user", None) or current_user(request)
     if not u:
         return JSONResponse({"error": "unauthorized"}, status_code=401)
+    # "desktop" is per-CLIENT, not per-server: it's only the native window
+    # (which loads over localhost). VIGIL_DESKTOP just says this server was
+    # launched by the desktop app — a phone on the LAN hitting the same server
+    # is NOT the desktop, so it must not be told so (else it gets the desktop UI).
+    client = request.client
+    is_loopback = False
+    if client and client.host:
+        try:
+            is_loopback = ipaddress.ip_address(client.host).is_loopback
+        except ValueError:
+            is_loopback = client.host == "localhost"
     return {"username": u["username"], "role": u["role"],
-            "desktop": os.environ.get("VIGIL_DESKTOP") == "1",
+            "desktop": os.environ.get("VIGIL_DESKTOP") == "1" and is_loopback,
             "version": VIGIL_VERSION}
 
 
@@ -2170,7 +2181,7 @@ async def api_push_test(request: Request):
 
 # ---- Updates --------------------------------------------------------------
 # Bump this on every release (it's what Check for updates compares against).
-VIGIL_VERSION = "1.3.7"
+VIGIL_VERSION = "1.3.8"
 _UPDATE_REPO = "Param077s/vigil"
 
 
