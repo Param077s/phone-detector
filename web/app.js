@@ -2061,6 +2061,8 @@ async function boot() {
       setTheme(state.theme);          // re-resolve so the caption syncs too
     }
   }
+  // Phones get a purpose-built teacher experience, not the admin dashboard.
+  if (TeacherMobile.enabled()) { await TeacherMobile.start(); return; }
   try { state.stats = await api.stats(); } catch {}
   // Open on the page you last used (only when no explicit route was asked for).
   if (!location.hash) {
@@ -2075,7 +2077,203 @@ async function boot() {
   PhoneNotify.init();           // register the service worker (installable + notifications)
   Updates.start();              // automatic update notice (chip + one toast)
 }
+/* =========================================================================
+   TEACHER MOBILE  — a purpose-built phone experience for invigilators.
+   Minimal, glanceable, fluent: Home (status + rooms) · Alerts · Settings, and
+   a full-screen live view on tap. Reuses the whole api/stream layer; adds no
+   server routes. Takes over #app on phones (see boot). Styled by teacher.css.
+   ========================================================================= */
+const TeacherMobile = {
+  enabled: () => !state.me.desktop && isMobile(),
+  tab: "home",
+  cameras: [], status: {}, alerts: [],
+  _feeds: [], _poll: null, _sig: "",
+
+  async start() {
+    document.documentElement.classList.add("is-teacher");
+    $("#app").innerHTML = `<div class="tm" id="tm"></div>`;
+    await this.load();
+    this.render();
+    try { PhoneNotify.init(); } catch {}
+    this._poll = setInterval(() => this.load().then(() => this.softUpdate()), 10000);
+  },
+
+  async load() {
+    try {
+      const [cams, st, ev] = await Promise.all([api.cameras(), api.cameraStatus(), api.evidence("")]);
+      this.cameras = (cams || []).filter(c => c.enabled !== false);
+      this.status = st || {};
+      this.alerts = (ev || []).slice(0, 40);
+    } catch (_) {}
+  },
+
+  // ---- derived ----
+  pending() { return this.alerts.filter(a => a.status === "pending"); },
+  camId(label) { const c = this.cameras.find(x => x.label === label); return c ? c.id : ""; },
+  imgFor(a) { return MOCK ? mockFrame("e" + a.id) : (a.image || `/evidence/image/${a.id}`); },
+  sig() { return JSON.stringify([this.tab, this.cameras.map(c => c.id),
+            Object.values(this.status), this.pending().map(a => a.id)]); },
+
+  // ---- render ----
+  render() {
+    const el = $("#tm"); if (!el) return;
+    el.innerHTML = this.screen() + this.tabbar();
+    this._sig = this.sig();
+    this.wire();
+    this.mountFeeds();
+  },
+  softUpdate() {                 // called on poll — don't yank the rug mid live-view
+    if ($("#overlays").children.length) return;
+    if (this.sig() === this._sig) return;   // nothing meaningful changed; keep feeds running
+    this.render();
+  },
+  go(tab) { this.tab = tab; this.render(); },
+
+  screen() {
+    if (this.tab === "alerts")   return this.alertsScreen();
+    if (this.tab === "settings") return this.settingsScreen();
+    return this.home();
+  },
+
+  home() {
+    const hr = new Date().getHours();
+    const greet = hr < 12 ? "Good morning" : hr < 18 ? "Good afternoon" : "Good evening";
+    const p = this.pending(), a = p[0];
+    const status = a
+      ? `<button class="tm-status tm-status--alert" data-live="${esc(this.camId(a.camera))}" data-alert="${a.id}">
+           <div class="tm-status__ic">${icon("alert")}</div>
+           <div class="tm-status__txt"><b>Phone detected</b><span>${esc(a.camera)} · ${esc(a.time || "")}${p.length > 1 ? ` · +${p.length - 1} more` : ""}</span></div>
+           <div class="tm-status__go">${icon("chevron")}</div>
+         </button>`
+      : `<div class="tm-status tm-status--ok">
+           <div class="tm-status__ic">${icon("check")}</div>
+           <div class="tm-status__txt"><b>All clear</b><span>${this.cameras.length} ${this.cameras.length === 1 ? "room" : "rooms"} watched</span></div>
+         </div>`;
+    const rooms = this.cameras.length
+      ? this.cameras.map((c, i) => this.roomCard(c, i)).join("")
+      : `<div class="tm-empty">No rooms assigned yet.<br>Ask your admin to add you to a camera.</div>`;
+    return `<div class="tm-screen">
+      <div class="tm-head"><div class="tm-hello">${greet}</div><div class="tm-name">${esc(state.me.username || "there")}</div></div>
+      ${status}
+      <div class="tm-section">Your rooms</div>
+      <div class="tm-rooms">${rooms}</div>
+    </div>`;
+  },
+  roomCard(c, i) {
+    const st = this.status[c.id] || "online";
+    const active = this.pending().some(a => a.camera === c.label);
+    const dot = st === "online" ? "ok" : st === "offline" ? "off" : "idle";
+    const label = st === "online" ? "Live" : st === "offline" ? "Offline" : st === "scheduled" ? "Scheduled" : "Paused";
+    return `<button class="tm-room ${active ? "tm-room--alert" : ""}" data-live="${c.id}" style="animation-delay:${i * 40}ms">
+      <div class="tm-room__thumb"><img data-feed="${c.id}" alt="">${active ? `<div class="tm-room__flag">${icon("alert")}</div>` : ""}</div>
+      <div class="tm-room__meta"><div class="tm-room__name">${esc(c.label)}</div>
+        <div class="tm-room__sub"><span class="tm-dot tm-dot--${dot}"></span>${label}</div></div>
+    </button>`;
+  },
+
+  alertsScreen() {
+    const rows = this.alerts.length
+      ? this.alerts.map((a, i) => this.alertRow(a, i)).join("")
+      : `<div class="tm-empty">No detections yet.</div>`;
+    return `<div class="tm-screen">
+      <div class="tm-head"><div class="tm-name">Alerts</div></div>
+      <div class="tm-alerts">${rows}</div></div>`;
+  },
+  alertRow(a, i) {
+    const pct = Math.round((a.confidence || 0) * 100);
+    const kind = a.status === "pending" ? "warn" : a.status === "confirmed" ? "alert" : "dim";
+    const label = a.status === "pending" ? "New" : a.status === "confirmed" ? "Confirmed" : "Dismissed";
+    return `<button class="tm-alert" data-live="${esc(this.camId(a.camera))}" data-alert="${a.id}" style="animation-delay:${i * 30}ms">
+      <div class="tm-alert__thumb"><img src="${this.imgFor(a)}" alt=""></div>
+      <div class="tm-alert__body">
+        <div class="tm-alert__title">${esc(a.thing || "Phone")} · ${pct}%</div>
+        <div class="tm-alert__sub">${esc(a.camera)} · ${esc(a.time || "")}</div>
+      </div>
+      <span class="tm-pill tm-pill--${kind}">${label}</span>
+    </button>`;
+  },
+
+  settingsScreen() {
+    const notifOn = (() => { try { return PhoneNotify.on(); } catch { return false; } })();
+    const dark = state.theme !== "light";
+    return `<div class="tm-screen">
+      <div class="tm-head"><div class="tm-name">Settings</div></div>
+      <div class="tm-profile"><div class="tm-avatar">${initials(state.me.username || "?")}</div>
+        <div><div class="tm-profile__name">${esc(state.me.username || "—")}</div><div class="tm-profile__role">Invigilator</div></div></div>
+      <div class="tm-list">
+        <div class="tm-row"><div class="tm-row__l">${icon("bell")} Notifications</div>
+          <button class="tm-toggle ${notifOn ? "is-on" : ""}" id="tmNotif"></button></div>
+        <div class="tm-row"><div class="tm-row__l">${icon("moon")} Dark mode</div>
+          <button class="tm-toggle ${dark ? "is-on" : ""}" id="tmDark"></button></div>
+        <div class="tm-row"><div class="tm-row__l">${icon("info")} Version</div>
+          <span class="tm-row__r">v${esc(state.me.version || "—")}</span></div>
+      </div>
+      <a class="tm-signout" href="/logout">${icon("logout")} Sign out</a>
+    </div>`;
+  },
+
+  tabbar() {
+    const t = (id, ic, label) => `<button class="tm-tab ${this.tab === id ? "is-active" : ""}" data-tab="${id}">${icon(ic)}<span>${label}</span></button>`;
+    return `<nav class="tm-tabbar">${t("home", "grid", "Home")}${t("alerts", "bell", "Alerts")}${t("settings", "settings", "Settings")}</nav>`;
+  },
+
+  // ---- feeds ----
+  mountFeeds() {
+    this.stopFeeds();
+    $$("[data-feed]", $("#tm")).forEach(img => this._feeds.push(startFeed(img, img.dataset.feed)));
+  },
+  stopFeeds() { this._feeds.forEach(fn => { try { fn(); } catch (_) {} }); this._feeds = []; },
+
+  // ---- interactions ----
+  wire() {
+    const el = $("#tm");
+    $$("[data-tab]", el).forEach(b => b.onclick = () => this.go(b.dataset.tab));
+    $$("[data-live]", el).forEach(b => b.onclick = () => this.openLive(b.dataset.live, b.dataset.alert));
+    const nt = $("#tmNotif", el);
+    if (nt) nt.onclick = async () => {
+      if (MOCK) { nt.classList.toggle("is-on"); toast("Notifications " + (nt.classList.contains("is-on") ? "on" : "off") + " (demo)", { kind: "ok" }); return; }
+      try {
+        if (PhoneNotify.on()) { PhoneNotify.disable(); nt.classList.remove("is-on"); toast("Notifications off", { kind: "ok" }); }
+        else { const ok = await PhoneNotify.enable(); nt.classList.toggle("is-on", !!ok); }
+      } catch { toast("Notifications aren't available here", { kind: "info" }); }
+    };
+    const dk = $("#tmDark", el);
+    if (dk) dk.onclick = () => { const dark = !dk.classList.contains("is-on"); dk.classList.toggle("is-on", dark); setTheme(dark ? "dark" : "light"); };
+  },
+
+  openLive(id, alertId) {
+    if (!id) { toast("That camera isn't available", { kind: "info" }); return; }
+    const c = this.cameras.find(x => x.id === id) || { label: "Camera" };
+    const a = alertId ? this.alerts.find(x => String(x.id) === String(alertId))
+                      : this.pending().find(x => x.camera === c.label);
+    const node = h(`<div class="tm-live">
+      <div class="tm-live__bar"><button class="tm-back" data-back>${icon("chevron")}Back</button>
+        <div class="tm-live__title">${esc(c.label)}</div><div style="width:78px"></div></div>
+      <div class="tm-live__stage"><img id="tmLiveImg" alt=""></div>
+      ${a ? `<div class="tm-live__incident">
+        <div class="tm-inc__row"><span class="tm-inc__badge">${icon("alert")} ${esc(a.thing || "Phone")} ${Math.round((a.confidence || 0) * 100)}%</span>
+          <span class="tm-inc__time">${esc(a.time || "")}</span></div>
+        ${a.description ? `<div class="tm-inc__desc">${esc(a.description)}</div>` : ""}
+        ${a.status === "pending" ? `<div class="tm-inc__actions">
+          <button class="tm-btn tm-btn--ghost" data-review="dismiss">Dismiss</button>
+          <button class="tm-btn" data-review="confirm">Confirm</button></div>` : ""}
+      </div>` : ""}</div>`);
+    $("#overlays").appendChild(node);
+    const img = $("#tmLiveImg", node);
+    const stop = startFeed(img, id);
+    const close = () => { stop(); node.remove(); };
+    $("[data-back]", node).onclick = close;
+    $$("[data-review]", node).forEach(btn => btn.onclick = async () => {
+      const action = btn.dataset.review;
+      if (!MOCK) { try { await api.reviewAlert(a.id, action); } catch (_) {} }
+      if (a) a.status = action === "confirm" ? "confirmed" : "dismissed";
+      toast(action === "confirm" ? "Marked as confirmed" : "Dismissed", { kind: "ok" });
+      close(); this.render();
+    });
+  },
+};
+
 // Dev hook — only exposed in mock mode (?mock=1), never in the real app.
-if (MOCK) window.__vigil = { recoverNode, RECOVER, Live, Evidence, Settings, Notify, Updates, PhoneAccess, PhoneNotify, Palette, ShortcutsHelp, toast, go, state };
+if (MOCK) window.__vigil = { recoverNode, RECOVER, Live, Evidence, Settings, Notify, Updates, PhoneAccess, PhoneNotify, TeacherMobile, Palette, ShortcutsHelp, toast, go, state };
 boot();
 })();
