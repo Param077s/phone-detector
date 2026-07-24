@@ -2142,6 +2142,7 @@ const TeacherMobile = {
   // over localhost; a phone loads the LAN IP, so the hostname tells them apart.
   enabled: () => isMobile() && !["localhost", "127.0.0.1", "::1"].includes(location.hostname),
   tab: "home",
+  alertFilter: "pending",              // Alerts page: New | Confirmed | Dismissed
   cameras: [], status: {}, alerts: [],
   _feeds: [], _poll: null, _sig: "",
   _seen: new Set(), _seeded: false,
@@ -2187,8 +2188,8 @@ const TeacherMobile = {
   pending() { return this.alerts.filter(a => a.status === "pending"); },
   camId(label) { const c = this.cameras.find(x => x.label === label); return c ? c.id : ""; },
   imgFor(a) { return MOCK ? mockFrame("e" + a.id) : (a.image || `/evidence/image/${a.id}`); },
-  sig() { return JSON.stringify([this.tab, this.cameras.map(c => c.id),
-            Object.values(this.status), this.pending().map(a => a.id)]); },
+  sig() { return JSON.stringify([this.tab, this.alertFilter, this.cameras.map(c => c.id),
+            Object.values(this.status), this.alerts.map(a => a.id + a.status)]); },
 
   // ---- render ----
   render() {
@@ -2248,11 +2249,18 @@ const TeacherMobile = {
   },
 
   alertsScreen() {
-    const rows = this.alerts.length
-      ? this.alerts.map((a, i) => this.alertRow(a, i)).join("")
-      : `<div class="tm-empty">No detections yet.</div>`;
+    const f = this.alertFilter || "pending";
+    const counts = { pending: 0, confirmed: 0, dismissed: 0 };
+    this.alerts.forEach(a => { if (counts[a.status] != null) counts[a.status]++; });
+    const seg = (id, label) => `<button class="tm-seg ${f === id ? "is-active" : ""}" data-filter="${id}">${label}${counts[id] ? `<span class="tm-seg__n">${counts[id]}</span>` : ""}</button>`;
+    const list = this.alerts.filter(a => a.status === f);
+    const empty = f === "pending" ? "No new detections." : f === "confirmed" ? "Nothing confirmed yet." : "Nothing dismissed yet.";
+    const rows = list.length
+      ? list.map((a, i) => this.alertRow(a, i)).join("")
+      : `<div class="tm-empty">${empty}</div>`;
     return `<div class="tm-screen">
       <div class="tm-head"><div class="tm-name">Alerts</div></div>
+      <div class="tm-seg-wrap">${seg("pending", "New")}${seg("confirmed", "Confirmed")}${seg("dismissed", "Dismissed")}</div>
       <div class="tm-alerts">${rows}</div></div>`;
   },
   alertRow(a, i) {
@@ -2306,6 +2314,7 @@ const TeacherMobile = {
     $$("[data-tab]", el).forEach(b => b.onclick = () => this.go(b.dataset.tab));
     $$("[data-live]", el).forEach(b => b.onclick = () => this.openLive(b.dataset.live, b.dataset.alert));
     $$("[data-photo]", el).forEach(b => b.onclick = () => this.openPhoto(b.dataset.photo));
+    $$("[data-filter]", el).forEach(b => b.onclick = () => { this.alertFilter = b.dataset.filter; this.render(); });
     const nt = $("#tmNotif", el);
     if (nt) nt.onclick = async () => {
       if (MOCK) { nt.classList.toggle("is-on"); toast("Notifications " + (nt.classList.contains("is-on") ? "on" : "off") + " (demo)", { kind: "ok" }); return; }
@@ -2321,32 +2330,16 @@ const TeacherMobile = {
   openLive(id, alertId) {
     if (!id) { toast("That camera isn't available", { kind: "info" }); return; }
     const c = this.cameras.find(x => x.id === id) || { label: "Camera" };
-    const a = alertId ? this.alerts.find(x => String(x.id) === String(alertId))
-                      : this.pending().find(x => x.camera === c.label);
+    // Pure live footage — review (Confirm/Dismiss) lives on the Alerts page only.
     const node = h(`<div class="tm-live">
       <div class="tm-live__bar"><button class="tm-back" data-back>${icon("chevron")}Back</button>
         <div class="tm-live__title">${esc(c.label)}</div><div style="width:78px"></div></div>
-      <div class="tm-live__stage"><img id="tmLiveImg" alt=""></div>
-      ${a ? `<div class="tm-live__incident">
-        <div class="tm-inc__row"><span class="tm-inc__badge">${icon("alert")} ${esc(a.thing || "Phone")} ${Math.round((a.confidence || 0) * 100)}%</span>
-          <span class="tm-inc__time">${esc(a.time || "")}</span></div>
-        ${a.description ? `<div class="tm-inc__desc">${esc(a.description)}</div>` : ""}
-        ${a.status === "pending" ? `<div class="tm-inc__actions">
-          <button class="tm-btn tm-btn--ghost" data-review="dismiss">Dismiss</button>
-          <button class="tm-btn" data-review="confirm">Confirm</button></div>` : ""}
-      </div>` : ""}</div>`);
+      <div class="tm-live__stage"><img id="tmLiveImg" alt=""></div></div>`);
     $("#overlays").appendChild(node);
     const img = $("#tmLiveImg", node);
     const stop = startFeed(img, id, { stream: true });   // full native frame rate
     const close = () => { stop(); node.remove(); };
     $("[data-back]", node).onclick = close;
-    $$("[data-review]", node).forEach(btn => btn.onclick = async () => {
-      const action = btn.dataset.review;
-      if (!MOCK) { try { await api.reviewAlert(a.id, action); } catch (_) {} }
-      if (a) a.status = action === "confirm" ? "confirmed" : "dismissed";
-      toast(action === "confirm" ? "Marked as confirmed" : "Dismissed", { kind: "ok" });
-      close(); this.render();
-    });
   },
 
   // Tapping an alert enlarges its captured photo (NOT the live camera). Shows
