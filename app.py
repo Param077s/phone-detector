@@ -47,6 +47,7 @@ import io
 import base64
 import shutil
 import subprocess
+import atexit
 from datetime import datetime
 
 import cv2
@@ -2100,12 +2101,120 @@ def _lan_ipv6():
     return best
 
 
+# --- Secure HTTPS tunnel for phone push notifications ----------------------
+# Web Push + service workers require a SECURE origin (https). The same-Wi-Fi
+# link is plain http, so notifications can't work over it — browsers block the
+# Notifications API and won't register a service worker on an insecure origin.
+# On demand we raise a free cloudflared quick-tunnel: a public
+# https://<random>.trycloudflare.com that relays to this app. The phone opens
+# THAT (a secure context) and can finally subscribe to push. Detection still
+# runs locally; the tunnel only relays the connection. Opt-in, per the
+# same-Wi-Fi-by-default design — nothing is exposed until the teacher asks.
+_tunnel = {"proc": None, "url": ""}
+_tunnel_lock = threading.Lock()
+
+
+def _find_cloudflared():
+    cand = shutil.which("cloudflared")
+    if cand:
+        return cand
+    for p in ("/opt/homebrew/bin/cloudflared", "/usr/local/bin/cloudflared",
+              os.path.join(os.path.dirname(os.path.abspath(sys.argv[0] or ".")), "cloudflared"),
+              "./cloudflared"):
+        if os.path.isfile(p) and os.access(p, os.X_OK):
+            return p
+    return None
+
+
+def tunnel_url():
+    with _tunnel_lock:
+        p = _tunnel["proc"]
+        if p is not None and p.poll() is not None:      # cloudflared died — forget it
+            _tunnel["proc"], _tunnel["url"] = None, ""
+        return _tunnel["url"]
+
+
+def start_tunnel(port):
+    """Raise a cloudflared quick-tunnel to localhost:port; return its public
+    https URL. Blocks until the URL appears (~5s) or fails. Reuses a live one."""
+    if tunnel_url():
+        return _tunnel["url"]
+    cf = _find_cloudflared()
+    if not cf:
+        return ""
+    try:
+        proc = subprocess.Popen(
+            [cf, "tunnel", "--url", "http://localhost:%d" % port, "--no-autoupdate"],
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
+    except Exception as e:
+        print("[tunnel] could not start cloudflared: %s" % e)
+        return ""
+    url, deadline = "", time.time() + 40
+    try:
+        for line in proc.stdout:
+            m = re.search(r"https://[a-z0-9-]+\.trycloudflare\.com", line)
+            if m:
+                url = m.group(0)
+                break
+            if time.time() > deadline or proc.poll() is not None:
+                break
+    except Exception:
+        pass
+    if not url:
+        try: proc.terminate()
+        except Exception: pass
+        print("[tunnel] no public URL from cloudflared")
+        return ""
+    with _tunnel_lock:
+        _tunnel["proc"], _tunnel["url"] = proc, url
+    # Keep draining cloudflared's output so its stdout pipe never blocks.
+    threading.Thread(target=lambda: [None for _ in proc.stdout], daemon=True).start()
+    print("[tunnel] public https link: %s" % url)
+    return url
+
+
+def stop_tunnel():
+    with _tunnel_lock:
+        proc, _tunnel["proc"], _tunnel["url"] = _tunnel["proc"], None, ""
+    if proc:
+        try: proc.terminate()
+        except Exception: pass
+
+
+atexit.register(stop_tunnel)
+
+
+@app.post("/api/tunnel/start")
+def api_tunnel_start(request: Request):
+    """Turn on the secure link so phones can receive push notifications."""
+    _, err = _require_admin(request)
+    if err:
+        return err
+    if not _find_cloudflared():
+        return JSONResponse({"ok": False, "error": "cloudflared not installed",
+                             "hint": "brew install cloudflared"}, status_code=503)
+    port = request.url.port or int(os.environ.get("VIGIL_PORT", "8000") or 8000)
+    url = start_tunnel(port)
+    if not url:
+        return JSONResponse({"ok": False, "error": "tunnel failed"}, status_code=502)
+    return {"ok": True, "url": url + "/app/"}
+
+
+@app.post("/api/tunnel/stop")
+def api_tunnel_stop(request: Request):
+    _, err = _require_admin(request)
+    if err:
+        return err
+    stop_tunnel()
+    return {"ok": True}
+
+
 @app.get("/api/lan-info")
 def api_lan_info(request: Request):
-    """The address + QR a teacher scans to open the live wall on their phone
-    (same Wi-Fi; login still required). Prefers a real IPv4 LAN address; on an
-    IPv6-only / NAT64 Wi-Fi (no routable IPv4) it uses the Mac's .local name,
-    which the phone reaches over IPv6 (Vigil listens dual-stack)."""
+    """The address + QR a teacher scans to open the live wall on their phone.
+    Normally a same-Wi-Fi LAN address (login still required). When the secure
+    link is on (see /api/tunnel/start) it returns the public https tunnel URL
+    instead — the only origin on which phone notifications can work."""
     # The port we're actually served on = the port the client reached us on.
     port = request.url.port or int(os.environ.get("VIGIL_PORT", "8000") or 8000)
     ip = _lan_ip()
@@ -2124,6 +2233,13 @@ def api_lan_info(request: Request):
         else:
             host = bonjour              # last resort (iPhone-only)
     url = ("http://%s:%d/app/" % (host, port)) if host else ""
+    # Secure link on? Then the phone must use the https tunnel URL — it's the
+    # only origin where notifications and the service worker will work.
+    turl = tunnel_url()
+    secure = bool(turl)
+    if secure:
+        url = turl + "/app/"
+        ipv6_only, alt = False, ""       # tunnel is reachable from anywhere
     qr = ""
     if url:
         try:
@@ -2134,7 +2250,8 @@ def api_lan_info(request: Request):
         except Exception:
             pass
     return {"ip": ip, "host": host, "port": port, "url": url, "alt": alt, "qr": qr,
-            "ipv6_only": ipv6_only, "on_lan": bool(host)}
+            "ipv6_only": ipv6_only, "on_lan": bool(host) or secure,
+            "secure": secure, "cloudflared": bool(_find_cloudflared())}
 
 
 # ---- Web Push: the phone subscribes here so it can be alerted when CLOSED ---
@@ -2181,7 +2298,7 @@ async def api_push_test(request: Request):
 
 # ---- Updates --------------------------------------------------------------
 # Bump this on every release (it's what Check for updates compares against).
-VIGIL_VERSION = "1.3.9"
+VIGIL_VERSION = "1.4.0"
 _UPDATE_REPO = "Param077s/vigil"
 
 
