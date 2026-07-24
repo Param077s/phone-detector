@@ -2,6 +2,9 @@
 
 All notable changes to Vigil. Dates are the release date.
 
+## 1.4.0 — 2026-07-24
+- Phone notifications (real push, even when the app is closed)
+
 ## 1.3.9 — 2026-07-24
 - A better phone experience for invigilators
 
