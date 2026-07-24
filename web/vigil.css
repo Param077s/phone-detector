@@ -505,6 +505,15 @@ svg[viewBox="0 0 24 24"] { width: 16px; height: 16px; flex: none; }
 .phone-share--warn { flex-direction: row; align-items: flex-start; gap: var(--s3); text-align: left; padding: var(--s2) 0; }
 .phone-share--warn svg { width: 22px; height: 22px; color: var(--warn); flex: none; margin-top: 2px; }
 
+/* Phone notifications (secure-link) block inside "Watch on your phone" */
+.phone-notif__wrap { align-self: stretch; border-top: 1px solid var(--line); padding-top: var(--s3); margin-top: var(--s1); }
+.phone-notif__btn { width: 100%; justify-content: center; }
+.phone-notif { display: flex; align-items: flex-start; gap: var(--s3); text-align: left; }
+.phone-notif svg { width: 20px; height: 20px; flex: none; margin-top: 2px; }
+.phone-notif--on { color: var(--text-2); }
+.phone-notif--on svg { color: var(--ok, #22c55e); }
+.phone-notif--on .strong { color: var(--text); }
+
 /* Remote access setup (Settings → Remote access) */
 .rmt-setup { display: flex; flex-direction: column; gap: var(--s3); max-width: 560px; }
 .rmt-steps { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--s2); }

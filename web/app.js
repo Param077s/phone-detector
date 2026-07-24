@@ -264,8 +264,10 @@ const api = {
     ? Promise.resolve({ current: "1.2.0", latest: "1.3.0", url: "https://github.com/Param077s/vigil/releases/latest", update_available: true, can_self_update: true })
     : api._get("/api/update-check"),
   lanInfo:      () => MOCK
-    ? Promise.resolve({ ip: "192.168.1.42", port: 8000, url: "http://192.168.1.42:8000/app/", qr: "", on_lan: true })
+    ? Promise.resolve({ ip: "192.168.1.42", port: 8000, url: "http://192.168.1.42:8000/app/", qr: "", on_lan: true, secure: false, cloudflared: true })
     : api._get("/api/lan-info"),
+  tunnelStart:  () => fetch("/api/tunnel/start", { method: "POST" }).then(r => r.json()),
+  tunnelStop:   () => fetch("/api/tunnel/stop", { method: "POST" }).then(r => r.json()),
   updateState:  () => api._get("/api/update/state"),
   updateStart:  () => fetch("/api/update/start", { method: "POST" }).then(r => r.json()),
   updateApply:  (relaunch) => fetch("/api/update/apply", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ relaunch }) }).then(r => r.json()),
@@ -941,33 +943,68 @@ const BulkSchedule = {
    live wall on their phone; same Wi-Fi, still login-gated)
    ========================================================================= */
 const PhoneAccess = {
-  // Shared body for both the modal and the Settings section.
-  _fill(box, d) {
+  // Shared body for both the modal and the Settings section. `reload` re-fetches
+  // lan-info and re-renders — used after the secure link is turned on/off.
+  _fill(box, d, reload) {
     if (!d || !d.on_lan) {
       box.innerHTML = `<div class="phone-share phone-share--warn">${icon("wifioff")}
         <div><div class="strong">This Mac isn't on a network yet</div>
         <div class="muted">Connect it to Wi‑Fi, then reopen this. Teachers must be on the same Wi‑Fi to watch.</div></div></div>`;
       return;
     }
-    box.innerHTML = `<div class="phone-share">
+    const secure = !!d.secure;
+    const steps = secure
+      ? `<li><b>Scan the code</b> with the phone camera (or open the link) — from any network.</li>
+         <li>Log in with the account you gave the teacher.</li>
+         <li>Open <b>Settings → Notifications</b> and turn them on to get alerts.</li>`
+      : `<li>Join the phone to the <b>same Wi‑Fi</b> as this Mac.</li>
+         <li><b>Scan the code</b> with the phone camera (or open the link).</li>
+         <li>Log in with the account you gave the teacher to watch the live wall.</li>`;
+    // Notifications need a secure (https) origin, which the plain Wi‑Fi link
+    // isn't — so we offer to turn on the secure tunnel link.
+    const notif = secure
+      ? `<div class="phone-notif phone-notif--on">${icon("bell")}
+           <div><div class="strong">Phone notifications are on</div>
+           <div class="muted">This code is a secure link, so alerts reach the phone even when Vigil is closed. It changes each time Vigil restarts — re‑scan then.</div>
+           <button class="btn btn--sm btn--ghost" id="phoneNotifOff" style="margin-top:10px">Turn off secure link</button></div></div>`
+      : (d.cloudflared
+          ? `<button class="btn btn--sm phone-notif__btn" id="phoneNotifOn">${icon("bell")} Turn on phone notifications</button>
+             <p class="hint">The plain Wi‑Fi link above can't send notifications — browsers require a secure (https) link. This creates a free private https link so alerts reach the phone even when the app is closed.</p>`
+          : `<p class="hint">${icon("bell")} Phone notifications need the free <b>cloudflared</b> tool. Install it once with <span class="mono">brew install cloudflared</span>, then reopen this.</p>`);
+    box.innerHTML = `<div class="phone-share ${secure ? "phone-share--secure" : ""}">
         <div class="phone-share__qr">${d.qr
           ? `<img src="${d.qr}" alt="Scan to open Vigil on your phone" width="220" height="220">`
           : `<div class="phone-share__noqr">${icon("phone")}</div>`}</div>
-        <ol class="phone-share__steps">
-          <li>Join the phone to the <b>same Wi‑Fi</b> as this Mac.</li>
-          <li><b>Scan the code</b> with the phone camera (or open the link).</li>
-          <li>Log in with the account you gave the teacher to watch the live wall.</li>
-        </ol>
+        <ol class="phone-share__steps">${steps}</ol>
         <div class="phone-share__url"><span class="mono" title="${esc(d.url)}">${esc(d.url)}</span>
           <button class="btn btn--sm" id="phoneCopy">${icon("share")} Copy link</button></div>
-        ${d.ipv6_only
-          ? `<p class="hint">This Wi‑Fi is IPv6‑only, so the link uses a numeric IPv6 address — it opens on <b>Android and iPhone</b>.${d.alt ? ` On iPhone you can also use <span class="mono">${esc(d.alt)}</span>.` : ""} If it still won't open, your hotspot is blocking device‑to‑device — use a normal Wi‑Fi router instead.</p>`
-          : `<p class="hint">Anyone on this Wi‑Fi with a login can watch, and gets alerts while Vigil is open. Some campus networks block device‑to‑device — if the link won't open, join the same Wi‑Fi network.</p>`}
+        ${secure
+          ? `<p class="hint">Anyone with this link and a login can watch — it's private and unguessable, but treat it like a password.</p>`
+          : (d.ipv6_only
+            ? `<p class="hint">This Wi‑Fi is IPv6‑only, so the link uses a numeric IPv6 address — it opens on <b>Android and iPhone</b>.${d.alt ? ` On iPhone you can also use <span class="mono">${esc(d.alt)}</span>.` : ""} If it still won't open, your hotspot is blocking device‑to‑device — use a normal Wi‑Fi router instead.</p>`
+            : `<p class="hint">Anyone on this Wi‑Fi with a login can watch, and gets alerts while Vigil is open. Some campus networks block device‑to‑device — if the link won't open, join the same Wi‑Fi network.</p>`)}
+        <div class="phone-notif__wrap">${notif}</div>
       </div>`;
     const copy = $("#phoneCopy", box);
     if (copy) copy.onclick = () => {
       (navigator.clipboard?.writeText(d.url) || Promise.resolve()).then(
         () => toast("Link copied", { kind: "ok" }), () => toast(d.url, { kind: "info" }));
+    };
+    const on = $("#phoneNotifOn", box);
+    if (on) on.onclick = async () => {
+      on.disabled = true; on.innerHTML = `${icon("bell")} Creating secure link…`;
+      try {
+        const r = await api.tunnelStart();
+        if (r && r.ok) { toast("Secure link ready — re‑scan the code on the phone", { kind: "ok" }); reload && reload(); return; }
+        toast(r && r.error === "cloudflared not installed" ? "Install cloudflared first (brew install cloudflared)" : "Couldn't create the secure link — check your internet", { kind: "info" });
+      } catch { toast("Couldn't create the secure link", { kind: "info" }); }
+      on.disabled = false; on.innerHTML = `${icon("bell")} Turn on phone notifications`;
+    };
+    const off = $("#phoneNotifOff", box);
+    if (off) off.onclick = async () => {
+      off.disabled = true;
+      try { await api.tunnelStop(); toast("Secure link off", { kind: "ok" }); } catch {}
+      reload && reload();
     };
   },
   async open() {
@@ -976,14 +1013,15 @@ const PhoneAccess = {
       <div class="modal__body" id="phoneBody"><div class="phone-share__loading">${icon("phone")}<span>Finding this Mac on the network…</span></div></div></div>`);
     const close = openModal(node);
     $$("[data-x]", node).forEach(b => b.onclick = close);
-    let d; try { d = await api.lanInfo(); } catch { d = null; }
-    PhoneAccess._fill($("#phoneBody", node), d);
+    const box = $("#phoneBody", node);
+    const reload = async () => { let d; try { d = await api.lanInfo(); } catch { d = null; } PhoneAccess._fill(box, d, reload); };
+    await reload();
   },
   // Render into a Settings-section container (no modal chrome).
   async renderInline(box) {
     if (!box) return;
-    let d; try { d = await api.lanInfo(); } catch { d = null; }
-    PhoneAccess._fill(box, d);
+    const reload = async () => { let d; try { d = await api.lanInfo(); } catch { d = null; } PhoneAccess._fill(box, d, reload); };
+    await reload();
   },
 };
 
