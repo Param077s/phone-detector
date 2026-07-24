@@ -2143,6 +2143,8 @@ const TeacherMobile = {
   enabled: () => isMobile() && !["localhost", "127.0.0.1", "::1"].includes(location.hostname),
   tab: "home",
   alertFilter: "pending",              // Alerts page: New | Confirmed | Dismissed
+  roomQuery: "",                       // Home: filters the rooms grid (shown only when many)
+  ROOM_SEARCH_MIN: 8,                  // show the search bar once a teacher has more rooms than this
   cameras: [], status: {}, alerts: [],
   _feeds: [], _poll: null, _sig: "",
   _seen: new Set(), _seeded: false,
@@ -2201,6 +2203,8 @@ const TeacherMobile = {
   },
   softUpdate() {                 // called on poll — don't yank the rug mid live-view
     if ($("#overlays").children.length) return;
+    const ae = document.activeElement;
+    if (ae && ae.id === "tmRoomSearch") return;   // don't rebuild while the teacher is typing
     if (this.sig() === this._sig) return;   // nothing meaningful changed; keep feeds running
     this.render();
   },
@@ -2226,15 +2230,34 @@ const TeacherMobile = {
            <div class="tm-status__ic">${icon("check")}</div>
            <div class="tm-status__txt"><b>All clear</b><span>${this.cameras.length} ${this.cameras.length === 1 ? "room" : "rooms"} watched</span></div>
          </div>`;
-    const rooms = this.cameras.length
-      ? this.cameras.map((c, i) => this.roomCard(c, i)).join("")
-      : `<div class="tm-empty">No rooms assigned yet.<br>Ask your admin to add you to a camera.</div>`;
+    // Search is progressive: hidden for a handful of rooms (just show them all),
+    // revealed once a teacher watches many, so big deployments stay manageable.
+    const search = this.cameras.length > this.ROOM_SEARCH_MIN
+      ? `<div class="tm-search"><span class="tm-search__ic">${icon("search")}</span>
+           <input id="tmRoomSearch" placeholder="Search rooms" value="${esc(this.roomQuery || "")}"
+             autocomplete="off" autocapitalize="off" spellcheck="false"></div>`
+      : "";
     return `<div class="tm-screen">
       <div class="tm-head"><div class="tm-hello">${greet}</div><div class="tm-name">${esc(state.me.username || "there")}</div></div>
       ${status}
       <div class="tm-section">Your rooms</div>
-      <div class="tm-rooms">${rooms}</div>
+      ${search}
+      <div class="tm-rooms">${this.roomsHtml()}</div>
     </div>`;
+  },
+  filteredRooms() {
+    const q = (this.roomQuery || "").trim().toLowerCase();
+    if (!q) return this.cameras;
+    return this.cameras.filter(c =>
+      (c.label || "").toLowerCase().includes(q) || (c.location || "").toLowerCase().includes(q));
+  },
+  roomsHtml() {
+    if (!this.cameras.length)
+      return `<div class="tm-empty">No rooms assigned yet.<br>Ask your admin to add you to a camera.</div>`;
+    const list = this.filteredRooms();
+    if (!list.length)
+      return `<div class="tm-empty">No rooms match “${esc(this.roomQuery)}”.</div>`;
+    return list.map((c, i) => this.roomCard(c, i)).join("");
   },
   roomCard(c, i) {
     const st = this.status[c.id] || "online";
@@ -2315,6 +2338,15 @@ const TeacherMobile = {
     $$("[data-live]", el).forEach(b => b.onclick = () => this.openLive(b.dataset.live, b.dataset.alert));
     $$("[data-photo]", el).forEach(b => b.onclick = () => this.openPhoto(b.dataset.photo));
     $$("[data-filter]", el).forEach(b => b.onclick = () => { this.alertFilter = b.dataset.filter; this.render(); });
+    const rs = $("#tmRoomSearch", el);
+    if (rs) rs.oninput = () => {
+      this.roomQuery = rs.value;
+      const grid = $(".tm-rooms", el);           // update ONLY the grid so the input keeps focus
+      if (!grid) return;
+      grid.innerHTML = this.roomsHtml();
+      $$("[data-live]", grid).forEach(b => b.onclick = () => this.openLive(b.dataset.live, b.dataset.alert));
+      this.mountFeeds();
+    };
     const nt = $("#tmNotif", el);
     if (nt) nt.onclick = async () => {
       if (MOCK) { nt.classList.toggle("is-on"); toast("Notifications " + (nt.classList.contains("is-on") ? "on" : "off") + " (demo)", { kind: "ok" }); return; }

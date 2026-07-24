@@ -173,6 +173,15 @@
 .tm-btn:active { transform: scale(.97); }
 .tm-btn--ghost { background: rgba(255,255,255,.1); color: #fff; }
 
+/* ---- Home rooms search (shown only when a teacher watches many rooms) ---- */
+.tm-search { display: flex; align-items: center; gap: 9px; height: 46px; margin: 0 0 14px;
+  padding: 0 14px; background: var(--tm-card); border-radius: 14px; }
+.tm-search__ic { display: flex; color: var(--tm-3); }
+.tm-search__ic svg { width: 18px; height: 18px; }
+.tm-search input { flex: 1; min-width: 0; border: none; outline: none; background: transparent;
+  color: var(--tm-text); font-size: 15px; font-family: inherit; }
+.tm-search input::placeholder { color: var(--tm-3); }
+
 /* ---- Alerts filter (New / Confirmed / Dismissed) ---- */
 .tm-seg-wrap { display: flex; gap: 4px; margin: 0 0 16px; padding: 4px;
   background: var(--tm-card); border-radius: 14px; }
