@@ -173,6 +173,32 @@
 .tm-btn:active { transform: scale(.97); }
 .tm-btn--ghost { background: rgba(255,255,255,.1); color: #fff; }
 
+/* ---- Home rooms search (shown only when a teacher watches many rooms) ---- */
+.tm-search { display: flex; align-items: center; gap: 9px; height: 46px; margin: 0 0 14px;
+  padding: 0 14px; background: var(--tm-card); border-radius: 14px; }
+.tm-search__ic { display: flex; color: var(--tm-3); }
+.tm-search__ic svg { width: 18px; height: 18px; }
+.tm-search input { flex: 1; min-width: 0; border: none; outline: none; background: transparent;
+  color: var(--tm-text); font-size: 15px; font-family: inherit; }
+.tm-search input::placeholder { color: var(--tm-3); }
+
+/* ---- Alerts filter (New / Confirmed / Dismissed) ---- */
+.tm-seg-wrap { display: flex; gap: 4px; margin: 0 0 16px; padding: 4px;
+  background: var(--tm-card); border-radius: 14px; }
+.tm-seg { flex: 1; height: 38px; border: none; border-radius: 10px; cursor: pointer;
+  background: transparent; color: var(--tm-2); font-size: 13.5px; font-weight: 600;
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  transition: background .2s var(--tm-spring), color .2s; }
+.tm-seg.is-active { background: var(--tm-card-2); color: var(--tm-text);
+  box-shadow: 0 2px 8px -2px rgba(0,0,0,.35); }
+.tm-seg:active { transform: scale(.97); }
+.tm-seg__n { font-size: 11px; font-weight: 700; min-width: 18px; height: 18px; padding: 0 5px;
+  border-radius: 9px; background: color-mix(in srgb, var(--tm-text) 12%, transparent); color: var(--tm-2);
+  display: inline-flex; align-items: center; justify-content: center; }
+.tm-seg.is-active .tm-seg__n { color: var(--tm-text); }
+/* "New" count draws the eye — it's the actionable one. */
+.tm-seg[data-filter="pending"] .tm-seg__n { background: var(--tm-alert); color: #fff; }
+
 /* ---- Alerts feed ---- */
 .tm-alerts { display: flex; flex-direction: column; gap: 10px; }
 .tm-alert {
