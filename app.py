@@ -2298,7 +2298,7 @@ async def api_push_test(request: Request):
 
 # ---- Updates --------------------------------------------------------------
 # Bump this on every release (it's what Check for updates compares against).
-VIGIL_VERSION = "1.4.0"
+VIGIL_VERSION = "1.4.1"
 _UPDATE_REPO = "Param077s/vigil"
 
 
