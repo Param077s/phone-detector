@@ -5,11 +5,11 @@ import { FaceLandmarker, FilesetResolver } from "/vendor/mediapipe/vision_bundle
 
 const CFG = {
   DETECT_MS: 90, CALIB_MS: 4500,
-  // Head/eyes DOWN (fires on head tilt OR eyes cast down)
+  // Head tilted DOWN (nose vs eye-line)
   HEAD_ENTER: 0.14, HEAD_EXIT: 0.08, HEAD_HOLD_MS: 3500,
-  EYEDOWN_ENTER: 0.20,
-  // Eyes looking AWAY (far left / right)
-  GAZE_ENTER: 0.15, GAZE_EXIT: 0.09, GAZE_HOLD_MS: 1400,
+  // Eyes drift OUTSIDE the allowed circle around where they calibrated — any direction
+  GAZE_RADIUS: 0.14, GAZE_HOLD_MS: 1200,
+  BLINK_RATIO: 0.55,   // eye-openness below this fraction of the calibrated open = blink → ignore gaze
   // Presence
   ABSENT_HOLD_MS: 5000, SECOND_HOLD_MS: 1500, SECOND_COOLDOWN_MS: 15000,
   HEARTBEAT_MS: 6000, STATUS_MIN_MS: 1500,
@@ -33,10 +33,12 @@ const examId = new URLSearchParams(location.search).get("e");
 let user = null, part = null;   // part = { id, name }
 const state = {
   stream: null, landmarker: null, video: null, mode: null, running: false,
-  lastDetect: 0, lastTs: 0, baseline: null, baseGazeX: null, baseGazeY: null,
-  calibSamples: [], calibGX: [], calibGY: [], calibStart: 0,
+  lastDetect: 0, lastTs: 0, baseline: null, baseGazeX: null, baseGazeY: null, baseOpen: null,
+  calibSamples: [], calibGX: [], calibGY: [], calibOpen: [], calibStart: 0,
   startedAt: 0, title: "Exam", lastStatus: "ok", lastStatusAt: 0,
+  offNow: null, dropNow: null, offPeak: 0, dropPeak: 0, rec: null,   // rec = live capture for the debug panel
 };
+const capt = { normal: null, away: null };   // captured peaks used to auto-suggest the eye radius
 
 // ── Supabase writes (events + presence) ──────────────────────────────────────
 async function emit(kind, severity) {
@@ -59,10 +61,12 @@ async function pushStatus(status, force) {
 // ── Geometry ────────────────────────────────────────────────────────────────
 function metrics(res) {
   const faces = res.faceLandmarks ? res.faceLandmarks.length : 0;
-  if (!faces) return { faces: 0, noseGap: null, gazeX: null, gazeY: null };
+  if (!faces) return { faces: 0, noseGap: null, gazeX: null, gazeY: null, openness: null };
   const lm = res.faceLandmarks[0], L = lm[EYE_L], R = lm[EYE_R], N = lm[NOSE_TIP];
   const iod = Math.hypot(L.x - R.x, L.y - R.y) || 1e-6;
   const noseGap = (N.y - (L.y + R.y) / 2) / iod;
+  // eye openness (lid gap / eye distance) — used to ignore blinks
+  const openness = ((Math.abs(lm[RE_BOT].y - lm[RE_TOP].y) + Math.abs(lm[LE_BOT].y - lm[LE_TOP].y)) / 2) / iod;
   // iris gaze — only when the model gives iris landmarks (478-pt task model)
   let gazeX = null, gazeY = null;
   if (lm.length > IRIS_L) {
@@ -76,7 +80,7 @@ function metrics(res) {
     const lY = (lI.y - lm[LE_TOP].y) / ((lm[LE_BOT].y - lm[LE_TOP].y) || 1e-6);
     gazeY = (rY + lY) / 2;
   }
-  return { faces, noseGap, gazeX, gazeY };
+  return { faces, noseGap, gazeX, gazeY, openness };
 }
 const median = (a) => { if (!a.length) return null; const s = [...a].sort((x, y) => x - y); return s[Math.floor(s.length / 2)]; };
 
@@ -90,24 +94,31 @@ const sig = {
 
 function doMonitor(mx, now) {
   const haveFace = mx.faces >= 1 && state.baseline != null;
-  // DOWN — head tilted down (nose vs eye-line) OR eyes cast down (iris low in the lids)
-  if (haveFace && mx.noseGap != null) {
-    const drop = state.baseline - mx.noseGap;
-    const eyeDown = (state.baseGazeY != null && mx.gazeY != null) ? (mx.gazeY - state.baseGazeY) : 0;
-    const down = drop > CFG.HEAD_ENTER || eyeDown > CFG.EYEDOWN_ENTER;
-    const up = drop < CFG.HEAD_EXIT && eyeDown < CFG.EYEDOWN_ENTER * 0.6;
-    if (down) {
+
+  // per-frame measurements (also feed the debug readout / recorder)
+  const drop = (haveFace && mx.noseGap != null) ? (state.baseline - mx.noseGap) : null;
+  const blink = state.baseOpen != null && mx.openness != null && mx.openness < CFG.BLINK_RATIO * state.baseOpen;
+  const off = (haveFace && !blink && mx.gazeX != null && state.baseGazeX != null)
+    ? Math.hypot(mx.gazeX - state.baseGazeX, mx.gazeY - state.baseGazeY) : null;   // radial eye drift, any direction
+  state.dropNow = drop; state.offNow = off;
+  if (drop != null) state.dropPeak = Math.max(state.dropPeak * 0.985, drop);
+  if (off  != null) state.offPeak  = Math.max(state.offPeak  * 0.985, off);
+  if (state.rec) { const v = state.rec.kind === "eye" ? off : drop; if (v != null) state.rec.max = Math.max(state.rec.max, v);
+    if (now > state.rec.until) { const r = state.rec; state.rec = null; r.done(r.max); } }
+
+  // HEAD DOWN — head physically tilted down (nose drops below the eye line)
+  if (drop != null) {
+    if (drop > CFG.HEAD_ENTER) {
       if (!sig.head.since) sig.head.since = now;
       if (now - sig.head.since > CFG.HEAD_HOLD_MS && !sig.head.fired) { emit("head_down", "warn"); sig.head.fired = true; }
-    } else if (up) { sig.head.since = null; sig.head.fired = false; }
+    } else if (drop < CFG.HEAD_EXIT) { sig.head.since = null; sig.head.fired = false; }
   }
-  // LOOK AWAY — eyes turned far left or right of where they calibrated
-  if (haveFace && mx.gazeX != null && state.baseGazeX != null) {
-    const off = Math.abs(mx.gazeX - state.baseGazeX);
-    if (off > CFG.GAZE_ENTER) {
+  // LOOK AWAY — eyes drift outside the allowed circle around the calibrated centre (L/R/up/down)
+  if (off != null) {
+    if (off > CFG.GAZE_RADIUS) {
       if (!sig.away.since) sig.away.since = now;
       if (now - sig.away.since > CFG.GAZE_HOLD_MS && !sig.away.fired) { emit("look_away", "warn"); sig.away.fired = true; }
-    } else if (off < CFG.GAZE_EXIT) { sig.away.since = null; sig.away.fired = false; }
+    } else if (off < CFG.GAZE_RADIUS * 0.6) { sig.away.since = null; sig.away.fired = false; }
   }
   if (mx.faces === 0) {
     if (!sig.absent.since) sig.absent.since = now;
@@ -136,43 +147,74 @@ function paintStatus(mx, now) {
 }
 
 // ── Live tuning (open the room with &debug) ──────────────────────────────────
+// You don't have to read while you move: press Record, do the movement, and it
+// reports the PEAK. "EYES" is the radial drift of your gaze from the calibrated
+// centre (any direction); "HEAD" is a physical head tilt down.
 function updateReadout() {
-  const d = $("tRead"); if (!d) return;
-  const drop = (state.baseline != null && lastMx.noseGap != null) ? (state.baseline - lastMx.noseGap) : null;
-  const gx = (state.baseGazeX != null && lastMx.gazeX != null) ? (lastMx.gazeX - state.baseGazeX) : null;
-  const gy = (state.baseGazeY != null && lastMx.gazeY != null) ? (lastMx.gazeY - state.baseGazeY) : null;
-  const iris = lastMx.gazeX != null;
-  d.textContent =
-    `faces ${lastMx.faces}   noseGap ${lastMx.noseGap?.toFixed(3) ?? "—"}   base ${state.baseline?.toFixed(3) ?? "—"}\n` +
-    `down   ${drop != null ? drop.toFixed(3) : "—"} / ${CFG.HEAD_ENTER.toFixed(2)}   ${sig.head.fired ? "● DOWN" : "ok"}\n` +
-    (iris
-      ? `look   ${gx != null ? gx.toFixed(3) : "—"} / ${CFG.GAZE_ENTER.toFixed(2)}   ${sig.away.fired ? "● AWAY" : "ok"}\n` +
-        `eyeDn  ${gy != null ? gy.toFixed(3) : "—"} / ${CFG.EYEDOWN_ENTER.toFixed(2)}`
-      : `look   (no iris landmarks from model)`);
+  const set = (id, v) => { const e = $(id); if (e) e.textContent = v; };
+  const flag = (id, on, txt) => { const e = $(id); if (e) { e.textContent = on ? txt : ""; e.className = "tflag" + (on ? " on" : ""); } };
+  set("headNow", state.dropNow != null ? state.dropNow.toFixed(3) : "—");
+  set("headPeak", state.dropPeak.toFixed(3));
+  set("headLimit", CFG.HEAD_ENTER.toFixed(2));
+  flag("headFlag", sig.head.fired, "● DOWN");
+  if (lastMx.gazeX == null) { set("eyeNow", "no iris from model"); set("eyePeak", "—"); flag("eyeFlag", false, ""); return; }
+  set("eyeNow", state.offNow != null ? state.offNow.toFixed(3) : "— blink");
+  set("eyePeak", state.offPeak.toFixed(3));
+  set("eyeLimit", CFG.GAZE_RADIUS.toFixed(2));
+  flag("eyeFlag", sig.away.fired, "● AWAY");
 }
 function saveCfg() {
   localStorage.setItem("vg_cfg", JSON.stringify({
-    HEAD_ENTER: CFG.HEAD_ENTER, HEAD_HOLD_MS: CFG.HEAD_HOLD_MS, EYEDOWN_ENTER: CFG.EYEDOWN_ENTER,
-    GAZE_ENTER: CFG.GAZE_ENTER, GAZE_HOLD_MS: CFG.GAZE_HOLD_MS,
-    ABSENT_HOLD_MS: CFG.ABSENT_HOLD_MS, SECOND_HOLD_MS: CFG.SECOND_HOLD_MS,
+    GAZE_RADIUS: CFG.GAZE_RADIUS, GAZE_HOLD_MS: CFG.GAZE_HOLD_MS,
+    HEAD_ENTER: CFG.HEAD_ENTER, HEAD_HOLD_MS: CFG.HEAD_HOLD_MS,
   }));
 }
-const TUNE_KEYS = ["HEAD_ENTER","HEAD_HOLD_MS","EYEDOWN_ENTER","GAZE_ENTER","GAZE_HOLD_MS","ABSENT_HOLD_MS","SECOND_HOLD_MS"];
+const TUNE_KEYS = ["GAZE_RADIUS", "GAZE_HOLD_MS", "HEAD_ENTER", "HEAD_HOLD_MS"];
 function wireTune() {
   const t = $("tune"); if (!t) return;
   t.classList.remove("hidden");
   const bind = (sId, vId, key, mul, unit) => {
     const s = $(sId), v = $(vId); if (!s) return;
-    s.value = CFG[key] / mul; v.textContent = (CFG[key] / mul) + unit;
-    s.oninput = () => { CFG[key] = parseFloat(s.value) * mul; v.textContent = s.value + unit; saveCfg(); };
+    s.value = CFG[key] / mul; v.textContent = (CFG[key] / mul).toFixed(mul === 1 ? 2 : 1) + unit;
+    s.oninput = () => { CFG[key] = parseFloat(s.value) * mul; v.textContent = parseFloat(s.value).toFixed(mul === 1 ? 2 : 1) + unit; saveCfg(); };
   };
+  bind("sGaze", "vGaze", "GAZE_RADIUS", 1, "");
+  bind("sGazeHold", "vGazeHold", "GAZE_HOLD_MS", 1000, "s");
   bind("sHeadEnter", "vHeadEnter", "HEAD_ENTER", 1, "");
   bind("sHeadHold", "vHeadHold", "HEAD_HOLD_MS", 1000, "s");
-  bind("sEyeDown", "vEyeDown", "EYEDOWN_ENTER", 1, "");
-  bind("sGaze", "vGaze", "GAZE_ENTER", 1, "");
-  bind("sGazeHold", "vGazeHold", "GAZE_HOLD_MS", 1000, "s");
-  bind("sAbsentHold", "vAbsentHold", "ABSENT_HOLD_MS", 1000, "s");
-  bind("sSecondHold", "vSecondHold", "SECOND_HOLD_MS", 1000, "s");
+
+  // ── guided capture: press, move, it records the peak — no live reading needed ──
+  const caps = () => [$("recNormal"), $("recAway")];
+  const runCapture = (which, btn, prompt) => {
+    if (state.rec) return;
+    const orig = btn.dataset.label || btn.textContent; btn.dataset.label = orig;
+    caps().forEach(b => b && (b.disabled = true));
+    $("tSuggest").classList.remove("hidden"); $("tSuggest").innerHTML = prompt;
+    let left = 5; btn.textContent = "Recording… " + left + "s";
+    const iv = setInterval(() => { left--; if (left > 0) btn.textContent = "Recording… " + left + "s"; }, 1000);
+    state.rec = { kind: "eye", max: 0, until: performance.now() + 5000, done: (max) => {
+      clearInterval(iv); btn.textContent = orig; caps().forEach(b => b && (b.disabled = false));
+      capt[which] = max; showSuggest();
+    } };
+  };
+  const showSuggest = () => {
+    const el = $("tSuggest"); el.classList.remove("hidden");
+    const n = capt.normal, a = capt.away;
+    let msg = "";
+    if (n != null) msg += "Normal peak <b>" + n.toFixed(3) + "</b>. ";
+    if (a != null) msg += "Away peak <b>" + a.toFixed(3) + "</b>.";
+    if (n != null && a != null) {
+      let r = a > n ? n + 0.45 * (a - n) : n * 1.6;
+      r = Math.max(0.05, Math.min(0.35, Math.round(r * 100) / 100));
+      el.innerHTML = msg + '<br>Suggested eye radius <b>' + r.toFixed(2) +
+        '</b> <button class="btn ink sm" id="applySug" type="button" style="margin-left:6px">Apply</button>';
+      $("applySug").onclick = () => { CFG.GAZE_RADIUS = r; const s = $("sGaze"); if (s) s.value = r; $("vGaze").textContent = r.toFixed(2); saveCfg();
+        el.innerHTML += ' <span style="color:var(--ok);font-weight:600">applied ✓</span>'; };
+    } else { el.innerHTML = msg + '<br><span style="color:var(--faint)">Record both to get a suggested radius.</span>'; }
+  };
+  $("recNormal").onclick = () => runCapture("normal", $("recNormal"), "Look at your screen and read normally…");
+  $("recAway").onclick = () => runCapture("away", $("recAway"), "Now glance away — sides, down, around…");
+
   $("tCopy").onclick = async () => {
     const out = {}; TUNE_KEYS.forEach(k => out[k] = CFG[k]);
     try { await navigator.clipboard.writeText(JSON.stringify(out));
@@ -186,13 +228,15 @@ function doCalib(mx, now) {
     state.calibSamples.push(mx.noseGap);
     if (mx.gazeX != null) state.calibGX.push(mx.gazeX);
     if (mx.gazeY != null) state.calibGY.push(mx.gazeY);
+    if (mx.openness != null) state.calibOpen.push(mx.openness);
   }
   $("calibBar").style.width = Math.min(100, ((now - state.calibStart) / CFG.CALIB_MS) * 100) + "%";
   if (now - state.calibStart >= CFG.CALIB_MS) {
-    if (state.calibSamples.length < 5) { $("calibMsg").textContent = "Make sure your face is centred and well lit…"; state.calibStart = now; state.calibSamples = []; state.calibGX = []; state.calibGY = []; return; }
+    if (state.calibSamples.length < 5) { $("calibMsg").textContent = "Make sure your face is centred and well lit…"; state.calibStart = now; state.calibSamples = []; state.calibGX = []; state.calibGY = []; state.calibOpen = []; return; }
     state.baseline = median(state.calibSamples);
     state.baseGazeX = median(state.calibGX);
     state.baseGazeY = median(state.calibGY);
+    state.baseOpen = median(state.calibOpen);
     startMonitoring(now);
   }
 }
@@ -260,7 +304,7 @@ async function begin() {
       runningMode: "VIDEO", numFaces: 2, outputFacialTransformationMatrixes: true,
     });
   } catch (e) { return fail("Could not load the monitoring model. Check your connection and reload."); }
-  state.mode = "calib"; state.calibSamples = []; state.calibGX = []; state.calibGY = []; state.calibStart = performance.now(); state.running = true;
+  state.mode = "calib"; state.calibSamples = []; state.calibGX = []; state.calibGY = []; state.calibOpen = []; state.calibStart = performance.now(); state.running = true;
   requestAnimationFrame(loop);
 }
 function fail(msg) { state.running = false; $("errMsg").textContent = msg; show("s-error"); }

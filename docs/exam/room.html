@@ -28,7 +28,15 @@
     .leave{display:block;text-align:center;color:var(--muted);font-size:13px;margin-top:16px;font-weight:600}
     /* live tuning panel (open the room URL with &debug) */
     .tune{margin-top:14px;border-top:1px solid var(--line);padding-top:12px}
-    .tRead{font:11.5px/1.6 ui-monospace,Menlo,monospace;color:var(--ink-2);white-space:pre;background:var(--soft);border-radius:8px;padding:8px 10px;margin-bottom:12px}
+    .tBig{display:flex;gap:10px;margin-bottom:12px}
+    .tMetric{flex:1;background:var(--soft);border-radius:10px;padding:10px 12px}
+    .tMetric .tl{font-size:10.5px;font-weight:700;letter-spacing:.08em;color:var(--faint)}
+    .tMetric .tv{display:block;font:700 26px var(--display,inherit);line-height:1.1;font-variant-numeric:tabular-nums;margin:2px 0}
+    .tMetric .tp{font-size:11px;color:var(--muted)} .tMetric .tp b{color:var(--ink);font-weight:700;font-variant-numeric:tabular-nums}
+    .tflag{display:block;font-size:11px;font-weight:700;color:var(--faint);min-height:14px;margin-top:2px} .tflag.on{color:var(--warn)}
+    .tCap{display:flex;gap:8px;margin-bottom:10px}
+    .tCap .btn{flex:1;font-size:12px}
+    .tSuggest{font-size:12px;color:var(--muted);background:var(--soft);border-radius:8px;padding:9px 11px;margin-bottom:12px;line-height:1.5} .tSuggest b{color:var(--ink)}
     .tr{display:block;font-size:12px;color:var(--muted);margin-bottom:10px}
     .tr>span{font-size:11px;color:var(--faint);margin-left:6px} .tr b{color:var(--ink);font-weight:700}
     .tr input[type=range]{width:100%;margin-top:4px;accent-color:var(--ink)}
@@ -57,14 +65,19 @@
           <div class="row"><span class="k">Monitor</span><span class="v ok" id="rState">Looking at screen</span></div>
         </div>
         <div class="tune hidden" id="tune">
-          <div class="tRead" id="tRead">reading…</div>
-          <label class="tr">Looking-away sensitivity<span><b id="vGaze"></b> · lower = catches smaller eye movements</span><input type="range" id="sGaze" min="0.05" max="0.30" step="0.01"></label>
-          <label class="tr">Looking-away hold<span><b id="vGazeHold"></b></span><input type="range" id="sGazeHold" min="0.5" max="5" step="0.25"></label>
-          <label class="tr">Eyes-down sensitivity<span><b id="vEyeDown"></b> · lower = catches smaller downward glances</span><input type="range" id="sEyeDown" min="0.08" max="0.40" step="0.01"></label>
+          <div class="tBig">
+            <div class="tMetric"><span class="tl">EYES</span><span class="tv" id="eyeNow">—</span><span class="tp">peak <b id="eyePeak">—</b> · limit <b id="eyeLimit">—</b></span><span class="tflag" id="eyeFlag"></span></div>
+            <div class="tMetric"><span class="tl">HEAD</span><span class="tv" id="headNow">—</span><span class="tp">peak <b id="headPeak">—</b> · limit <b id="headLimit">—</b></span><span class="tflag" id="headFlag"></span></div>
+          </div>
+          <div class="tCap">
+            <button class="btn ghost sm" id="recNormal" type="button">Record “at screen” (5s)</button>
+            <button class="btn ghost sm" id="recAway" type="button">Record “glancing away” (5s)</button>
+          </div>
+          <div class="tSuggest" id="tSuggest">Tip: hit a Record button, do the movement for 5s, and it captures the peak for you — no need to watch the numbers live.</div>
+          <label class="tr">Eye radius — how far your eyes may drift<span><b id="vGaze"></b> · lower = stricter</span><input type="range" id="sGaze" min="0.04" max="0.35" step="0.01"></label>
+          <label class="tr">Eye hold before flagging<span><b id="vGazeHold"></b></span><input type="range" id="sGazeHold" min="0.3" max="4" step="0.1"></label>
           <label class="tr">Head-down sensitivity<span><b id="vHeadEnter"></b> · lower = more sensitive</span><input type="range" id="sHeadEnter" min="0.05" max="0.30" step="0.01"></label>
-          <label class="tr">Down hold (head &amp; eyes)<span><b id="vHeadHold"></b></span><input type="range" id="sHeadHold" min="2" max="15" step="0.5"></label>
-          <label class="tr">Face-absent hold<span><b id="vAbsentHold"></b></span><input type="range" id="sAbsentHold" min="2" max="10" step="0.5"></label>
-          <label class="tr">Second-face hold<span><b id="vSecondHold"></b></span><input type="range" id="sSecondHold" min="0.5" max="5" step="0.25"></label>
+          <label class="tr">Head-down hold<span><b id="vHeadHold"></b></span><input type="range" id="sHeadHold" min="2" max="15" step="0.5"></label>
           <div class="tRow"><button class="btn ghost sm" id="tCopy" type="button">Copy settings</button><button class="btn ghost sm" id="tReset" type="button">Reset</button></div>
         </div>
         <div style="display:flex;gap:18px;justify-content:center;margin-top:16px">
