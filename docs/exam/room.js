@@ -1,6 +1,6 @@
 // Vigil Exams · student monitor — MediaPipe runs entirely on this device.
 // Video/frames NEVER leave the laptop; only tiny events + presence go to Supabase.
-import { sb } from "/exam/sb.js";
+import { sb, SUPABASE_URL, SUPABASE_ANON } from "/exam/sb.js";
 import { FaceLandmarker, FilesetResolver } from "/vendor/mediapipe/vision_bundle.mjs";
 
 const CFG = {
@@ -41,6 +41,7 @@ const state = {
   calibSamples: [], calibGX: [], calibGY: [], calibOpen: [], calibStart: 0,
   startedAt: 0, title: "Exam", lastStatus: "ok", lastStatusAt: 0,
   offNow: null, dropNow: null, offPeak: 0, dropPeak: 0, rec: null,   // rec = live capture for the debug panel
+  token: null, calibRetries: 0, suspiciousCam: false,
 };
 const capt = { normal: null, away: null };   // captured peaks used to auto-suggest the eye radius
 
@@ -241,6 +242,17 @@ function doCalib(mx, now) {
     state.baseGazeX = median(state.calibGX);
     state.baseGazeY = median(state.calibGY);
     state.baseOpen = median(state.calibOpen);
+    // anti-gaming: don't let a student calibrate while looking at notes off to the side —
+    // that would make "off-screen" read as neutral. Require eyes roughly centred, a few tries.
+    if (state.baseGazeX != null && state.calibRetries < 3) {
+      const gxOff = Math.abs(state.baseGazeX - 0.5), gyOff = Math.abs(state.baseGazeY - 0.5);
+      if (gxOff > 0.20 || gyOff > 0.25) {
+        state.calibRetries++;
+        $("calibMsg").textContent = "Look straight at your screen so setup is accurate…";
+        state.calibStart = now; state.calibSamples = []; state.calibGX = []; state.calibGY = []; state.calibOpen = [];
+        return;
+      }
+    }
     startMonitoring(now);
   }
 }
@@ -257,12 +269,53 @@ function loop() {
   if (state.mode === "calib") doCalib(mx, now); else if (state.mode === "monitor") doMonitor(mx, now);
 }
 
+// ── Integrity: Vigil runs BESIDE the exam, so hiding/closing it is itself a flag ──
+// (a background tab freezes detection, so a cheater who hides Vigil is caught by this)
+let hiddenSince = 0, lastHiddenEmit = 0;
+function onVisibility() {
+  if (state.mode !== "monitor" && state.mode !== "calib") return;
+  if (document.hidden) { hiddenSince = Date.now(); }
+  else if (hiddenSince) {
+    const secs = Math.round((Date.now() - hiddenSince) / 1000); hiddenSince = 0;
+    if (secs >= 2 && state.mode === "monitor" && Date.now() - lastHiddenEmit > 3000) {
+      lastHiddenEmit = Date.now();
+      emit("monitor_hidden", "alert");
+      showWarn(`Vigil was hidden for ${secs}s — that was recorded. Keep this window visible beside your exam.`);
+    }
+  }
+}
+function beaconEvent(kind, severity) {   // best-effort write that survives the page unloading
+  if (!part || !state.token) return;
+  try {
+    fetch(SUPABASE_URL + "/rest/v1/events", {
+      method: "POST", keepalive: true,
+      headers: { "Content-Type": "application/json", apikey: SUPABASE_ANON, Authorization: "Bearer " + state.token },
+      body: JSON.stringify({ exam_id: examId, participant_id: part.id, kind, severity }),
+    });
+  } catch (e) {}
+}
+function onPageHide() { if (state.mode === "monitor") beaconEvent("left_exam", "alert"); }
+function setupIntegrity() {
+  document.addEventListener("visibilitychange", onVisibility);
+  window.addEventListener("pagehide", onPageHide);
+  const wx = $("warnX"); if (wx) wx.onclick = () => $("warnBanner").classList.add("hidden");
+}
+let warnTimer = 0;
+function showWarn(msg) {
+  const b = $("warnBanner"); if (!b) return;
+  $("warnText").textContent = msg; b.classList.remove("hidden");
+  clearTimeout(warnTimer); warnTimer = setTimeout(() => b.classList.add("hidden"), 8000);
+}
+async function cacheToken() { try { const { data } = await sb.auth.getSession(); if (data.session) state.token = data.session.access_token; } catch (e) {} }
+
 function startMonitoring(now) {
   state.mode = "monitor"; state.startedAt = now;
   $("monVid").srcObject = state.stream; $("monVid").play().catch(() => {});
   $("mTitle").textContent = state.title;
   show("s-monitor");
   pushStatus("ok", true);
+  cacheToken();
+  if (state.suspiciousCam) emit("virtual_cam", "alert");
   state.hbTimer = setInterval(() => {
     const track = state.stream && state.stream.getVideoTracks()[0];
     const camOn = track && track.readyState === "live" && track.enabled;
@@ -273,6 +326,7 @@ function startMonitoring(now) {
       if (sig.cam.off) { sig.cam.off = false; $("monTag").textContent = "🟢 Camera active · nothing is uploaded"; }
       pushStatus(state.lastStatus, true);   // refresh last_seen
     }
+    cacheToken();   // keep the unload-beacon token fresh across a long exam
   }, CFG.HEARTBEAT_MS);
   const track = state.stream.getVideoTracks()[0];
   if (track) track.addEventListener("ended", () => { $("monTag").textContent = "🔴 Camera stopped"; if (!sig.cam.off) { emit("camera_off", "alert"); sig.cam.off = true; } });
@@ -298,6 +352,11 @@ async function begin() {
   try {
     state.stream = await navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: "user" }, audio: false });
   } catch { return fail("Vigil needs your camera to monitor this exam. Please allow camera access and reload."); }
+  // flag obvious virtual / fake cameras (OBS etc.) feeding a looped "looking at screen" video
+  try {
+    const lbl = ((state.stream.getVideoTracks()[0] || {}).label || "").toLowerCase();
+    if (/obs|virtual|manycam|snap camera|droidcam|epoccam|xsplit|fake/.test(lbl)) state.suspiciousCam = true;
+  } catch (e) {}
   const video = $("calibVid"); video.srcObject = state.stream; state.video = video;
   await video.play().catch(() => {});
   await new Promise((r) => (video.readyState >= 2 ? r() : video.addEventListener("loadeddata", r, { once: true })));
@@ -308,7 +367,7 @@ async function begin() {
       runningMode: "VIDEO", numFaces: 2, outputFacialTransformationMatrixes: true,
     });
   } catch (e) { return fail("Could not load the monitoring model. Check your connection and reload."); }
-  state.mode = "calib"; state.calibSamples = []; state.calibGX = []; state.calibGY = []; state.calibOpen = []; state.calibStart = performance.now(); state.running = true;
+  state.mode = "calib"; state.calibSamples = []; state.calibGX = []; state.calibGY = []; state.calibOpen = []; state.calibRetries = 0; state.calibStart = performance.now(); state.running = true;
   requestAnimationFrame(loop);
 }
 function fail(msg) { state.running = false; $("errMsg").textContent = msg; show("s-error"); }
@@ -335,5 +394,6 @@ function fail(msg) { state.running = false; $("errMsg").textContent = msg; show(
   const already = exam && exam.status === "closed";
   if (already) { show("s-ended"); return; }
   if (debugOn) wireTune();
+  setupIntegrity();
   begin();
 })();

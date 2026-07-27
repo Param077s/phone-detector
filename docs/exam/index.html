@@ -170,10 +170,18 @@
       if (!name) { err.textContent = "Enter your name."; $("sname").focus(); return; }
       joining = true; $("joinBtn").disabled = true;
       try {
-        let { data:{ user } } = await sb.auth.getUser();
-        if (!user) { const r = await sb.auth.signInAnonymously(); if (r.error) throw r.error; user = r.data.user; }
         const exam = await resolveExam(code);
         if (!exam) { err.textContent = "No open exam with that code."; joining = false; $("joinBtn").disabled = false; return; }
+        let { data:{ user } } = await sb.auth.getUser();
+        const signedIn = user && !user.is_anonymous && user.email;
+        // teacher can require sign-in per exam (v5). Guests can't reset flags with a fresh identity.
+        if (exam.require_signin && !signedIn) {
+          err.textContent = "This exam requires signing in with Google.";
+          $("sWho").classList.add("hidden"); $("joinBtn").style.display = "none";
+          $("sGoogle").style.display = ""; $("guestOr").style.display = "none"; $("guestJoin").style.display = "none";
+          joining = false; $("joinBtn").disabled = false; return;
+        }
+        if (!user) { const r = await sb.auth.signInAnonymously(); if (r.error) throw r.error; user = r.data.user; }
         // idempotent: same (exam, user) updates the same row — no duplicate on re-login
         const { error:e2 } = await sb.from("participants")
           .upsert({ exam_id: exam.id, user_id: user.id, name, status: "ok", last_seen: new Date().toISOString() },

@@ -26,6 +26,12 @@
     .row .k{color:var(--muted)} .row .v{font-weight:600}
     .v.ok{color:var(--ok)} .v.warn{color:var(--warn)} .v.alert{color:var(--alert)}
     .leave{display:block;text-align:center;color:var(--muted);font-size:13px;margin-top:16px;font-weight:600}
+    .warnBanner{display:flex;align-items:center;gap:9px;background:var(--alert-soft);border:1px solid #f3c9ca;color:var(--alert);
+      border-radius:var(--r-sm);padding:10px 12px;margin-bottom:12px;font-size:13px;font-weight:600;line-height:1.4}
+    .warnBanner .wi{font-size:15px} .warnBanner .wx{margin-left:auto;background:none;border:0;color:var(--alert);cursor:pointer;font-size:13px;opacity:.7}
+    .warnBanner .wx:hover{opacity:1}
+    .keepnote{font-size:12px;color:var(--muted);background:var(--soft);border-radius:8px;padding:9px 11px;margin-top:12px;line-height:1.45}
+    .keepnote b{color:var(--ink)}
     /* live tuning panel (open the room URL with &debug) */
     .tune{margin-top:14px;border-top:1px solid var(--line);padding-top:12px}
     .tBig{display:flex;gap:10px;margin-bottom:12px}
@@ -58,8 +64,10 @@
 
       <!-- monitor -->
       <section id="s-monitor" class="hidden">
+        <div class="warnBanner hidden" id="warnBanner"><span class="wi">⚠</span><span id="warnText"></span><button class="wx" id="warnX" type="button" aria-label="Dismiss">✕</button></div>
         <div class="status-lg"><span class="dot ok" id="mDot"></span><div><div class="t" id="mTitle">Exam</div><div class="s" id="mSub">Monitored · you may begin</div></div></div>
         <div class="preview"><video id="monVid" playsinline muted></video><span class="tag" id="monTag">🟢 Camera active · nothing is uploaded</span></div>
+        <div class="keepnote">Keep this window <b>visible</b> beside your exam. Hiding, minimising, or closing it is recorded for your teacher.</div>
         <div class="rows">
           <div class="row"><span class="k">You</span><span class="v" id="yourName">—</span></div>
           <div class="row"><span class="k">Monitor</span><span class="v ok" id="rState">Looking at screen</span></div>

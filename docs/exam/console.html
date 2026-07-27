@@ -14,6 +14,8 @@
     .create{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:22px;box-shadow:var(--shadow-sm);margin-bottom:26px}
     .create h1{font-size:20px;margin-bottom:4px} .create p{color:var(--muted);font-size:13.5px;margin-bottom:16px}
     .create .row{display:flex;gap:10px;flex-wrap:wrap} .create .input{flex:1;min-width:200px}
+    .reqrow{display:flex;align-items:center;gap:9px;margin-top:14px;font-size:13px;color:var(--muted);cursor:pointer}
+    .reqrow input{width:16px;height:16px;accent-color:var(--ink)} .reqrow b{color:var(--ink);font-weight:600}
     .head2{display:flex;align-items:baseline;gap:10px;margin:0 2px 14px} .head2 h2{font-size:15px} .head2 .n{color:var(--faint);font-size:13px}
     .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px}
     .exam{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:18px;box-shadow:var(--shadow-sm);display:flex;flex-direction:column;gap:12px}
@@ -55,6 +57,7 @@
         <input class="input" id="title" placeholder="e.g. Physics · Period 3" maxlength="120">
         <button class="btn ink" id="createBtn">Create exam</button>
       </div>
+      <label class="reqrow"><input type="checkbox" id="reqSignin"> <span>Require students to <b>sign in</b> (no guest joins) — recommended for real exams</span></label>
     </div>
 
     <div class="head2"><h2>Your exams</h2><span class="n" id="count"></span></div>
@@ -103,12 +106,15 @@
 
     $("createBtn").onclick = async () => {
       const btn=$("createBtn"), title=$("title").value.trim() || "Exam";
+      const requireSignin = $("reqSignin").checked;
       btn.disabled = true;
       try {
         const code = await newCode();
-        const { error } = await sb.from("exams").insert({ code, title, owner: me.id, status: "open" });
+        const { data, error } = await sb.from("exams").insert({ code, title, owner: me.id, status: "open" }).select("id").maybeSingle();
         if (error) throw error;
-        $("title").value = ""; toast("Exam created · code " + code); await refresh();
+        // set the flag separately so creation still works before the v5 migration is applied
+        if (requireSignin && data) { try { await sb.from("exams").update({ require_signin: true }).eq("id", data.id); } catch (e) {} }
+        $("title").value = ""; $("reqSignin").checked = false; toast("Exam created · code " + code); await refresh();
       } catch (ex) { toast(ex.message || "Couldn't create exam"); }
       btn.disabled = false;
     };

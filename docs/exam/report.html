@@ -85,8 +85,8 @@
     import { sb, esc } from "/exam/sb.js";
     const $ = id => document.getElementById(id);
     const examId = new URLSearchParams(location.search).get("e");
-    const LABELS = { head_down:"Looked down", look_away:"Looked away", face_absent:"Face not visible", second_face:"Second face detected", camera_off:"Camera off", calibrated:"Calibrated" };
-    const ALERT_KINDS = new Set(["second_face","camera_off"]);
+    const LABELS = { head_down:"Looked down", look_away:"Looked away", face_absent:"Face not visible", second_face:"Second face detected", camera_off:"Camera off", monitor_hidden:"Hid / left Vigil", left_exam:"Closed Vigil", virtual_cam:"Virtual camera", calibrated:"Calibrated" };
+    const ALERT_KINDS = new Set(["second_face","camera_off","monitor_hidden","left_exam","virtual_cam"]);
     const CAP = 8;   // events shown before a timeline collapses the rest
     const fmt = (iso) => { const d = new Date(iso); return d.toLocaleTimeString([], {hour:"2-digit",minute:"2-digit",second:"2-digit"}); };
 
