@@ -14,8 +14,13 @@ const CFG = {
   ABSENT_HOLD_MS: 5000, SECOND_HOLD_MS: 1500, SECOND_COOLDOWN_MS: 15000,
   HEARTBEAT_MS: 6000, STATUS_MIN_MS: 1500,
 };
-// live-tunable overrides saved from the ?debug tuning panel
-try { Object.assign(CFG, JSON.parse(localStorage.getItem("vg_cfg") || "{}")); } catch (e) {}
+// Debug tuning + saved overrides are for the TEACHER previewing their own room only.
+// A real student must never be able to loosen or disable detection, so these are
+// stashed here and applied ONLY after we confirm the viewer owns the exam (see boot).
+let pendingCfg = null;
+try { pendingCfg = JSON.parse(localStorage.getItem("vg_cfg") || "null"); } catch (e) {}
+const DEBUG_REQUESTED = /(?:^|[?#&])debug/.test(location.search + location.hash);
+let debugOn = false;   // becomes true only for the exam owner
 let lastMx = { faces: 0, noseGap: null, gazeX: null, gazeY: null };
 // canonical face-mesh indices
 const NOSE_TIP = 1, EYE_L = 33, EYE_R = 263;
@@ -25,7 +30,6 @@ const RE_OUT = 33, RE_IN = 133, LE_IN = 362, LE_OUT = 263;
 const RE_TOP = 159, RE_BOT = 145, LE_TOP = 386, LE_BOT = 374;
 // iris centres (present only on the 478-landmark model)
 const IRIS_R = 468, IRIS_L = 473;
-const DEBUG = /(?:^|[?#&])debug/.test(location.search + location.hash);
 const $ = (id) => document.getElementById(id);
 const show = (id) => ["s-calib","s-monitor","s-error","s-ended"].forEach(s => $(s).classList.toggle("hidden", s !== id));
 
@@ -143,7 +147,7 @@ function paintStatus(mx, now) {
   $("mSub").textContent = `Monitored · ${String(Math.floor(secs/60)).padStart(2,"0")}:${String(secs%60).padStart(2,"0")}`;
   pushStatus(cls, false);   // keep the teacher's tile in sync (throttled)
   lastMx = mx;
-  if (DEBUG) updateReadout();
+  if (debugOn) updateReadout();
 }
 
 // ── Live tuning (open the room with &debug) ──────────────────────────────────
@@ -314,8 +318,13 @@ function fail(msg) { state.running = false; $("errMsg").textContent = msg; show(
   const { data:{ user: u } } = await sb.auth.getUser();
   if (!u || !examId) { location.replace("/exam/"); return; }
   user = u;
-  const { data: exam } = await sb.from("exams").select("title,status").eq("id", examId).maybeSingle();
+  const { data: exam } = await sb.from("exams").select("title,status,owner").eq("id", examId).maybeSingle();
   if (exam) state.title = exam.title;
+  // Only the exam's OWNER (a teacher previewing) may use debug + saved overrides.
+  // For everyone else the baked-in defaults are enforced — a student can't loosen them.
+  const isOwner = !!exam && exam.owner === u.id;
+  if (isOwner && pendingCfg && typeof pendingCfg === "object") Object.assign(CFG, pendingCfg);
+  debugOn = isOwner && DEBUG_REQUESTED;
   const { data: p } = await sb.from("participants").select("id,name").eq("exam_id", examId).eq("user_id", u.id).maybeSingle();
   if (!p) { location.replace("/exam/"); return; }
   part = p; $("yourName") && ($("yourName").textContent = p.name);
@@ -325,6 +334,6 @@ function fail(msg) { state.running = false; $("errMsg").textContent = msg; show(
   // if the teacher already closed the exam before this student opened the room
   const already = exam && exam.status === "closed";
   if (already) { show("s-ended"); return; }
-  if (DEBUG) wireTune();
+  if (debugOn) wireTune();
   begin();
 })();
