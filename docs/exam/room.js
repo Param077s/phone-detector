@@ -1,7 +1,7 @@
 // Vigil Exams · student monitor — MediaPipe runs entirely on this device.
 // Video/frames NEVER leave the laptop; only tiny events + presence go to Supabase.
 import { sb, SUPABASE_URL, SUPABASE_ANON } from "/exam/sb.js";
-import { FaceLandmarker, FilesetResolver } from "/vendor/mediapipe/vision_bundle.mjs";
+import { FaceLandmarker, ObjectDetector, FilesetResolver } from "/vendor/mediapipe/vision_bundle.mjs";
 
 const CFG = {
   DETECT_MS: 90, CALIB_MS: 4500,
@@ -10,6 +10,8 @@ const CFG = {
   // Eyes drift OUTSIDE the allowed circle around where they calibrated — any direction
   GAZE_RADIUS: 0.14, GAZE_HOLD_MS: 1200,
   BLINK_RATIO: 0.55,   // eye-openness below this fraction of the calibrated open = blink → ignore gaze
+  // Phone (object detection — heavier, so it runs on a slower cadence)
+  PHONE_MS: 700, PHONE_SCORE: 0.45, PHONE_HOLD_MS: 700, PHONE_COOLDOWN_MS: 15000,
   // Presence
   ABSENT_HOLD_MS: 5000, SECOND_HOLD_MS: 1500, SECOND_COOLDOWN_MS: 15000,
   HEARTBEAT_MS: 6000, STATUS_MIN_MS: 1500,
@@ -36,8 +38,8 @@ const show = (id) => ["s-calib","s-monitor","s-error","s-ended"].forEach(s => $(
 const examId = new URLSearchParams(location.search).get("e");
 let user = null, part = null;   // part = { id, name }
 const state = {
-  stream: null, landmarker: null, video: null, mode: null, running: false,
-  lastDetect: 0, lastTs: 0, baseline: null, baseGazeX: null, baseGazeY: null, baseOpen: null,
+  stream: null, landmarker: null, phoneDetector: null, video: null, mode: null, running: false,
+  lastDetect: 0, lastTs: 0, lastPhoneDetect: 0, lastTsPhone: 0, baseline: null, baseGazeX: null, baseGazeY: null, baseOpen: null,
   calibSamples: [], calibGX: [], calibGY: [], calibOpen: [], calibStart: 0,
   startedAt: 0, title: "Exam", lastStatus: "ok", lastStatusAt: 0,
   offNow: null, dropNow: null, offPeak: 0, dropPeak: 0, rec: null,   // rec = live capture for the debug panel
@@ -95,6 +97,7 @@ const sig = {
   second: { since: null, lastFired: 0 },
   away: { since: null, fired: false },
   cam: { off: false },   // one camera_off event per off-episode, not one per heartbeat
+  phone: { since: null, lastFired: 0 },
 };
 
 function doMonitor(mx, now) {
@@ -267,6 +270,28 @@ function loop() {
   let res; try { res = state.landmarker.detectForVideo(state.video, ts); } catch { return; }
   const mx = metrics(res);
   if (state.mode === "calib") doCalib(mx, now); else if (state.mode === "monitor") doMonitor(mx, now);
+  // phone / object detection on its own slower cadence (heavier than face landmarks)
+  if (state.mode === "monitor" && state.phoneDetector && now - state.lastPhoneDetect >= CFG.PHONE_MS) {
+    state.lastPhoneDetect = now;
+    detectPhone(now);
+  }
+}
+
+function detectPhone(now) {
+  let ts = now; if (ts <= state.lastTsPhone) ts = state.lastTsPhone + 1; state.lastTsPhone = ts;
+  let res; try { res = state.phoneDetector.detectForVideo(state.video, ts); } catch { return; }
+  let seen = false;
+  for (const d of (res.detections || [])) {
+    const c = d.categories && d.categories[0];
+    if (c && /phone/i.test(c.categoryName || "") && c.score >= CFG.PHONE_SCORE) { seen = true; break; }
+  }
+  if (seen) {
+    if (!sig.phone.since) sig.phone.since = now;
+    if (now - sig.phone.since > CFG.PHONE_HOLD_MS && now - sig.phone.lastFired > CFG.PHONE_COOLDOWN_MS) {
+      emit("phone", "alert"); sig.phone.lastFired = now;
+      showWarn && showWarn("A phone was detected in view — that was recorded.");
+    }
+  } else { sig.phone.since = null; }
 }
 
 // ── Integrity: Vigil runs BESIDE the exam, so hiding/closing it is itself a flag ──
@@ -366,6 +391,13 @@ async function begin() {
       baseOptions: { modelAssetPath: "/vendor/mediapipe/face_landmarker.task" },
       runningMode: "VIDEO", numFaces: 2, outputFacialTransformationMatrixes: true,
     });
+    // phone/object detector — best-effort: if it fails to load, face monitoring still runs
+    try {
+      state.phoneDetector = await ObjectDetector.createFromOptions(fileset, {
+        baseOptions: { modelAssetPath: "/vendor/mediapipe/efficientdet_lite0.tflite" },
+        runningMode: "VIDEO", scoreThreshold: CFG.PHONE_SCORE, maxResults: 5,
+      });
+    } catch (e) { state.phoneDetector = null; }
   } catch (e) { return fail("Could not load the monitoring model. Check your connection and reload."); }
   state.mode = "calib"; state.calibSamples = []; state.calibGX = []; state.calibGY = []; state.calibOpen = []; state.calibRetries = 0; state.calibStart = performance.now(); state.running = true;
   requestAnimationFrame(loop);
