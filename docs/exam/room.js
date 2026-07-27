@@ -9,6 +9,9 @@ const CFG = {
   ABSENT_HOLD_MS: 5000, SECOND_HOLD_MS: 1500, SECOND_COOLDOWN_MS: 15000,
   HEARTBEAT_MS: 6000, STATUS_MIN_MS: 1500,
 };
+// live-tunable overrides saved from the ?debug tuning panel
+try { Object.assign(CFG, JSON.parse(localStorage.getItem("vg_cfg") || "{}")); } catch (e) {}
+let lastMx = { faces: 0, noseGap: null };
 const NOSE_TIP = 1, EYE_L = 33, EYE_R = 263;
 const DEBUG = /(?:^|[?#&])debug/.test(location.search + location.hash);
 const $ = (id) => document.getElementById(id);
@@ -82,8 +85,41 @@ function paintStatus(mx, now) {
   const secs = Math.floor((now - state.startedAt) / 1000);
   $("mSub").textContent = `Monitored · ${String(Math.floor(secs/60)).padStart(2,"0")}:${String(secs%60).padStart(2,"0")}`;
   pushStatus(cls, false);   // keep the teacher's tile in sync (throttled)
-  if (DEBUG) { const d = $("debug"); d.classList.remove("hidden");
-    d.textContent = `faces=${mx.faces} gap=${mx.noseGap?.toFixed(3) ?? "—"} base=${state.baseline?.toFixed(3) ?? "—"} head=${sig.head.fired?"DOWN":"ok"}`; }
+  lastMx = mx;
+  if (DEBUG) updateReadout();
+}
+
+// ── Live tuning (open the room with &debug) ──────────────────────────────────
+function updateReadout() {
+  const d = $("tRead"); if (!d) return;
+  const drop = (state.baseline != null && lastMx.noseGap != null) ? (state.baseline - lastMx.noseGap) : null;
+  d.textContent =
+    `faces ${lastMx.faces}   noseGap ${lastMx.noseGap?.toFixed(3) ?? "—"}   base ${state.baseline?.toFixed(3) ?? "—"}\n` +
+    `drop ${drop != null ? drop.toFixed(3) : "—"}  vs enter ${CFG.HEAD_ENTER.toFixed(2)}   head ${sig.head.fired ? "● DOWN" : "ok"}`;
+}
+function saveCfg() {
+  localStorage.setItem("vg_cfg", JSON.stringify({
+    HEAD_ENTER: CFG.HEAD_ENTER, HEAD_HOLD_MS: CFG.HEAD_HOLD_MS,
+    ABSENT_HOLD_MS: CFG.ABSENT_HOLD_MS, SECOND_HOLD_MS: CFG.SECOND_HOLD_MS,
+  }));
+}
+function wireTune() {
+  const t = $("tune"); if (!t) return;
+  t.classList.remove("hidden");
+  const bind = (sId, vId, key, mul, unit) => {
+    const s = $(sId), v = $(vId); if (!s) return;
+    s.value = CFG[key] / mul; v.textContent = (CFG[key] / mul) + unit;
+    s.oninput = () => { CFG[key] = parseFloat(s.value) * mul; v.textContent = s.value + unit; saveCfg(); };
+  };
+  bind("sHeadEnter", "vHeadEnter", "HEAD_ENTER", 1, "");
+  bind("sHeadHold", "vHeadHold", "HEAD_HOLD_MS", 1000, "s");
+  bind("sAbsentHold", "vAbsentHold", "ABSENT_HOLD_MS", 1000, "s");
+  bind("sSecondHold", "vSecondHold", "SECOND_HOLD_MS", 1000, "s");
+  $("tCopy").onclick = async () => {
+    try { await navigator.clipboard.writeText(JSON.stringify({ HEAD_ENTER: CFG.HEAD_ENTER, HEAD_HOLD_MS: CFG.HEAD_HOLD_MS, ABSENT_HOLD_MS: CFG.ABSENT_HOLD_MS, SECOND_HOLD_MS: CFG.SECOND_HOLD_MS }));
+      $("tCopy").textContent = "Copied ✓"; setTimeout(() => $("tCopy").textContent = "Copy settings", 1500); } catch (_) {}
+  };
+  $("tReset").onclick = () => { localStorage.removeItem("vg_cfg"); location.reload(); };
 }
 
 function doCalib(mx, now) {
@@ -154,5 +190,6 @@ function fail(msg) { state.running = false; $("errMsg").textContent = msg; show(
   if (!p) { location.replace("/exam/"); return; }
   part = p; $("yourName") && ($("yourName").textContent = p.name);
   const al = $("activityLink"); if (al) al.href = "/exam/report.html?e=" + examId;
+  if (DEBUG) wireTune();
   begin();
 })();

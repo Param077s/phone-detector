@@ -25,8 +25,14 @@
     .row{display:flex;justify-content:space-between;padding:11px 2px;border-bottom:1px solid var(--line);font-size:14px}
     .row .k{color:var(--muted)} .row .v{font-weight:600}
     .v.ok{color:var(--ok)} .v.warn{color:var(--warn)} .v.alert{color:var(--alert)}
-    .debug{margin-top:12px;font:11.5px/1.6 ui-monospace,Menlo,monospace;color:var(--faint);white-space:pre}
     .leave{display:block;text-align:center;color:var(--muted);font-size:13px;margin-top:16px;font-weight:600}
+    /* live tuning panel (open the room URL with &debug) */
+    .tune{margin-top:14px;border-top:1px solid var(--line);padding-top:12px}
+    .tRead{font:11.5px/1.6 ui-monospace,Menlo,monospace;color:var(--ink-2);white-space:pre;background:var(--soft);border-radius:8px;padding:8px 10px;margin-bottom:12px}
+    .tr{display:block;font-size:12px;color:var(--muted);margin-bottom:10px}
+    .tr>span{font-size:11px;color:var(--faint);margin-left:6px} .tr b{color:var(--ink);font-weight:700}
+    .tr input[type=range]{width:100%;margin-top:4px;accent-color:var(--ink)}
+    .tRow{display:flex;gap:8px}
   </style>
 </head>
 <body>
@@ -50,7 +56,14 @@
           <div class="row"><span class="k">You</span><span class="v" id="yourName">—</span></div>
           <div class="row"><span class="k">Monitor</span><span class="v ok" id="rState">Looking at screen</span></div>
         </div>
-        <div class="debug hidden" id="debug"></div>
+        <div class="tune hidden" id="tune">
+          <div class="tRead" id="tRead">reading…</div>
+          <label class="tr">Head-down sensitivity<span><b id="vHeadEnter"></b> · lower = more sensitive</span><input type="range" id="sHeadEnter" min="0.05" max="0.30" step="0.01"></label>
+          <label class="tr">Head-down hold<span><b id="vHeadHold"></b></span><input type="range" id="sHeadHold" min="2" max="15" step="0.5"></label>
+          <label class="tr">Face-absent hold<span><b id="vAbsentHold"></b></span><input type="range" id="sAbsentHold" min="2" max="10" step="0.5"></label>
+          <label class="tr">Second-face hold<span><b id="vSecondHold"></b></span><input type="range" id="sSecondHold" min="0.5" max="5" step="0.25"></label>
+          <div class="tRow"><button class="btn ghost sm" id="tCopy" type="button">Copy settings</button><button class="btn ghost sm" id="tReset" type="button">Reset</button></div>
+        </div>
         <div style="display:flex;gap:18px;justify-content:center;margin-top:16px">
           <a class="leave" id="activityLink" style="margin:0">Your activity</a>
           <a class="leave" href="/exam/" style="margin:0">Leave exam</a>
