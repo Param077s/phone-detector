@@ -87,6 +87,7 @@
       const { data:{ user } } = await sb.auth.getUser();
       if (!user || user.is_anonymous || !user.email) { location.replace("/exam/"); return; }
       me = user;
+      localStorage.setItem("vg_role", "teacher");   // returning here lands on the console, not the picker
       $("who").innerHTML = "Signed in as <b>" + esc(user.email) + "</b>";
       refresh();
       setInterval(refresh, 5000);
@@ -126,9 +127,12 @@
         '<div class="code"><span class="big">'+esc(x.code)+'</span><span class="cp" data-share="'+esc(x.code)+'" data-title="'+esc(x.title)+'">Share ›</span></div>'+
         '<div class="stat" data-p="'+esc(x.id)+'"><div><b>—</b>joined</div></div>'+
         '<div class="acts">'+
-          '<a class="btn ink sm" href="/exam/live.html?e='+encodeURIComponent(x.id)+'">Live room</a>'+
-          '<a class="btn ghost sm" href="/exam/report.html?e='+encodeURIComponent(x.id)+'">Report</a>'+
-          (open?'<button class="btn ghost sm" data-close="'+esc(x.id)+'">Close</button>':'')+
+          (open
+            ? '<a class="btn ink sm" href="/exam/live.html?e='+encodeURIComponent(x.id)+'">Live room</a>'+
+              '<a class="btn ghost sm" href="/exam/report.html?e='+encodeURIComponent(x.id)+'">Report</a>'+
+              '<button class="btn ghost sm" data-close="'+esc(x.id)+'">Close</button>'
+            : '<a class="btn ink sm" href="/exam/live.html?e='+encodeURIComponent(x.id)+'">Who joined</a>'+
+              '<a class="btn ghost sm" href="/exam/report.html?e='+encodeURIComponent(x.id)+'">Report</a>')+
         '</div>';
       return el;
     }

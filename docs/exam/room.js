@@ -27,7 +27,7 @@ const RE_TOP = 159, RE_BOT = 145, LE_TOP = 386, LE_BOT = 374;
 const IRIS_R = 468, IRIS_L = 473;
 const DEBUG = /(?:^|[?#&])debug/.test(location.search + location.hash);
 const $ = (id) => document.getElementById(id);
-const show = (id) => ["s-calib","s-monitor","s-error"].forEach(s => $(s).classList.toggle("hidden", s !== id));
+const show = (id) => ["s-calib","s-monitor","s-error","s-ended"].forEach(s => $(s).classList.toggle("hidden", s !== id));
 
 const examId = new URLSearchParams(location.search).get("e");
 let user = null, part = null;   // part = { id, name }
@@ -85,6 +85,7 @@ const sig = {
   absent: { since: null, fired: false },
   second: { since: null, lastFired: 0 },
   away: { since: null, fired: false },
+  cam: { off: false },   // one camera_off event per off-episode, not one per heartbeat
 };
 
 function doMonitor(mx, now) {
@@ -214,14 +215,35 @@ function startMonitoring(now) {
   $("mTitle").textContent = state.title;
   show("s-monitor");
   pushStatus("ok", true);
-  setInterval(() => {
+  state.hbTimer = setInterval(() => {
     const track = state.stream && state.stream.getVideoTracks()[0];
     const camOn = track && track.readyState === "live" && track.enabled;
-    if (!camOn) { $("monTag").textContent = "🔴 Camera is off"; emit("camera_off", "alert"); }
-    else pushStatus(state.lastStatus, true);   // refresh last_seen
+    if (!camOn) {
+      $("monTag").textContent = "🔴 Camera is off";
+      if (!sig.cam.off) { emit("camera_off", "alert"); sig.cam.off = true; }   // fire once, not every beat
+    } else {
+      if (sig.cam.off) { sig.cam.off = false; $("monTag").textContent = "🟢 Camera active · nothing is uploaded"; }
+      pushStatus(state.lastStatus, true);   // refresh last_seen
+    }
   }, CFG.HEARTBEAT_MS);
   const track = state.stream.getVideoTracks()[0];
-  if (track) track.addEventListener("ended", () => { $("monTag").textContent = "🔴 Camera stopped"; emit("camera_off", "alert"); });
+  if (track) track.addEventListener("ended", () => { $("monTag").textContent = "🔴 Camera stopped"; if (!sig.cam.off) { emit("camera_off", "alert"); sig.cam.off = true; } });
+  state.closeTimer = setInterval(checkClosed, 12000);   // stop monitoring once the teacher ends the exam
+}
+
+async function checkClosed() {
+  try {
+    const { data } = await sb.from("exams").select("status").eq("id", examId).maybeSingle();
+    if (data && data.status === "closed") endExam();
+  } catch (e) {}
+}
+
+function endExam() {
+  if (state.mode === "ended") return;
+  state.mode = "ended"; state.running = false;
+  clearInterval(state.hbTimer); clearInterval(state.closeTimer);
+  try { state.stream && state.stream.getTracks().forEach(t => t.stop()); } catch (e) {}
+  show("s-ended");
 }
 
 async function begin() {
@@ -254,6 +276,10 @@ function fail(msg) { state.running = false; $("errMsg").textContent = msg; show(
   if (!p) { location.replace("/exam/"); return; }
   part = p; $("yourName") && ($("yourName").textContent = p.name);
   const al = $("activityLink"); if (al) al.href = "/exam/report.html?e=" + examId;
+  const ea = $("endedActivity"); if (ea) ea.href = "/exam/report.html?e=" + examId;
+  // if the teacher already closed the exam before this student opened the room
+  const already = exam && exam.status === "closed";
+  if (already) { show("s-ended"); return; }
   if (DEBUG) wireTune();
   begin();
 })();

@@ -48,19 +48,27 @@
     const $ = id => document.getElementById(id);
     const examId = new URLSearchParams(location.search).get("e");
     const state = new Map();   // participant id -> row
+    let CLOSED = false;        // a closed exam = static roster of who was in it
 
-    function fresh(row){ return (Date.now() - new Date(row.last_seen).getTime()) < 15000; }
+    function fresh(row){ if (CLOSED) return true; return (Date.now() - new Date(row.last_seen).getTime()) < 15000; }
     function tileClass(row){ if(!fresh(row)) return "offline"; return row.status || "ok"; }
-    function statusLabel(row){ if(!fresh(row)) return "Offline"; return {ok:"Present",warn:"Looking away",alert:"Needs attention"}[row.status] || "Present"; }
+    function statusLabel(row){
+      if(!fresh(row)) return "Offline";
+      if (CLOSED) return {ok:"No flags",warn:"Was flagged",alert:"Flagged"}[row.status] || "No flags";
+      return {ok:"Present",warn:"Looking away",alert:"Needs attention"}[row.status] || "Present";
+    }
 
     function render(){
       const rows = [...state.values()].sort((a,b)=> new Date(a.joined_at)-new Date(b.joined_at));
       const present = rows.filter(fresh).length;
       const flagged = rows.filter(r=>fresh(r) && (r.status==="warn"||r.status==="alert")).length;
-      $("cJoined").textContent = rows.length + " joined";
+      $("cJoined").textContent = rows.length + (CLOSED ? " were in this exam" : " joined");
+      $("cPresent").style.display = CLOSED ? "none" : "";
       $("cPresent").textContent = present + " present";
       const cf = $("cFlag"); cf.style.display = flagged ? "" : "none"; cf.textContent = flagged + " flagged";
-      if (!rows.length){ $("out").innerHTML = '<div class="empty"><div class="big">Waiting for students…</div>Share the code — names appear here the moment they join.</div>'; return; }
+      if (!rows.length){ $("out").innerHTML = CLOSED
+        ? '<div class="empty"><div class="big">No one joined this exam.</div></div>'
+        : '<div class="empty"><div class="big">Waiting for students…</div>Share the code — names appear here the moment they join.</div>'; return; }
       $("out").innerHTML = '<div class="grid">' + rows.map(r => {
         const c = tileClass(r);
         return '<div class="tile '+c+'"><div class="top"><span class="dot '+(c==="offline"?"":c)+'"></span><span class="name">'+esc(r.name)+'</span></div>'+
@@ -70,10 +78,14 @@
 
     (async () => {
       const { data:{ user } } = await sb.auth.getUser();
-      if (!user || user.is_anonymous) { location.replace("/exam/"); return; }
+      if (!user) { location.replace("/exam/"); return; }
       if (!examId) { location.replace("/exam/console.html"); return; }
-      const { data:exam } = await sb.from("exams").select("title,code,status").eq("id", examId).maybeSingle();
-      if (exam){ $("title").textContent = exam.title; $("code").textContent = exam.code; document.title = "Vigil · " + exam.title; }
+      const { data:exam } = await sb.from("exams").select("title,code,status,owner").eq("id", examId).maybeSingle();
+      // this page is the teacher's — only the exam's owner may watch its room
+      if (!exam || exam.owner !== user.id) { location.replace("/exam/console.html"); return; }
+      CLOSED = exam.status === "closed";
+      if (CLOSED) { const lv = document.querySelector(".live"); if (lv) lv.style.display = "none"; }
+      $("title").textContent = (CLOSED ? "Who was in · " : "") + exam.title; $("code").textContent = exam.code; document.title = "Vigil · " + exam.title;
 
       const { data:rows } = await sb.from("participants").select("*").eq("exam_id", examId);
       (rows||[]).forEach(r => state.set(r.id, r));

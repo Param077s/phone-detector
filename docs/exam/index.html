@@ -32,6 +32,9 @@
     .orline{display:flex;align-items:center;gap:12px;margin:16px 0 4px;color:var(--faint);font-size:12px}
     .orline::before,.orline::after{content:"";flex:1;height:1px;background:var(--line)}
     #googleBtn{gap:10px;margin-top:16px} #googleBtn svg{width:18px;height:18px}
+    #sGoogle svg{width:18px;height:18px}
+    .who2{color:var(--muted);font-size:12.5px;margin-top:9px} .who2 a{color:var(--ink);font-weight:600;cursor:pointer;text-decoration:underline}
+    #guestJoin{cursor:pointer;margin-top:2px !important}
   </style>
 </head>
 <body>
@@ -61,12 +64,19 @@
       <section id="s-student" class="hidden">
         <span class="back" data-back><svg viewBox="0 0 24 24" fill="none"><path d="M15 18l-6-6 6-6" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>Back</span>
         <h1>Join your exam</h1>
-        <p class="lead">Enter the code from your invigilator and your name.</p>
+        <p class="lead">Enter the code from your invigilator. Sign in with Google so your results are saved to you.</p>
         <label class="label" for="code">Exam code</label>
         <input class="input" id="code" maxlength="6" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="ABC123">
         <label class="label" for="sname">Your name</label>
         <input class="input" id="sname" autocomplete="name" placeholder="e.g. Priya Sharma">
-        <button class="btn primary block" id="joinBtn" style="margin-top:18px">Join exam</button>
+        <div class="who2 hidden" id="sWho"></div>
+        <button class="btn primary block" id="joinBtn" style="margin-top:16px;display:none">Join exam</button>
+        <button class="btn ghost block" id="sGoogle" type="button" style="margin-top:16px;gap:10px">
+          <svg viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1Z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84A11 11 0 0 0 12 23Z"/><path fill="#FBBC05" d="M5.84 14.1a6.6 6.6 0 0 1 0-4.2V7.06H2.18a11 11 0 0 0 0 9.88l3.66-2.84Z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06L5.84 9.9C6.71 7.31 9.14 5.38 12 5.38Z"/></svg>
+          Continue with Google
+        </button>
+        <div class="orline" id="guestOr">or</div>
+        <a class="back" id="guestJoin" style="justify-content:center;margin:0">Join as a guest instead</a>
         <div class="err" id="sErr"></div>
       </section>
 
@@ -97,52 +107,95 @@
     const show = (which) => { ["s-role","s-student","s-teacher"].forEach(s => $(s).classList.toggle("hidden", s !== which)); };
     const toast = (m) => { const t=$("toast"); t.textContent=m; t.classList.add("show"); clearTimeout(toast._t); toast._t=setTimeout(()=>t.classList.remove("show"),1800); };
 
+    const origin = location.origin;
+    const metaName = (u) => ((u && u.user_metadata && (u.user_metadata.full_name || u.user_metadata.name)) || "").trim();
+    const isTeacherAcct = (u) => !!u && !u.is_anonymous && !!u.email;
+
     // a shared join link (?code=ABC123 or #ABC123) prefills the code + opens the student step
     const urlCode = (new URLSearchParams(location.search).get("code") || location.hash.replace(/^#/, "")).toUpperCase();
-    if (/^[A-Z0-9]{4,6}$/.test(urlCode)) { $("code").value = urlCode; show("s-student"); setTimeout(() => $("sname").focus(), 60); }
 
-    // if already signed in as a teacher, skip straight to the console
+    // reflect the current session on the student step: signed-in → Join + prefilled name;
+    // signed-out → Continue with Google (+ guest link). Role is decided per action, never
+    // by auth type, so a Google-signed-in student is NEVER bounced to the teacher console.
+    async function refreshStudentIdentity() {
+      const { data:{ user } } = await sb.auth.getUser();
+      const signedIn = user && !user.is_anonymous && (user.email || metaName(user));
+      if (signedIn) {
+        if (!$("sname").value) $("sname").value = metaName(user);
+        $("sWho").classList.remove("hidden");
+        $("sWho").innerHTML = "Signed in as <b>" + esc(user.email || metaName(user)) + "</b> · <a id='switchAcct'>not you?</a>";
+        $("switchAcct").onclick = async () => { await sb.auth.signOut(); location.reload(); };
+        $("joinBtn").style.display = ""; $("sGoogle").style.display = "none";
+        $("guestOr").style.display = "none"; $("guestJoin").style.display = "none";
+      } else {
+        $("sWho").classList.add("hidden");
+        $("joinBtn").style.display = "none"; $("sGoogle").style.display = "";
+        $("guestOr").style.display = ""; $("guestJoin").style.display = "";
+      }
+    }
+    const openStudent = async () => { show("s-student"); await refreshStudentIdentity();
+      setTimeout(() => ($("code").value ? $("sname") : $("code")).focus(), 60); };
+
+    // Route on load — remembered role, or a share-link code. No hard redirect for students.
     (async () => {
       const { data:{ user } } = await sb.auth.getUser();
-      if (user && !user.is_anonymous && user.email) location.replace("/exam/console.html");
+      if (/^[A-Z0-9]{4,6}$/.test(urlCode)) { $("code").value = urlCode; await openStudent(); return; }
+      const role = localStorage.getItem("vg_role");
+      if (role === "teacher" && isTeacherAcct(user)) { location.replace("/exam/console.html"); return; }
+      if (role === "student") { await openStudent(); return; }
+      // otherwise: leave the role picker showing
     })();
 
-    $("pickStudent").onclick = () => { show("s-student"); $("code").focus(); };
-    $("pickTeacher").onclick = () => { show("s-teacher"); };
+    $("pickStudent").onclick = () => openStudent();
+    $("pickTeacher").onclick = async () => {
+      const { data:{ user } } = await sb.auth.getUser();
+      if (isTeacherAcct(user)) { localStorage.setItem("vg_role","teacher"); location.replace("/exam/console.html"); return; }
+      show("s-teacher");
+    };
     document.querySelectorAll("[data-back]").forEach(b => b.onclick = () => show("s-role"));
 
     // ---- student join ----
-    $("joinBtn").onclick = async () => {
-      const btn=$("joinBtn"), err=$("sErr");
+    async function resolveExam(code) {
+      const rpc = await sb.rpc("find_open_exam", { p_code: code });
+      if (!rpc.error && rpc.data && rpc.data[0]) return rpc.data[0];
+      const q = await sb.from("exams").select("id,title").eq("code", code).eq("status","open").maybeSingle();
+      return (!q.error && q.data) ? q.data : null;
+    }
+    let joining = false;
+    async function doJoin(asGuest) {
+      if (joining) return;
+      const err = $("sErr"); err.textContent = "";
       const code = $("code").value.trim().toUpperCase(), name = $("sname").value.trim();
-      err.textContent = "";
       if (code.length < 4) { err.textContent = "Enter the exam code."; return; }
-      if (!name) { err.textContent = "Enter your name."; return; }
-      btn.disabled = true;
+      if (!name) { err.textContent = "Enter your name."; $("sname").focus(); return; }
+      joining = true; $("joinBtn").disabled = true;
       try {
-        // anonymous identity — no signup, but a real uid for RLS
         let { data:{ user } } = await sb.auth.getUser();
         if (!user) { const r = await sb.auth.signInAnonymously(); if (r.error) throw r.error; user = r.data.user; }
-        // resolve the code. Prefer the security-definer fn (v2); fall back to a
-        // direct read so joining works even before the v2 migration is applied.
-        let exam = null;
-        const rpc = await sb.rpc("find_open_exam", { p_code: code });
-        if (!rpc.error && rpc.data && rpc.data[0]) exam = rpc.data[0];
-        else {
-          const q = await sb.from("exams").select("id,title").eq("code", code).eq("status","open").maybeSingle();
-          if (!q.error && q.data) exam = q.data;
-        }
-        if (!exam) { err.textContent = "No open exam with that code."; btn.disabled=false; return; }
-        // join (idempotent on re-entry)
+        const exam = await resolveExam(code);
+        if (!exam) { err.textContent = "No open exam with that code."; joining = false; $("joinBtn").disabled = false; return; }
+        // idempotent: same (exam, user) updates the same row — no duplicate on re-login
         const { error:e2 } = await sb.from("participants")
           .upsert({ exam_id: exam.id, user_id: user.id, name, status: "ok", last_seen: new Date().toISOString() },
                   { onConflict: "exam_id,user_id" });
         if (e2) throw e2;
+        localStorage.setItem("vg_role", "student");
         location.href = "/exam/room.html?e=" + exam.id;
-      } catch (ex) { err.textContent = ex.message || "Couldn't join."; btn.disabled = false; }
+      } catch (ex) { err.textContent = ex.message || "Couldn't join."; joining = false; $("joinBtn").disabled = false; }
+    }
+    $("joinBtn").onclick = () => doJoin(false);
+    $("guestJoin").onclick = () => doJoin(true);
+    $("sGoogle").onclick = async () => {
+      $("sErr").textContent = "";
+      const code = $("code").value.trim().toUpperCase();
+      // come back to the same join screen (code preserved) already signed in
+      const redirectTo = origin + "/exam/" + (code ? "?code=" + code : "");
+      const { error } = await sb.auth.signInWithOAuth({ provider: "google", options: { redirectTo } });
+      if (error) $("sErr").textContent =
+        /provider is not enabled/i.test(error.message) ? "Google sign-in isn't switched on yet." : error.message;
     };
     $("code").addEventListener("keydown", e => { if (e.key==="Enter") $("sname").focus(); });
-    $("sname").addEventListener("keydown", e => { if (e.key==="Enter") $("joinBtn").click(); });
+    $("sname").addEventListener("keydown", e => { if (e.key==="Enter") { if ($("joinBtn").style.display!=="none") doJoin(false); else $("sGoogle").click(); } });
 
     // ---- teacher auth ----
     let mode = "in";

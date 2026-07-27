@@ -15,6 +15,9 @@
     .gen{color:var(--faint);font-size:12px;margin:0 0 20px}
     .backlink{color:var(--ink);font-size:13.5px;font-weight:600;display:inline-flex;align-items:center;gap:5px}
     .backlink svg{width:15px;height:15px}
+    .livepill{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);font-weight:600}
+    .livepill i{width:8px;height:8px;border-radius:50%;background:var(--ok);animation:lp 1.6s infinite}
+    @keyframes lp{0%,100%{opacity:1}50%{opacity:.25}}
     .summary{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:0 0 18px}
     .stat{font-size:13px;font-weight:600;padding:6px 12px;border-radius:999px;background:var(--soft);border:1px solid var(--line);color:var(--muted)}
     .stat b{color:var(--ink);font-variant-numeric:tabular-nums}
@@ -65,7 +68,9 @@
     <div class="bar">
       <a class="backlink" id="back" href="/exam/console.html"><svg viewBox="0 0 24 24" fill="none"><path d="M15 18l-6-6 6-6" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg></a>
       <span class="brand"><span class="mk"><svg viewBox="0 0 24 24" fill="none"><path d="M6 10V7.5A1.5 1.5 0 0 1 7.5 6H10M14 6h2.5A1.5 1.5 0 0 1 18 7.5V10M18 14v2.5a1.5 1.5 0 0 1-1.5 1.5H14M10 18H7.5A1.5 1.5 0 0 1 6 16.5V14" stroke="#fff" stroke-width="1.8" stroke-linecap="round"/><circle cx="12" cy="12" r="2.6" fill="#fff"/></svg></span><b>Vigil</b></span>
+      <span class="livepill" id="livePill" style="display:none"><i></i> Live</span>
       <span class="sp"></span>
+      <a class="backlink" id="histLink" href="/exam/history.html" style="display:none;margin-right:4px">All exams</a>
       <button class="btn ghost sm" id="csvBtn" style="display:none">Export CSV</button>
       <button class="btn ghost sm" id="pdfBtn" style="display:none">Save as PDF</button>
     </div>
@@ -85,49 +90,33 @@
     const CAP = 8;   // events shown before a timeline collapses the rest
     const fmt = (iso) => { const d = new Date(iso); return d.toLocaleTimeString([], {hour:"2-digit",minute:"2-digit",second:"2-digit"}); };
 
-    let rowsForCsv = [];
+    let exam = null, teacher = false, csvRows = [];
 
-    (async () => {
-      const { data:{ user } } = await sb.auth.getUser();
-      if (!user || !examId) { location.replace("/exam/"); return; }
-      const teacher = !user.is_anonymous && !!user.email;
-      $("back").href = teacher ? "/exam/console.html" : "/exam/room.html?e=" + examId;
-
-      const { data:exam } = await sb.from("exams").select("title,code,status,created_at").eq("id", examId).maybeSingle();
-      $("title").textContent = teacher ? "Exam report" : "Your activity";
-      if (exam){ $("sub").textContent = exam.title + " · code " + exam.code + " · " + exam.status;
-        document.title = "Vigil · " + exam.title; }
-      $("gen").textContent = "Generated " + new Date().toLocaleString();
-
-      // RLS scopes these: a teacher gets all participants+events; a student gets only their own.
-      const [{ data:parts }, { data:events }] = await Promise.all([
-        sb.from("participants").select("id,name,status,joined_at").eq("exam_id", examId),
-        sb.from("events").select("participant_id,kind,severity,at").eq("exam_id", examId).order("at",{ascending:true}),
-      ]);
+    // build the whole report body from a fresh (parts, events) pull — re-run live
+    function draw(parts, events) {
+      csvRows = [];
       const byP = new Map();
       (events||[]).forEach(e => { if(!byP.has(e.participant_id)) byP.set(e.participant_id, []); byP.get(e.participant_id).push(e); });
-
       const roster = (parts||[]).sort((a,b)=> new Date(a.joined_at)-new Date(b.joined_at));
-      if (!roster.length){ $("out").innerHTML = '<div class="empty">No one joined this exam.</div>'; return; }
+      if (!roster.length){ $("summary").style.display="none";
+        $("out").innerHTML = '<div class="empty">'+(teacher ? "No one has joined yet." : "No activity recorded yet.")+'</div>'; return; }
 
-      // build per-student info + CSV rows (CSV keeps every student, chronological)
       const info = roster.map(p => {
         const evs = byP.get(p.id) || [];
         const counts = {}; let alerts = 0;
         evs.forEach(e => { counts[e.kind] = (counts[e.kind]||0)+1; if (e.severity==="alert"||ALERT_KINDS.has(e.kind)) alerts++; });
-        evs.forEach(e => rowsForCsv.push([p.name, LABELS[e.kind]||e.kind, e.severity, fmt(e.at)]));
+        evs.forEach(e => csvRows.push([p.name, LABELS[e.kind]||e.kind, e.severity, fmt(e.at)]));
         return { p, evs, counts, alerts, flags: evs.length };
       });
       const flagged = info.filter(i => i.flags > 0)
         .sort((a,b) => b.alerts - a.alerts || b.flags - a.flags || a.p.name.localeCompare(b.p.name));
       const clear = info.filter(i => i.flags === 0);
 
-      // summary
       const stat = (cls,n,label) => '<span class="stat '+cls+'"><b>'+n+'</b> '+label+'</span>';
       const alertStudents = flagged.filter(i=>i.alerts>0).length;
       $("summary").style.display = "flex";
       $("summary").innerHTML =
-        stat("", roster.length, roster.length===1?"student":"students") +
+        stat("", roster.length, roster.length===1?(teacher?"student":"session"):"students") +
         (alertStudents ? stat("alert", alertStudents, "with alerts") : "") +
         (flagged.length ? stat("warn", flagged.length, "flagged") : "") +
         stat("ok", clear.length, "clear") +
@@ -162,18 +151,60 @@
           '<div class="names">'+names+'</div></details>';
       }
       $("out").innerHTML = html;
-
       const flagOnly = $("flagOnly");
-      if (flagOnly) flagOnly.onchange = () => document.querySelector(".clearbox")?.classList.toggle("hide", flagOnly.checked);
+      if (flagOnly) flagOnly.onchange = () => { const cb=document.querySelector(".clearbox"); if(cb) cb.classList.toggle("hide", flagOnly.checked); };
+    }
+
+    async function fetchAndDraw() {
+      // RLS scopes these: a teacher gets all participants+events; a student gets only their own.
+      const [{ data:parts }, { data:events }] = await Promise.all([
+        sb.from("participants").select("id,name,status,joined_at").eq("exam_id", examId),
+        sb.from("events").select("participant_id,kind,severity,at").eq("exam_id", examId).order("at",{ascending:true}),
+      ]);
+      draw(parts, events);
+    }
+
+    (async () => {
+      const { data:{ user } } = await sb.auth.getUser();
+      if (!user || !examId) { location.replace("/exam/"); return; }
+      const { data:e } = await sb.from("exams").select("title,code,status,created_at,owner").eq("id", examId).maybeSingle();
+      exam = e;
+      // role is decided by OWNERSHIP, not auth type — a Google-signed-in student stays a student
+      teacher = !!exam && exam.owner === user.id;
+      const open = !!exam && exam.status === "open";
+
+      if (teacher) { $("back").href = "/exam/console.html"; }
+      else { $("back").href = open ? "/exam/room.html?e=" + examId : "/exam/"; $("histLink").style.display = ""; }
+
+      $("title").textContent = teacher ? "Exam report" : "Your activity";
+      if (exam){ $("sub").textContent = exam.title + " · code " + exam.code + " · " + exam.status;
+        document.title = "Vigil · " + exam.title; }
+      $("gen").textContent = "Generated " + new Date().toLocaleString();
+      if (open) $("livePill").style.display = "";
 
       if (teacher){
         $("csvBtn").style.display=""; $("pdfBtn").style.display="";
         $("csvBtn").onclick = () => {
-          const csv = "Student,Event,Severity,Time\n" + rowsForCsv.map(r => r.map(x => '"'+String(x).replace(/"/g,'""')+'"').join(",")).join("\n");
+          const csv = "Student,Event,Severity,Time\n" + csvRows.map(r => r.map(x => '"'+String(x).replace(/"/g,'""')+'"').join(",")).join("\n");
           const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([csv],{type:"text/csv"}));
           a.download = (exam?exam.title:"exam") + "-report.csv"; a.click();
         };
         $("pdfBtn").onclick = () => window.print();
+      }
+
+      await fetchAndDraw();
+
+      // LIVE: while the exam is open, new events + status changes stream straight in
+      if (open){
+        let t; const deb = () => { clearTimeout(t); t = setTimeout(fetchAndDraw, 600); };
+        sb.channel("report-"+examId)
+          .on("postgres_changes", { event:"*", schema:"public", table:"events", filter:"exam_id=eq."+examId }, deb)
+          .on("postgres_changes", { event:"*", schema:"public", table:"participants", filter:"exam_id=eq."+examId }, deb)
+          .subscribe();
+        const poll = setInterval(async () => {
+          const { data } = await sb.from("exams").select("status").eq("id", examId).maybeSingle();
+          if (data && data.status !== "open"){ $("livePill").style.display = "none"; clearInterval(poll); }
+        }, 15000);
       }
 
       // make sure PDF/print shows everything, then restore the tidy view
