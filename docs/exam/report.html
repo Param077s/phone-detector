@@ -90,7 +90,7 @@
     const CAP = 8;   // events shown before a timeline collapses the rest
     const fmt = (iso) => { const d = new Date(iso); return d.toLocaleTimeString([], {hour:"2-digit",minute:"2-digit",second:"2-digit"}); };
 
-    let exam = null, teacher = false, csvRows = [];
+    let exam = null, teacher = false, csvRows = [], user = null;
 
     // build the whole report body from a fresh (parts, events) pull — re-run live
     function draw(parts, events) {
@@ -100,6 +100,8 @@
       const roster = (parts||[]).sort((a,b)=> new Date(a.joined_at)-new Date(b.joined_at));
       if (!roster.length){ $("summary").style.display="none";
         $("out").innerHTML = '<div class="empty">'+(teacher ? "No one has joined yet." : "No activity recorded yet.")+'</div>'; return; }
+
+      if (!teacher) { drawStudent(roster, byP); return; }   // personal "Your activity" view
 
       const info = roster.map(p => {
         const evs = byP.get(p.id) || [];
@@ -155,22 +157,47 @@
       if (flagOnly) flagOnly.onchange = () => { const cb=document.querySelector(".clearbox"); if(cb) cb.classList.toggle("hide", flagOnly.checked); };
     }
 
+    // a student's own "Your activity" — just their card + full timeline, no teacher framing
+    function drawStudent(roster, byP) {
+      $("summary").style.display = "none";
+      const me = roster[0];
+      const evs = byP.get(me.id) || [];
+      const counts = {}; evs.forEach(e => counts[e.kind] = (counts[e.kind]||0)+1);
+      const chips = evs.length
+        ? Object.entries(counts).sort((a,b)=> b[1]-a[1])
+            .map(([k,n]) => '<span class="chip '+(ALERT_KINDS.has(k)?"alert":"warn")+'"><b>'+n+'</b> '+esc(LABELS[k]||k)+'</span>').join("")
+        : '<span class="chip ok">No flags — you were clear throughout</span>';
+      const evHtml = e => '<div class="ev '+esc(e.severity)+'"><span class="time">'+fmt(e.at)+'</span><span class="what">'+esc(LABELS[e.kind]||e.kind)+'</span></div>';
+      const timeline = evs.length ? '<div class="tl">'+evs.map(evHtml).join("")+'</div>' : "";
+      $("out").innerHTML = '<div class="student"><h2><span class="n">'+esc(me.name)+'</span>'+
+        '<span class="ct">'+evs.length+' flag'+(evs.length===1?"":"s")+'</span></h2>'+
+        '<div class="chips">'+chips+'</div>'+timeline+'</div>';
+    }
+
     async function fetchAndDraw() {
-      // RLS scopes these: a teacher gets all participants+events; a student gets only their own.
+      // RLS scopes these; a student view also narrows to their own row (covers an owner who joined)
+      let pq = sb.from("participants").select("id,name,status,joined_at").eq("exam_id", examId);
+      if (!teacher && user) pq = pq.eq("user_id", user.id);
       const [{ data:parts }, { data:events }] = await Promise.all([
-        sb.from("participants").select("id,name,status,joined_at").eq("exam_id", examId),
+        pq,
         sb.from("events").select("participant_id,kind,severity,at").eq("exam_id", examId).order("at",{ascending:true}),
       ]);
       draw(parts, events);
     }
 
     (async () => {
-      const { data:{ user } } = await sb.auth.getUser();
-      if (!user || !examId) { location.replace("/exam/"); return; }
+      const { data:{ user:u } } = await sb.auth.getUser();
+      if (!u || !examId) { location.replace("/exam/"); return; }
+      user = u;
       const { data:e } = await sb.from("exams").select("title,code,status,created_at,owner").eq("id", examId).maybeSingle();
       exam = e;
-      // role is decided by OWNERSHIP, not auth type — a Google-signed-in student stays a student
-      teacher = !!exam && exam.owner === user.id;
+      // Role by CONTEXT first (how you got here), then ownership. The room opens activity
+      // with ?as=student and remembers vg_role=student, so the exam's OWNER who joined their
+      // own room stays in the student view — 'back' returns to the room, never the console.
+      const asParam = new URLSearchParams(location.search).get("as");
+      const actingStudent = asParam === "student"
+        || (asParam !== "teacher" && localStorage.getItem("vg_role") === "student");
+      teacher = !actingStudent && !!exam && exam.owner === user.id;
       const open = !!exam && exam.status === "open";
 
       if (teacher) { $("back").href = "/exam/console.html"; }

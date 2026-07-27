@@ -275,8 +275,9 @@ function fail(msg) { state.running = false; $("errMsg").textContent = msg; show(
   const { data: p } = await sb.from("participants").select("id,name").eq("exam_id", examId).eq("user_id", u.id).maybeSingle();
   if (!p) { location.replace("/exam/"); return; }
   part = p; $("yourName") && ($("yourName").textContent = p.name);
-  const al = $("activityLink"); if (al) al.href = "/exam/report.html?e=" + examId;
-  const ea = $("endedActivity"); if (ea) ea.href = "/exam/report.html?e=" + examId;
+  try { localStorage.setItem("vg_role", "student"); } catch (e) {}   // in the room = acting as a student
+  const al = $("activityLink"); if (al) al.href = "/exam/report.html?e=" + examId + "&as=student";
+  const ea = $("endedActivity"); if (ea) ea.href = "/exam/report.html?e=" + examId + "&as=student";
   // if the teacher already closed the exam before this student opened the room
   const already = exam && exam.status === "closed";
   if (already) { show("s-ended"); return; }

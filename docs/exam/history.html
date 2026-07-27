@@ -83,7 +83,7 @@
             '<div class="info">code '+esc(x.code)+' · '+fmtDate(x.created_at)+'</div></div>'+
             '<div class="acts">'+statusPill(x.status)+
               (x.status==="open" ? '<a class="btn ink sm" href="/exam/room.html?e='+encodeURIComponent(x.id)+'">Rejoin</a>' : '')+
-              '<a class="btn ghost sm" href="/exam/report.html?e='+encodeURIComponent(x.id)+'">Your activity</a>'+
+              '<a class="btn ghost sm" href="/exam/report.html?e='+encodeURIComponent(x.id)+'&as=student">Your activity</a>'+
             '</div></div>').join("");
       }
 
