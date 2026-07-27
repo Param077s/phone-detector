@@ -60,6 +60,31 @@
     .cursor.big{width:54px;height:54px}
     html.cursor-on,html.cursor-on *{cursor:none !important}
 
+    /* "Join an exam" helper — a student pastes their invigilator's link to jump to it */
+    .joinModal{position:fixed;inset:0;z-index:100001;display:none;place-items:center;padding:20px;
+      background:rgba(243,242,239,.55);backdrop-filter:blur(16px) saturate(1.2);-webkit-backdrop-filter:blur(16px) saturate(1.2)}
+    .joinModal.open{display:grid}
+    .joinCard{position:relative;width:min(440px,100%);background:rgba(255,255,255,.72);border:1px solid var(--line);
+      border-radius:24px;padding:34px 30px;box-shadow:var(--shadow);text-align:left;
+      backdrop-filter:blur(30px) saturate(1.3);-webkit-backdrop-filter:blur(30px) saturate(1.3);animation:joinIn .4s var(--spring)}
+    @keyframes joinIn{from{opacity:0;transform:translateY(14px) scale(.98)}}
+    .joinCard h3{font-size:22px;margin:10px 0 8px}
+    .joinCard p{color:var(--muted);font-size:14px;line-height:1.6}
+    .joinCard input{width:100%;margin-top:18px;padding:14px 15px;border:1px solid var(--line);border-radius:12px;
+      background:#fff;font:15px var(--font);color:var(--ink);outline:none;transition:border-color .16s,box-shadow .16s}
+    .joinCard input:focus{border-color:var(--ink);box-shadow:0 0 0 4px rgba(12,13,16,.06)}
+    .joinCard .btn.ink{width:100%;justify-content:center;margin-top:14px;padding:14px}
+    .joinErr{color:#d83a3f;font-size:13px;min-height:15px;margin-top:8px}
+    .joinHint{margin-top:16px;font-size:12.5px;color:var(--faint);line-height:1.5}
+    .joinX{position:absolute;top:14px;right:14px;width:30px;height:30px;border-radius:50%;border:1px solid var(--line);
+      background:var(--glass);cursor:pointer;font-size:15px;line-height:1;color:var(--muted);display:grid;place-items:center}
+    .joinX:hover{border-color:var(--ink);color:var(--ink)}
+    /* while the panel is open, hand the OS cursor back so the field is usable */
+    html.modal-open #cursor{opacity:0 !important}
+    html.modal-open,html.modal-open *{cursor:auto !important}
+    html.modal-open input{cursor:text !important}
+    html.modal-open .btn,html.modal-open button,html.modal-open a,html.modal-open .joinX{cursor:pointer !important}
+
     /* top bar */
     .top{position:fixed;top:14px;left:0;right:0;z-index:50;display:flex;justify-content:center;pointer-events:none}
     .top .bar{width:min(1120px,calc(100vw - 28px));display:flex;align-items:center;gap:14px;pointer-events:auto;
@@ -214,8 +239,23 @@
   <div class="top"><div class="bar">
     <a class="brand" href="/"><span class="mk"><svg><use href="#v"/></svg></span>Vigil</a>
     <span class="sp"></span>
+    <button class="btn glass ghosthide" id="joinOpen" type="button">Join an exam</button>
     <a class="btn ink" id="dlNav" href="https://github.com/Param077s/vigil/releases/latest/download/Vigil.dmg">Download free</a>
   </div></div>
+
+  <!-- Join-an-exam helper: forward a student to their invigilator's Vigil instance -->
+  <div class="joinModal" id="joinModal" aria-hidden="true" role="dialog" aria-modal="true" aria-label="Join an exam">
+    <div class="joinCard">
+      <button class="joinX" id="joinX" aria-label="Close">✕</button>
+      <div class="eyebrow">Join an exam</div>
+      <h3>Open your invigilator's link</h3>
+      <p>An exam runs on your invigilator's computer — paste the link they shared and we'll take you there. Your camera stays on your own device.</p>
+      <input id="joinUrl" type="url" inputmode="url" autocomplete="off" spellcheck="false" placeholder="Paste your exam link  (http://…)">
+      <div class="joinErr" id="joinErr"></div>
+      <button class="btn ink" id="joinGo" type="button">Continue</button>
+      <p class="joinHint">No link yet? Ask your invigilator — the exam is hosted on their machine, not on this website.</p>
+    </div>
+  </div>
 
   <nav class="rail" id="rail" aria-label="Journey chapters">
     <button data-i="0" aria-label="Focus"><span></span><em>Focus</em></button>
@@ -511,6 +551,34 @@
     ["dlNav","dlHero","dlExam","dlFoot"].forEach(function(id){
       var e = document.getElementById(id); if (e) e.href = url;
     });
+  })();
+  </script>
+
+  <!-- Join-an-exam helper: normalise the invigilator's link and forward there -->
+  <script>
+  (function(){
+    var root=document.documentElement;
+    var modal=document.getElementById("joinModal"), input=document.getElementById("joinUrl"), err=document.getElementById("joinErr");
+    function open(){ modal.classList.add("open"); root.classList.add("modal-open"); modal.setAttribute("aria-hidden","false");
+      err.textContent=""; setTimeout(function(){ input.focus(); }, 60); }
+    function close(){ modal.classList.remove("open"); root.classList.remove("modal-open"); modal.setAttribute("aria-hidden","true"); }
+    document.getElementById("joinOpen").addEventListener("click", open);
+    document.getElementById("joinX").addEventListener("click", close);
+    modal.addEventListener("click", function(e){ if (e.target===modal) close(); });
+    addEventListener("keydown", function(e){ if (e.key==="Escape" && modal.classList.contains("open")) close(); });
+    function go(){
+      var v=(input.value||"").trim();
+      if(!v){ err.textContent="Paste the link your invigilator shared."; return; }
+      if(!/^https?:\/\//i.test(v)){
+        if(/^[\w.-]+(:\d+)?(\/.*)?$/.test(v)) v="http://"+v;          // bare host → assume http
+        else { err.textContent="That doesn't look like a link. Ask your invigilator for the full URL."; return; }
+      }
+      var url; try{ url=new URL(v); }catch(_){ err.textContent="That doesn't look like a valid link."; return; }
+      if(url.pathname==="/"||url.pathname===""){ url.pathname="/app/exam.html"; }   // bare origin → the exam page
+      location.href=url.toString();
+    }
+    document.getElementById("joinGo").addEventListener("click", go);
+    input.addEventListener("keydown", function(e){ if(e.key==="Enter"){ e.preventDefault(); go(); } });
   })();
   </script>
 </body>
