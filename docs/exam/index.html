@@ -89,6 +89,10 @@
     const show = (which) => { ["s-role","s-student","s-teacher"].forEach(s => $(s).classList.toggle("hidden", s !== which)); };
     const toast = (m) => { const t=$("toast"); t.textContent=m; t.classList.add("show"); clearTimeout(toast._t); toast._t=setTimeout(()=>t.classList.remove("show"),1800); };
 
+    // a shared join link (?code=ABC123 or #ABC123) prefills the code + opens the student step
+    const urlCode = (new URLSearchParams(location.search).get("code") || location.hash.replace(/^#/, "")).toUpperCase();
+    if (/^[A-Z0-9]{4,6}$/.test(urlCode)) { $("code").value = urlCode; show("s-student"); setTimeout(() => $("sname").focus(), 60); }
+
     // if already signed in as a teacher, skip straight to the console
     (async () => {
       const { data:{ user } } = await sb.auth.getUser();
