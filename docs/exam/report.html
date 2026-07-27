@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Vigil · Exam report</title>
+  <link rel="icon" href="/favicon.svg">
+  <meta name="theme-color" content="#f3f2ef">
+  <link rel="stylesheet" href="/exam/style.css">
+  <style>
+    .wrap{max-width:820px;margin:0 auto;padding:26px 22px 80px}
+    .bar{display:flex;align-items:center;gap:12px;margin-bottom:18px}
+    .bar .sp{flex:1}
+    h1{font-size:23px;margin:0 0 4px} .sub{color:var(--muted);font-size:14px;margin:0 0 2px}
+    .gen{color:var(--faint);font-size:12px;margin:0 0 20px}
+    .backlink{color:var(--ink);font-size:13.5px;font-weight:600;display:inline-flex;align-items:center;gap:5px}
+    .backlink svg{width:15px;height:15px}
+    .student{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:20px 22px;margin-bottom:16px;box-shadow:var(--shadow-sm)}
+    .student h2{font-size:17px;margin:0 0 12px;display:flex;align-items:center;gap:10px}
+    .chips{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 16px}
+    .chip{font-size:12.5px;padding:5px 11px;border-radius:999px;background:var(--soft);border:1px solid var(--line);color:var(--muted)}
+    .chip b{font-weight:700}
+    .chip.warn{color:var(--warn);background:var(--warn-soft);border-color:#f0dcb6}
+    .chip.alert{color:var(--alert);background:var(--alert-soft);border-color:#f3c9ca}
+    .chip.ok{color:var(--ok);background:var(--ok-soft);border-color:#c3e6d5}
+    .tl{position:relative;margin-left:5px;padding-left:20px;border-left:2px solid var(--line)}
+    .ev{position:relative;padding:8px 0;font-size:13.5px;display:flex;gap:12px}
+    .ev::before{content:"";position:absolute;left:-27px;top:14px;width:9px;height:9px;border-radius:50%;background:var(--faint);box-shadow:0 0 0 3px #fff}
+    .ev.warn::before{background:var(--warn)} .ev.alert::before{background:var(--alert)}
+    .ev .time{color:var(--muted);font-variant-numeric:tabular-nums;flex:0 0 78px}
+    .empty{color:var(--muted);text-align:center;padding:40px 0}
+    @media print{ body{background:#fff;background-image:none} .bar .btn,.backlink{display:none !important}
+      .student{box-shadow:none;break-inside:avoid;page-break-inside:avoid;margin-bottom:12px}
+      *{-webkit-print-color-adjust:exact;print-color-adjust:exact} }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="bar">
+      <a class="backlink" id="back" href="/exam/console.html"><svg viewBox="0 0 24 24" fill="none"><path d="M15 18l-6-6 6-6" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg></a>
+      <span class="brand"><span class="mk"><svg viewBox="0 0 24 24" fill="none"><path d="M6 10V7.5A1.5 1.5 0 0 1 7.5 6H10M14 6h2.5A1.5 1.5 0 0 1 18 7.5V10M18 14v2.5a1.5 1.5 0 0 1-1.5 1.5H14M10 18H7.5A1.5 1.5 0 0 1 6 16.5V14" stroke="#fff" stroke-width="1.8" stroke-linecap="round"/><circle cx="12" cy="12" r="2.6" fill="#fff"/></svg></span><b>Vigil</b></span>
+      <span class="sp"></span>
+      <button class="btn ghost sm" id="csvBtn" style="display:none">Export CSV</button>
+      <button class="btn ghost sm" id="pdfBtn" style="display:none">Save as PDF</button>
+    </div>
+    <h1 id="title">Exam report</h1>
+    <p class="sub" id="sub"></p>
+    <div class="gen" id="gen"></div>
+    <div id="out"><div class="empty">Loading…</div></div>
+  </div>
+
+  <script type="module">
+    import { sb, esc } from "/exam/sb.js";
+    const $ = id => document.getElementById(id);
+    const examId = new URLSearchParams(location.search).get("e");
+    const LABELS = { head_down:"Looked down", face_absent:"Face not visible", second_face:"Second face detected", camera_off:"Camera off", calibrated:"Calibrated" };
+    const fmt = (iso) => { const d = new Date(iso); return d.toLocaleTimeString([], {hour:"2-digit",minute:"2-digit",second:"2-digit"}); };
+
+    let rowsForCsv = [];
+
+    (async () => {
+      const { data:{ user } } = await sb.auth.getUser();
+      if (!user || !examId) { location.replace("/exam/"); return; }
+      const teacher = !user.is_anonymous && !!user.email;
+      $("back").href = teacher ? "/exam/console.html" : "/exam/room.html?e=" + examId;
+
+      const { data:exam } = await sb.from("exams").select("title,code,status,created_at").eq("id", examId).maybeSingle();
+      $("title").textContent = teacher ? "Exam report" : "Your activity";
+      if (exam){ $("sub").textContent = exam.title + " · code " + exam.code + " · " + exam.status;
+        document.title = "Vigil · " + exam.title; }
+      $("gen").textContent = "Generated " + new Date().toLocaleString();
+
+      // RLS scopes these: a teacher gets all participants+events; a student gets only their own.
+      const [{ data:parts }, { data:events }] = await Promise.all([
+        sb.from("participants").select("id,name,status,joined_at").eq("exam_id", examId),
+        sb.from("events").select("participant_id,kind,severity,at").eq("exam_id", examId).order("at",{ascending:true}),
+      ]);
+      const byP = new Map();
+      (events||[]).forEach(e => { if(!byP.has(e.participant_id)) byP.set(e.participant_id, []); byP.get(e.participant_id).push(e); });
+
+      const students = (parts||[]).sort((a,b)=> new Date(a.joined_at)-new Date(b.joined_at));
+      if (!students.length){ $("out").innerHTML = '<div class="empty">No one joined this exam.</div>'; return; }
+
+      $("out").innerHTML = students.map(p => {
+        const evs = byP.get(p.id) || [];
+        const counts = {};
+        evs.forEach(e => counts[e.kind] = (counts[e.kind]||0)+1);
+        evs.forEach(e => rowsForCsv.push([p.name, LABELS[e.kind]||e.kind, e.severity, fmt(e.at)]));
+        const chips = Object.keys(counts).length
+          ? Object.entries(counts).map(([k,n]) => '<span class="chip '+(k==="second_face"||k==="camera_off"?"alert":"warn")+'"><b>'+n+'</b> '+esc(LABELS[k]||k)+'</span>').join("")
+          : '<span class="chip ok">No flags — clear throughout</span>';
+        const timeline = evs.length
+          ? '<div class="tl">'+evs.map(e => '<div class="ev '+esc(e.severity)+'"><span class="time">'+fmt(e.at)+'</span><span class="what">'+esc(LABELS[e.kind]||e.kind)+'</span></div>').join("")+'</div>'
+          : "";
+        return '<div class="student"><h2>'+esc(p.name)+'</h2><div class="chips">'+chips+'</div>'+timeline+'</div>';
+      }).join("");
+
+      if (teacher){
+        $("csvBtn").style.display=""; $("pdfBtn").style.display="";
+        $("csvBtn").onclick = () => {
+          const csv = "Student,Event,Severity,Time\n" + rowsForCsv.map(r => r.map(x => '"'+String(x).replace(/"/g,'""')+'"').join(",")).join("\n");
+          const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([csv],{type:"text/csv"}));
+          a.download = (exam?exam.title:"exam") + "-report.csv"; a.click();
+        };
+        $("pdfBtn").onclick = () => window.print();
+      }
+    })();
+  </script>
+</body>
+</html>

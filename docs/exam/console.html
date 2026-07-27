@@ -102,6 +102,7 @@
         '<div class="stat" data-p="'+esc(x.id)+'"><div><b>—</b>joined</div></div>'+
         '<div class="acts">'+
           '<a class="btn ink sm" href="/exam/live.html?e='+encodeURIComponent(x.id)+'">Live room</a>'+
+          '<a class="btn ghost sm" href="/exam/report.html?e='+encodeURIComponent(x.id)+'">Report</a>'+
           (open?'<button class="btn ghost sm" data-close="'+esc(x.id)+'">Close</button>':'')+
         '</div>';
       return el;

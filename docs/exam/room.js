@@ -153,5 +153,6 @@ function fail(msg) { state.running = false; $("errMsg").textContent = msg; show(
   const { data: p } = await sb.from("participants").select("id,name").eq("exam_id", examId).eq("user_id", u.id).maybeSingle();
   if (!p) { location.replace("/exam/"); return; }
   part = p; $("yourName") && ($("yourName").textContent = p.name);
+  const al = $("activityLink"); if (al) al.href = "/exam/report.html?e=" + examId;
   begin();
 })();
