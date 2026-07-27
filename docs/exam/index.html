@@ -111,10 +111,15 @@
         // anonymous identity — no signup, but a real uid for RLS
         let { data:{ user } } = await sb.auth.getUser();
         if (!user) { const r = await sb.auth.signInAnonymously(); if (r.error) throw r.error; user = r.data.user; }
-        // resolve the code without exposing the exams table (security-definer fn)
-        const { data:rows, error:e1 } = await sb.rpc("find_open_exam", { p_code: code });
-        if (e1) throw e1;
-        const exam = rows && rows[0];
+        // resolve the code. Prefer the security-definer fn (v2); fall back to a
+        // direct read so joining works even before the v2 migration is applied.
+        let exam = null;
+        const rpc = await sb.rpc("find_open_exam", { p_code: code });
+        if (!rpc.error && rpc.data && rpc.data[0]) exam = rpc.data[0];
+        else {
+          const q = await sb.from("exams").select("id,title").eq("code", code).eq("status","open").maybeSingle();
+          if (!q.error && q.data) exam = q.data;
+        }
         if (!exam) { err.textContent = "No open exam with that code."; btn.disabled=false; return; }
         // join (idempotent on re-entry)
         const { error:e2 } = await sb.from("participants")

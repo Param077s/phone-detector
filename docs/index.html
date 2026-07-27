@@ -239,23 +239,9 @@
   <div class="top"><div class="bar">
     <a class="brand" href="/"><span class="mk"><svg><use href="#v"/></svg></span>Vigil</a>
     <span class="sp"></span>
-    <button class="btn glass ghosthide" id="joinOpen" type="button">Join an exam</button>
+    <a class="btn glass ghosthide" href="/exam/">Join an exam</a>
     <a class="btn ink" id="dlNav" href="https://github.com/Param077s/vigil/releases/latest/download/Vigil.dmg">Download free</a>
   </div></div>
-
-  <!-- Join-an-exam helper: forward a student to their invigilator's Vigil instance -->
-  <div class="joinModal" id="joinModal" aria-hidden="true" role="dialog" aria-modal="true" aria-label="Join an exam">
-    <div class="joinCard">
-      <button class="joinX" id="joinX" aria-label="Close">✕</button>
-      <div class="eyebrow">Join an exam</div>
-      <h3>Open your invigilator's link</h3>
-      <p>An exam runs on your invigilator's computer — paste the link they shared and we'll take you there. Your camera stays on your own device.</p>
-      <input id="joinUrl" type="url" inputmode="url" autocomplete="off" spellcheck="false" placeholder="Paste your exam link  (http://…)">
-      <div class="joinErr" id="joinErr"></div>
-      <button class="btn ink" id="joinGo" type="button">Continue</button>
-      <p class="joinHint">No link yet? Ask your invigilator — the exam is hosted on their machine, not on this website.</p>
-    </div>
-  </div>
 
   <nav class="rail" id="rail" aria-label="Journey chapters">
     <button data-i="0" aria-label="Focus"><span></span><em>Focus</em></button>
@@ -554,32 +540,5 @@
   })();
   </script>
 
-  <!-- Join-an-exam helper: normalise the invigilator's link and forward there -->
-  <script>
-  (function(){
-    var root=document.documentElement;
-    var modal=document.getElementById("joinModal"), input=document.getElementById("joinUrl"), err=document.getElementById("joinErr");
-    function open(){ modal.classList.add("open"); root.classList.add("modal-open"); modal.setAttribute("aria-hidden","false");
-      err.textContent=""; setTimeout(function(){ input.focus(); }, 60); }
-    function close(){ modal.classList.remove("open"); root.classList.remove("modal-open"); modal.setAttribute("aria-hidden","true"); }
-    document.getElementById("joinOpen").addEventListener("click", open);
-    document.getElementById("joinX").addEventListener("click", close);
-    modal.addEventListener("click", function(e){ if (e.target===modal) close(); });
-    addEventListener("keydown", function(e){ if (e.key==="Escape" && modal.classList.contains("open")) close(); });
-    function go(){
-      var v=(input.value||"").trim();
-      if(!v){ err.textContent="Paste the link your invigilator shared."; return; }
-      if(!/^https?:\/\//i.test(v)){
-        if(/^[\w.-]+(:\d+)?(\/.*)?$/.test(v)) v="http://"+v;          // bare host → assume http
-        else { err.textContent="That doesn't look like a link. Ask your invigilator for the full URL."; return; }
-      }
-      var url; try{ url=new URL(v); }catch(_){ err.textContent="That doesn't look like a valid link."; return; }
-      if(url.pathname==="/"||url.pathname===""){ url.pathname="/app/exam.html"; }   // bare origin → the exam page
-      location.href=url.toString();
-    }
-    document.getElementById("joinGo").addEventListener("click", go);
-    input.addEventListener("keydown", function(e){ if(e.key==="Enter"){ e.preventDefault(); go(); } });
-  })();
-  </script>
 </body>
 </html>
