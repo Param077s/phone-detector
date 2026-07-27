@@ -1627,7 +1627,9 @@ async def auth_gate(request: Request, call_next):
     # admin; the PWA install assets stay reachable so the "Install Vigil" card
     # works on the setup page too.)
     if user_count() == 0:
-        if path == "/setup" or path == "/auth/google" or path in _PWA_ASSETS:
+        # A fresh (hosted) instance can also be claimed from the light teacher door.
+        if path in ("/setup", "/auth/google", "/enter", "/teacher/signup", "/teacher/login") \
+                or path in _PWA_ASSETS:
             return await call_next(request)
         return RedirectResponse("/setup")
 
@@ -1656,6 +1658,9 @@ async def auth_gate(request: Request, call_next):
                 return await call_next(request)
         # A student can open the exam-join page with just a code — no account.
         if _is_exam_public(path, request.method):
+            return await call_next(request)
+        # The light role-choice entry + teacher sign-in/up are open to visitors.
+        if path in ("/enter", "/teacher/signup", "/teacher/login"):
             return await call_next(request)
         if path.startswith(_API_PREFIXES):
             return JSONResponse({"error": "unauthorized"}, status_code=401)
@@ -5249,6 +5254,76 @@ def login_submit(request: Request, username: str = Form(...), password: str = Fo
     resp = RedirectResponse("/", status_code=303)
     resp.set_cookie("vigil_session", _sign(u["username"]), **_COOKIE_KW)
     return resp
+
+
+# --- Light role-choice entry + open teacher accounts (the hosted-exam front) ----
+@app.get("/enter", response_class=HTMLResponse)
+def enter_page(request: Request):
+    u = current_user(request)
+    if u:   # already signed in — send them where they belong
+        return RedirectResponse("/app/exam.html" if u.get("role") == "student" else "/console")
+    p = os.path.join(_WEB_DIR, "enter.html")
+    if os.path.exists(p):
+        return FileResponse(p, headers={"Cache-Control": "no-cache"})
+    return RedirectResponse("/login")
+
+
+@app.post("/teacher/signup")
+async def teacher_signup(request: Request):
+    try:
+        data = await request.json()
+    except Exception:
+        data = {}
+    username = str(data.get("username", "")).strip()
+    password = str(data.get("password", ""))
+    if len(username) < 3:
+        return JSONResponse({"ok": False, "error": "Pick a username with at least 3 characters."}, status_code=400)
+    if len(password) < 6:
+        return JSONResponse({"ok": False, "error": "Password needs at least 6 characters."}, status_code=400)
+    # First account on a fresh instance owns it (admin); everyone after is a teacher.
+    role = "admin" if user_count() == 0 else "invigilator"
+    ok, err = create_user(username, password, role=role)
+    if not ok:
+        return JSONResponse({"ok": False, "error": err}, status_code=400)
+    resp = JSONResponse({"ok": True, "next": "/console"})
+    resp.set_cookie("vigil_session", _sign(username.strip()), **_COOKIE_KW)
+    return resp
+
+
+@app.post("/teacher/login")
+async def teacher_login(request: Request):
+    ip = _client_ip(request)
+    if _login_throttled(ip):
+        return JSONResponse({"ok": False, "error": "Too many attempts. Wait a few minutes."}, status_code=429)
+    try:
+        data = await request.json()
+    except Exception:
+        data = {}
+    username = str(data.get("username", "")).strip()
+    password = str(data.get("password", ""))
+    u = verify_user(username, password)
+    if not u:
+        _note_login_fail(ip)
+        return JSONResponse({"ok": False, "error": "Invalid username or password."}, status_code=401)
+    if u.get("role") == "student":
+        return JSONResponse({"ok": False, "error": "That's a student account — join from the student door."}, status_code=403)
+    _clear_login_fails(ip)
+    resp = JSONResponse({"ok": True, "next": "/console"})
+    resp.set_cookie("vigil_session", _sign(u["username"]), **_COOKIE_KW)
+    return resp
+
+
+@app.get("/console", response_class=HTMLResponse)
+def console_page(request: Request):
+    u = current_user(request)
+    if not u:
+        return RedirectResponse("/enter")
+    if u.get("role") == "student":
+        return RedirectResponse("/app/exam.html")
+    p = os.path.join(_WEB_DIR, "console.html")
+    if os.path.exists(p):
+        return FileResponse(p, headers={"Cache-Control": "no-cache"})
+    return RedirectResponse("/")
 
 
 @app.post("/auth/google")

@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Vigil · Teacher console</title>
+  <link rel="icon" href="/favicon.svg">
+  <meta name="theme-color" content="#f3f2ef">
+  <style>
+    @font-face{font-family:"Space Grotesk";src:url("/app/vendor/fonts/space-grotesk.woff2") format("woff2");
+      font-weight:300 700;font-style:normal;font-display:swap}
+    :root{
+      --bg:#f3f2ef; --card:#fff; --ink:#0c0d10; --ink-2:#3b3e46; --muted:#7a7d84; --faint:#a6a8ad;
+      --line:rgba(12,13,16,.10); --line-strong:rgba(12,13,16,.17); --glass:rgba(255,255,255,.64);
+      --soft:#edece8; --shadow:0 2px 6px rgba(15,17,24,.05),0 30px 60px -34px rgba(15,17,24,.20);
+      --shadow-sm:0 1px 2px rgba(15,17,24,.06),0 12px 26px -16px rgba(15,17,24,.16);
+      --ok:#1f9d63; --ok-soft:#e7f4ec; --warn:#b7791f; --alert:#d83a3f; --alert-soft:#fbeaea;
+      --display:"Space Grotesk",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+      --font:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Inter",system-ui,sans-serif;
+      --r:18px; --r-sm:12px; --spring:cubic-bezier(.2,.7,.2,1);
+    }
+    :root[data-density="compact"]{--pad:16px} :root{--pad:22px}
+    *{box-sizing:border-box;margin:0}
+    a{color:inherit;text-decoration:none}
+    body{background:var(--bg);color:var(--ink);font:15px/1.5 var(--font);-webkit-font-smoothing:antialiased;
+      background-image:radial-gradient(760px 460px at 50% -10%,rgba(255,255,255,.85),transparent 66%),linear-gradient(180deg,#f5f4f1,#efeee9);
+      background-attachment:fixed;min-height:100%}
+    h1,h2,h3,.brand b,.code{font-family:var(--display);letter-spacing:-.02em}
+    .wrap{max-width:940px;margin:0 auto;padding:0 22px 80px}
+
+    /* top bar */
+    .bar{position:sticky;top:0;z-index:10;display:flex;align-items:center;gap:14px;padding:15px 0;
+      margin-bottom:8px}
+    .brand{display:flex;align-items:center;gap:10px}
+    .brand .mk{width:30px;height:30px;border-radius:9px;display:grid;place-items:center;background:var(--ink);box-shadow:var(--shadow-sm)}
+    .brand .mk svg{width:17px;height:17px}
+    .brand b{font-size:16px;font-weight:700}
+    .brand .tag{color:var(--muted);font-size:13px}
+    .bar .sp{flex:1}
+    .who{color:var(--muted);font-size:13.5px}
+    .who b{color:var(--ink);font-weight:600}
+    .iconbtn{width:36px;height:36px;border-radius:10px;border:1px solid var(--line);background:var(--glass);
+      display:grid;place-items:center;cursor:pointer;color:var(--ink);transition:border-color .16s}
+    .iconbtn:hover{border-color:var(--ink)}
+    .iconbtn svg{width:17px;height:17px}
+
+    .btn{appearance:none;border:1px solid transparent;border-radius:999px;padding:11px 18px;
+      font:600 14px var(--font);cursor:pointer;letter-spacing:-.01em;display:inline-flex;align-items:center;justify-content:center;gap:7px;
+      transition:transform .12s var(--spring),box-shadow .18s,background .18s,border-color .16s}
+    .btn.ink{background:var(--ink);color:#fff;box-shadow:0 8px 20px -10px rgba(12,13,16,.55)}
+    .btn.ink:hover{transform:translateY(-1px);background:#000}
+    .btn.ghost{background:var(--glass);border-color:var(--line-strong);color:var(--ink)}
+    .btn.ghost:hover{border-color:var(--ink)}
+    .btn.sm{padding:8px 13px;font-size:13px}
+    .btn:disabled{opacity:.5;cursor:default}
+
+    /* create card */
+    .create{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:var(--pad);
+      box-shadow:var(--shadow-sm);margin-bottom:26px}
+    .create h1{font-size:20px;margin-bottom:4px}
+    .create p{color:var(--muted);font-size:13.5px;margin-bottom:16px}
+    .create .row{display:flex;gap:10px;flex-wrap:wrap}
+    .input{flex:1;min-width:200px;padding:12px 14px;background:#fff;color:var(--ink);border:1px solid var(--line-strong);
+      border-radius:var(--r-sm);font-size:15px;outline:none;transition:border-color .16s,box-shadow .16s}
+    .input:focus{border-color:var(--ink);box-shadow:0 0 0 4px rgba(12,13,16,.07)}
+
+    .head2{display:flex;align-items:baseline;gap:10px;margin:0 2px 14px}
+    .head2 h2{font-size:15px} .head2 .n{color:var(--faint);font-size:13px}
+
+    /* exam cards */
+    .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px}
+    .exam{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:18px;box-shadow:var(--shadow-sm);
+      display:flex;flex-direction:column;gap:12px}
+    .exam .top{display:flex;align-items:flex-start;gap:10px}
+    .exam .title{font-weight:600;font-size:15.5px;flex:1}
+    .pill{font-size:11.5px;font-weight:600;padding:4px 9px;border-radius:999px;background:var(--soft);color:var(--muted);white-space:nowrap}
+    .pill.open{background:var(--ok-soft);color:var(--ok)}
+    .code{display:flex;align-items:center;gap:10px;background:var(--soft);border:1px dashed var(--line-strong);
+      border-radius:var(--r-sm);padding:10px 12px}
+    .code .big{font-size:22px;font-weight:700;letter-spacing:3px}
+    .code .cp{margin-left:auto;font-size:12px;color:var(--muted);cursor:pointer;font-weight:600}
+    .code .cp:hover{color:var(--ink)}
+    .stat{display:flex;gap:16px;font-size:13px;color:var(--muted)}
+    .stat b{font-family:var(--display);font-size:18px;color:var(--ink);display:block;line-height:1.1}
+    .stat .dot{color:var(--ok)} .stat .flag b{color:var(--alert)}
+    .exam .acts{display:flex;gap:8px;flex-wrap:wrap;margin-top:auto}
+    .empty{color:var(--muted);text-align:center;padding:44px 20px;border:1px dashed var(--line-strong);border-radius:var(--r)}
+    .empty b{color:var(--ink);font-weight:600;display:block;margin-bottom:4px;font-family:var(--display)}
+    .toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%) translateY(10px);opacity:0;
+      background:var(--ink);color:#fff;padding:10px 16px;border-radius:999px;font-size:13.5px;font-weight:600;
+      box-shadow:var(--shadow);transition:opacity .25s,transform .25s var(--spring);z-index:50;pointer-events:none}
+    .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="bar">
+      <span class="brand"><span class="mk"><svg viewBox="0 0 24 24" fill="none"><path d="M6 10V7.5A1.5 1.5 0 0 1 7.5 6H10M14 6h2.5A1.5 1.5 0 0 1 18 7.5V10M18 14v2.5a1.5 1.5 0 0 1-1.5 1.5H14M10 18H7.5A1.5 1.5 0 0 1 6 16.5V14" stroke="#fff" stroke-width="1.8" stroke-linecap="round"/><circle cx="12" cy="12" r="2.6" fill="#fff"/></svg></span><b>Vigil</b><span class="tag">· Console</span></span>
+      <span class="sp"></span>
+      <span class="who" id="who"></span>
+      <button class="iconbtn" id="densityBtn" title="Toggle density" aria-label="Toggle density"><svg viewBox="0 0 24 24" fill="none"><path d="M4 6h16M4 12h16M4 18h16" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button>
+      <a class="btn ghost sm" href="/logout">Sign out</a>
+    </div>
+
+    <div class="create">
+      <h1>Start an exam room</h1>
+      <p>Give it a name and share the code with your students. Their camera runs on their own device — you'll see presence and patterns here.</p>
+      <div class="row">
+        <input class="input" id="title" placeholder="e.g. Physics · Period 3" maxlength="120">
+        <button class="btn ink" id="createBtn">Create exam</button>
+      </div>
+    </div>
+
+    <div class="head2"><h2>Your exams</h2><span class="n" id="count"></span></div>
+    <div id="list" class="grid"></div>
+  </div>
+  <div class="toast" id="toast"></div>
+
+  <script>
+  (function(){
+    var origin = location.origin;
+    var listEl = document.getElementById("list"), countEl = document.getElementById("count");
+    var toastEl = document.getElementById("toast");
+    function toast(m){ toastEl.textContent=m; toastEl.classList.add("show"); clearTimeout(toast._t); toast._t=setTimeout(function(){toastEl.classList.remove("show");},1600); }
+    function esc(s){ return String(s==null?"":s).replace(/[&<>"']/g, function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c];}); }
+
+    // density (the "minimal visual tweak")
+    var d = localStorage.getItem("vg_density") || "cozy";
+    document.documentElement.setAttribute("data-density", d==="compact"?"compact":"cozy");
+    document.getElementById("densityBtn").addEventListener("click", function(){
+      d = d==="compact" ? "cozy" : "compact";
+      localStorage.setItem("vg_density", d);
+      document.documentElement.setAttribute("data-density", d);
+      toast(d==="compact" ? "Compact view" : "Cozy view");
+    });
+
+    async function me(){ try{ var r=await fetch("/api/me"); var u=await r.json();
+      document.getElementById("who").innerHTML = u && u.username ? "Signed in as <b>"+esc(u.username)+"</b>" : ""; }catch(e){} }
+
+    async function liveCount(code){
+      try{ var r=await fetch("/api/exam/"+code+"/live"); if(!r.ok) return null; var d=await r.json();
+        var arr = Array.isArray(d) ? d : (d.students||[]);
+        var present = arr.filter(function(s){ return s.status!=="offline" && s.present!==false; }).length;
+        var flagged = arr.filter(function(s){ return s.status==="warn" || s.status==="alert"; }).length;
+        return {total:arr.length, present:present, flagged:flagged};
+      }catch(e){ return null; }
+    }
+
+    function card(x){
+      var open = x.status==="open";
+      var el = document.createElement("div"); el.className="exam";
+      el.innerHTML =
+        '<div class="top"><div class="title">'+esc(x.title||"Exam")+'</div>'+
+          '<span class="pill '+(open?"open":"")+'">'+(open?"Open":"Ended")+'</span></div>'+
+        '<div class="code"><span class="big">'+esc(x.code)+'</span>'+
+          '<span class="cp" data-cp="'+esc(x.code)+'">Copy invite</span></div>'+
+        '<div class="stat" data-live="'+esc(x.code)+'"><div><b>—</b>present</div></div>'+
+        '<div class="acts">'+
+          '<a class="btn ink sm" href="/app/live.html#'+esc(x.code)+'" target="_blank">Live room</a>'+
+          '<a class="btn ghost sm" href="/app/report.html#'+esc(x.code)+'" target="_blank">Report</a>'+
+          (open?'<button class="btn ghost sm" data-close="'+esc(x.code)+'">Close</button>':'')+
+        '</div>';
+      return el;
+    }
+
+    async function refresh(){
+      var r; try{ r = await (await fetch("/api/exam/sessions")).json(); }catch(e){ r=[]; }
+      if(!Array.isArray(r)) r=[];
+      countEl.textContent = r.length ? r.length+" total" : "";
+      if(!r.length){ listEl.innerHTML = '<div class="empty"><b>No exams yet</b>Create your first room above — you\'ll get a code to share.</div>'; return; }
+      listEl.innerHTML = "";
+      r.forEach(function(x){ listEl.appendChild(card(x)); });
+      // fill presence for open exams
+      r.filter(function(x){return x.status==="open";}).forEach(async function(x){
+        var c = await liveCount(x.code); var slot = listEl.querySelector('[data-live="'+CSS.escape(x.code)+'"]');
+        if(slot && c){ slot.innerHTML = '<div><b>'+c.present+'</b>present</div>'+
+          '<div><b>'+c.total+'</b>joined</div>'+
+          '<div class="flag"><b>'+c.flagged+'</b>flagged</div>'; }
+      });
+    }
+
+    document.getElementById("createBtn").addEventListener("click", async function(){
+      var btn=this, title=document.getElementById("title").value.trim();
+      btn.disabled=true;
+      try{
+        var r = await fetch("/api/exam/create", {method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify({title:title||"Exam"})});
+        var d = await r.json();
+        if(d && d.ok){ document.getElementById("title").value=""; toast("Exam created · code "+d.code); await refresh(); }
+        else toast((d&&d.error)||"Couldn't create the exam");
+      }catch(e){ toast("Couldn't reach the server"); }
+      btn.disabled=false;
+    });
+
+    listEl.addEventListener("click", async function(e){
+      var cp = e.target.closest("[data-cp]");
+      if(cp){ var code=cp.getAttribute("data-cp");
+        var invite = "Join my exam on Vigil — go to "+origin+"/enter and enter code "+code;
+        try{ await navigator.clipboard.writeText(invite); toast("Invite copied"); }catch(_){ toast(invite); }
+        return; }
+      var cl = e.target.closest("[data-close]");
+      if(cl){ var c=cl.getAttribute("data-close");
+        if(!confirm("Close this exam? Students will stop being monitored.")) return;
+        try{ await fetch("/api/exam/"+c+"/close", {method:"POST"}); toast("Exam closed"); await refresh(); }catch(_){ toast("Couldn't close"); }
+      }
+    });
+
+    me(); refresh();
+    setInterval(refresh, 5000);   // keep presence fresh
+  })();
+  </script>
+</body>
+</html>

@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Vigil · Enter</title>
+  <link rel="icon" href="/favicon.svg">
+  <meta name="theme-color" content="#f3f2ef">
+  <style>
+    @font-face{font-family:"Space Grotesk";src:url("/app/vendor/fonts/space-grotesk.woff2") format("woff2");
+      font-weight:300 700;font-style:normal;font-display:swap}
+    :root{
+      --bg:#f3f2ef; --ink:#0c0d10; --ink-2:#3b3e46; --muted:#7a7d84; --faint:#a6a8ad;
+      --line:rgba(12,13,16,.10); --line-strong:rgba(12,13,16,.17); --glass:rgba(255,255,255,.64);
+      --shadow:0 2px 6px rgba(15,17,24,.05),0 34px 64px -34px rgba(15,17,24,.22);
+      --shadow-sm:0 1px 2px rgba(15,17,24,.06),0 12px 26px -16px rgba(15,17,24,.16);
+      --display:"Space Grotesk",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+      --font:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Inter",system-ui,sans-serif;
+      --r:20px; --r-sm:12px; --spring:cubic-bezier(.2,.7,.2,1);
+    }
+    *{box-sizing:border-box;margin:0}
+    html,body{height:100%}
+    a{color:inherit;text-decoration:none}
+    body{background:var(--bg);color:var(--ink);font:15px/1.55 var(--font);-webkit-font-smoothing:antialiased;
+      display:grid;place-items:center;padding:22px;position:relative;
+      background-image:radial-gradient(680px 440px at 50% -8%,rgba(255,255,255,.9),transparent 66%),linear-gradient(180deg,#f5f4f1,#efeee9);background-attachment:fixed}
+    body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;opacity:.4;mix-blend-mode:soft-light;
+      background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E")}
+    h1,h2,.brand b{font-family:var(--display);letter-spacing:-.025em}
+
+    .card{position:relative;z-index:1;width:100%;max-width:440px;background:var(--glass);
+      border:1px solid rgba(255,255,255,.82);border-radius:var(--r);box-shadow:var(--shadow);
+      backdrop-filter:blur(22px) saturate(1.3);-webkit-backdrop-filter:blur(22px) saturate(1.3);
+      padding:30px 28px;animation:rise .5s var(--spring) both}
+    @keyframes rise{from{opacity:0;transform:translateY(12px) scale(.99)}}
+
+    .brand{display:flex;align-items:center;gap:10px;margin-bottom:22px}
+    .brand .mk{width:32px;height:32px;border-radius:9px;display:grid;place-items:center;background:var(--ink);box-shadow:var(--shadow-sm)}
+    .brand .mk svg{width:18px;height:18px}
+    .brand b{font-size:16px;font-weight:700}
+    .brand .tag{color:var(--muted);font-size:13px}
+
+    h1{font-size:22px;margin:0 0 6px}
+    .lead{color:var(--muted);margin:0 0 20px;font-size:14px;line-height:1.55}
+
+    /* role choice */
+    .roles{display:flex;flex-direction:column;gap:12px}
+    .role{display:flex;align-items:center;gap:14px;width:100%;text-align:left;cursor:pointer;
+      background:#fff;border:1px solid var(--line-strong);border-radius:var(--r-sm);padding:16px;
+      transition:border-color .16s,transform .16s var(--spring),box-shadow .2s}
+    .role:hover{border-color:var(--ink);transform:translateY(-1px);box-shadow:var(--shadow-sm)}
+    .role .ic{width:42px;height:42px;border-radius:11px;background:var(--ink);color:#fff;display:grid;place-items:center;flex:0 0 auto}
+    .role .ic svg{width:22px;height:22px}
+    .role .t{display:block;font-family:var(--display);font-weight:600;font-size:16px}
+    .role .s{display:block;color:var(--muted);font-size:13px;margin-top:2px}
+    .role .arw{margin-left:auto;color:var(--faint);transition:transform .2s var(--spring)}
+    .role:hover .arw{transform:translateX(3px);color:var(--ink)}
+
+    /* teacher auth */
+    .tabs{display:flex;gap:4px;background:var(--soft,#edece8);border:1px solid var(--line);border-radius:999px;padding:4px;margin-bottom:16px}
+    .tabs button{flex:1;border:0;background:none;padding:9px;border-radius:999px;font:600 13.5px var(--font);color:var(--muted);cursor:pointer;transition:all .18s}
+    .tabs button.on{background:#fff;color:var(--ink);box-shadow:var(--shadow-sm)}
+    .label{display:block;font-size:12.5px;font-weight:600;color:var(--muted);margin:14px 0 7px}
+    .input{width:100%;padding:13px 15px;background:#fff;color:var(--ink);border:1px solid var(--line-strong);
+      border-radius:var(--r-sm);font-size:15px;outline:none;transition:border-color .16s,box-shadow .16s}
+    .input:focus{border-color:var(--ink);box-shadow:0 0 0 4px rgba(12,13,16,.07)}
+    .btn{appearance:none;border:1px solid transparent;border-radius:var(--r-sm);padding:14px 18px;width:100%;
+      font:600 15px var(--font);cursor:pointer;letter-spacing:-.01em;margin-top:16px;
+      display:inline-flex;align-items:center;justify-content:center;gap:8px;
+      transition:transform .12s var(--spring),box-shadow .18s,background .18s}
+    .btn.primary{background:var(--ink);color:#fff;box-shadow:0 10px 24px -10px rgba(12,13,16,.55)}
+    .btn.primary:hover{transform:translateY(-1px);background:#000}
+    .btn.ghost{background:var(--glass);border-color:var(--line-strong);color:var(--ink);margin-top:10px}
+    .btn.ghost:hover{border-color:var(--ink)}
+    .err{color:#d83a3f;font-size:13px;min-height:15px;margin-top:12px}
+    .back{display:inline-flex;align-items:center;gap:6px;color:var(--muted);font-size:13px;font-weight:600;cursor:pointer;margin-bottom:14px}
+    .back:hover{color:var(--ink)}
+    .back svg{width:15px;height:15px}
+    .hidden{display:none !important}
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="brand">
+      <span class="mk"><svg viewBox="0 0 24 24" fill="none"><path d="M6 10V7.5A1.5 1.5 0 0 1 7.5 6H10M14 6h2.5A1.5 1.5 0 0 1 18 7.5V10M18 14v2.5a1.5 1.5 0 0 1-1.5 1.5H14M10 18H7.5A1.5 1.5 0 0 1 6 16.5V14" stroke="#fff" stroke-width="1.8" stroke-linecap="round"/><circle cx="12" cy="12" r="2.6" fill="#fff"/></svg></span>
+      <b>Vigil</b><span class="tag">· Exams</span>
+    </div>
+
+    <!-- STEP 1 · role -->
+    <section id="s-role">
+      <h1>Who's joining?</h1>
+      <p class="lead">Pick how you're here today. Students join a specific exam; teachers run them.</p>
+      <div class="roles">
+        <a class="role" href="/app/exam.html">
+          <span class="ic"><svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="8" r="3.4" stroke="#fff" stroke-width="1.7"/><path d="M5.5 19a6.5 6.5 0 0 1 13 0" stroke="#fff" stroke-width="1.7" stroke-linecap="round"/></svg></span>
+          <span><span class="t">I'm a student</span><span class="s">Join an exam with your code</span></span>
+          <span class="arw"><svg viewBox="0 0 24 24" fill="none"><path d="M5 12h14M13 6l6 6-6 6" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+        </a>
+        <button class="role" id="pickTeacher" type="button">
+          <span class="ic"><svg viewBox="0 0 24 24" fill="none"><rect x="3.5" y="5" width="17" height="12" rx="2" stroke="#fff" stroke-width="1.7"/><path d="M8 20h8" stroke="#fff" stroke-width="1.7" stroke-linecap="round"/></svg></span>
+          <span><span class="t">I'm a teacher</span><span class="s">Create rooms & watch presence</span></span>
+          <span class="arw"><svg viewBox="0 0 24 24" fill="none"><path d="M5 12h14M13 6l6 6-6 6" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+        </button>
+      </div>
+    </section>
+
+    <!-- STEP 2 · teacher auth -->
+    <section id="s-teacher" class="hidden">
+      <span class="back" id="backRole"><svg viewBox="0 0 24 24" fill="none"><path d="M15 18l-6-6 6-6" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>Back</span>
+      <h1 id="tHead">Teacher sign in</h1>
+      <div class="tabs">
+        <button id="tabIn" class="on" type="button">Sign in</button>
+        <button id="tabUp" type="button">Create account</button>
+      </div>
+
+      <form id="formIn">
+        <label class="label" for="uIn">Username</label>
+        <input class="input" id="uIn" name="username" autocomplete="username" placeholder="Your username">
+        <label class="label" for="pIn">Password</label>
+        <input class="input" id="pIn" name="password" type="password" autocomplete="current-password" placeholder="••••••••">
+        <button class="btn primary" type="submit">Sign in</button>
+      </form>
+
+      <form id="formUp" class="hidden">
+        <label class="label" for="uUp">Choose a username</label>
+        <input class="input" id="uUp" name="username" autocomplete="username" placeholder="e.g. ms.sharma">
+        <label class="label" for="pUp">Choose a password</label>
+        <input class="input" id="pUp" name="password" type="password" autocomplete="new-password" placeholder="At least 6 characters">
+        <button class="btn primary" type="submit">Create teacher account</button>
+      </form>
+      <div class="err" id="tErr"></div>
+    </section>
+  </div>
+
+  <script>
+    var role = document.getElementById("s-role"), teacher = document.getElementById("s-teacher");
+    document.getElementById("pickTeacher").addEventListener("click", function(){ role.classList.add("hidden"); teacher.classList.remove("hidden"); });
+    document.getElementById("backRole").addEventListener("click", function(){ teacher.classList.add("hidden"); role.classList.remove("hidden"); });
+    var tabIn=document.getElementById("tabIn"), tabUp=document.getElementById("tabUp"),
+        formIn=document.getElementById("formIn"), formUp=document.getElementById("formUp"), head=document.getElementById("tHead");
+    function show(which){
+      var up = which==="up";
+      tabUp.classList.toggle("on", up); tabIn.classList.toggle("on", !up);
+      formUp.classList.toggle("hidden", !up); formIn.classList.toggle("hidden", up);
+      head.textContent = up ? "Create a teacher account" : "Teacher sign in";
+    }
+    tabIn.addEventListener("click", function(){ show("in"); });
+    tabUp.addEventListener("click", function(){ show("up"); });
+
+    var err = document.getElementById("tErr");
+    async function submitTeacher(endpoint, u, p, btn){
+      err.textContent = "";
+      if (!u || !p){ err.textContent = "Fill in both fields."; return; }
+      btn.disabled = true;
+      try {
+        var r = await fetch(endpoint, { method:"POST", headers:{"Content-Type":"application/json"},
+          body: JSON.stringify({ username:u, password:p }) });
+        var d = await r.json();
+        if (d.ok){ location.href = d.next || "/console"; return; }
+        err.textContent = d.error || "Something went wrong.";
+      } catch(e){ err.textContent = "Couldn't reach the server."; }
+      btn.disabled = false;
+    }
+    formIn.addEventListener("submit", function(e){ e.preventDefault();
+      submitTeacher("/teacher/login", uIn.value.trim(), pIn.value, formIn.querySelector("button")); });
+    formUp.addEventListener("submit", function(e){ e.preventDefault();
+      submitTeacher("/teacher/signup", uUp.value.trim(), pUp.value, formUp.querySelector("button")); });
+  </script>
+</body>
+</html>
