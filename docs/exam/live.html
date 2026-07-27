@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Vigil · Live exam</title>
+  <link rel="icon" href="/favicon.svg">
+  <meta name="theme-color" content="#f3f2ef">
+  <link rel="stylesheet" href="/exam/style.css">
+  <style>
+    .bar{position:sticky;top:0;z-index:10;display:flex;align-items:center;gap:14px;padding:14px 22px;
+      background:rgba(255,255,255,.7);backdrop-filter:blur(12px);border-bottom:1px solid var(--line)}
+    .bar .code{color:var(--muted);font:600 13px ui-monospace,Menlo,monospace;letter-spacing:2px}
+    .bar .sp{flex:1}
+    .live{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);font-weight:600}
+    .live i{width:8px;height:8px;border-radius:50%;background:var(--ink);animation:pulse 1.6s infinite}
+    @keyframes pulse{0%,100%{opacity:1}50%{opacity:.25}}
+    .wrap{max-width:1100px;margin:0 auto;padding:22px}
+    .counts{display:flex;gap:8px}
+    .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:14px}
+    .tile{background:var(--card);border:1px solid var(--line);border-left:4px solid var(--faint);border-radius:var(--r-sm);
+      padding:15px;box-shadow:var(--shadow-sm);transition:box-shadow .3s,border-color .3s,transform .3s var(--spring);animation:pop .4s var(--spring) both}
+    @keyframes pop{from{opacity:0;transform:scale(.9)}}
+    .tile.ok{border-left-color:var(--ok)} .tile.warn{border-left-color:var(--warn);background:linear-gradient(180deg,var(--warn-soft),#fff 60%)}
+    .tile.alert{border-left-color:var(--alert);background:linear-gradient(180deg,var(--alert-soft),#fff 60%)}
+    .tile.offline{opacity:.55}
+    .tile .top{display:flex;align-items:center;gap:9px;margin-bottom:6px}
+    .name{font-weight:600;font-size:14.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .status{font-size:13px;color:var(--muted)} .tile.warn .status{color:var(--warn)} .tile.alert .status{color:var(--alert)}
+    .empty{text-align:center;color:var(--muted);padding:70px 20px} .empty .big{font-size:18px;color:var(--ink);margin-bottom:6px;font-weight:600}
+    .backlink{color:var(--ink);font-size:13.5px;font-weight:600;display:inline-flex;align-items:center;gap:5px}
+    .backlink svg{width:15px;height:15px}
+  </style>
+</head>
+<body>
+  <div class="bar">
+    <a class="backlink" href="/exam/console.html"><svg viewBox="0 0 24 24" fill="none"><path d="M15 18l-6-6 6-6" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg></a>
+    <span class="brand"><b id="title" style="font-size:15px">Live exam</b></span>
+    <span class="code" id="code"></span>
+    <span class="live"><i></i> Live</span>
+    <div class="sp"></div>
+    <div class="counts"><span class="pill" id="cJoined">0 joined</span><span class="pill ok" id="cPresent">0 present</span><span class="pill alert" id="cFlag" style="display:none">0 flagged</span></div>
+  </div>
+  <div class="wrap"><div id="out"><div class="empty"><div class="big">Waiting for students…</div>Share the code — names appear here the moment they join.</div></div></div>
+
+  <script type="module">
+    import { sb, esc } from "/exam/sb.js";
+    const $ = id => document.getElementById(id);
+    const examId = new URLSearchParams(location.search).get("e");
+    const state = new Map();   // participant id -> row
+
+    function fresh(row){ return (Date.now() - new Date(row.last_seen).getTime()) < 15000; }
+    function tileClass(row){ if(!fresh(row)) return "offline"; return row.status || "ok"; }
+    function statusLabel(row){ if(!fresh(row)) return "Offline"; return {ok:"Present",warn:"Looking away",alert:"Needs attention"}[row.status] || "Present"; }
+
+    function render(){
+      const rows = [...state.values()].sort((a,b)=> new Date(a.joined_at)-new Date(b.joined_at));
+      const present = rows.filter(fresh).length;
+      const flagged = rows.filter(r=>fresh(r) && (r.status==="warn"||r.status==="alert")).length;
+      $("cJoined").textContent = rows.length + " joined";
+      $("cPresent").textContent = present + " present";
+      const cf = $("cFlag"); cf.style.display = flagged ? "" : "none"; cf.textContent = flagged + " flagged";
+      if (!rows.length){ $("out").innerHTML = '<div class="empty"><div class="big">Waiting for students…</div>Share the code — names appear here the moment they join.</div>'; return; }
+      $("out").innerHTML = '<div class="grid">' + rows.map(r => {
+        const c = tileClass(r);
+        return '<div class="tile '+c+'"><div class="top"><span class="dot '+(c==="offline"?"":c)+'"></span><span class="name">'+esc(r.name)+'</span></div>'+
+          '<div class="status">'+statusLabel(r)+'</div></div>';
+      }).join("") + '</div>';
+    }
+
+    (async () => {
+      const { data:{ user } } = await sb.auth.getUser();
+      if (!user || user.is_anonymous) { location.replace("/exam/"); return; }
+      if (!examId) { location.replace("/exam/console.html"); return; }
+      const { data:exam } = await sb.from("exams").select("title,code,status").eq("id", examId).maybeSingle();
+      if (exam){ $("title").textContent = exam.title; $("code").textContent = exam.code; document.title = "Vigil · " + exam.title; }
+
+      const { data:rows } = await sb.from("participants").select("*").eq("exam_id", examId);
+      (rows||[]).forEach(r => state.set(r.id, r));
+      render();
+
+      // realtime: names + status changes stream in
+      sb.channel("exam-"+examId)
+        .on("postgres_changes", { event:"*", schema:"public", table:"participants", filter:"exam_id=eq."+examId },
+          (payload) => {
+            if (payload.eventType === "DELETE") state.delete(payload.old.id);
+            else state.set(payload.new.id, payload.new);
+            render();
+          })
+        .subscribe();
+
+      setInterval(render, 5000);   // re-evaluate presence freshness
+    })();
+  </script>
+</body>
+</html>

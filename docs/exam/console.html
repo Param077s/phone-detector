@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Vigil · Teacher console</title>
+  <link rel="icon" href="/favicon.svg">
+  <meta name="theme-color" content="#f3f2ef">
+  <link rel="stylesheet" href="/exam/style.css">
+  <style>
+    .wrap{max-width:940px;margin:0 auto;padding:0 22px 80px}
+    .bar{position:sticky;top:0;z-index:10;display:flex;align-items:center;gap:14px;padding:15px 0;margin-bottom:8px}
+    .bar .sp{flex:1} .who{color:var(--muted);font-size:13.5px} .who b{color:var(--ink);font-weight:600}
+    .create{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:22px;box-shadow:var(--shadow-sm);margin-bottom:26px}
+    .create h1{font-size:20px;margin-bottom:4px} .create p{color:var(--muted);font-size:13.5px;margin-bottom:16px}
+    .create .row{display:flex;gap:10px;flex-wrap:wrap} .create .input{flex:1;min-width:200px}
+    .head2{display:flex;align-items:baseline;gap:10px;margin:0 2px 14px} .head2 h2{font-size:15px} .head2 .n{color:var(--faint);font-size:13px}
+    .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px}
+    .exam{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:18px;box-shadow:var(--shadow-sm);display:flex;flex-direction:column;gap:12px}
+    .exam .top{display:flex;align-items:flex-start;gap:10px} .exam .title{font-weight:600;font-size:15.5px;flex:1}
+    .code{display:flex;align-items:center;gap:10px;background:var(--soft);border:1px dashed var(--line-strong);border-radius:var(--r-sm);padding:10px 12px}
+    .code .big{font-size:22px;font-weight:700;letter-spacing:3px} .code .cp{margin-left:auto;font-size:12px;color:var(--muted);cursor:pointer;font-weight:600}
+    .code .cp:hover{color:var(--ink)}
+    .stat{display:flex;gap:16px;font-size:13px;color:var(--muted)} .stat b{font-family:var(--display);font-size:18px;color:var(--ink);display:block;line-height:1.1}
+    .exam .acts{display:flex;gap:8px;flex-wrap:wrap;margin-top:auto}
+    .empty{color:var(--muted);text-align:center;padding:44px 20px;border:1px dashed var(--line-strong);border-radius:var(--r)}
+    .empty b{color:var(--ink);font-weight:600;display:block;margin-bottom:4px;font-family:var(--display)}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="bar">
+      <span class="brand"><span class="mk"><svg viewBox="0 0 24 24" fill="none"><path d="M6 10V7.5A1.5 1.5 0 0 1 7.5 6H10M14 6h2.5A1.5 1.5 0 0 1 18 7.5V10M18 14v2.5a1.5 1.5 0 0 1-1.5 1.5H14M10 18H7.5A1.5 1.5 0 0 1 6 16.5V14" stroke="#fff" stroke-width="1.8" stroke-linecap="round"/><circle cx="12" cy="12" r="2.6" fill="#fff"/></svg></span><b>Vigil</b><span class="tag">· Console</span></span>
+      <span class="sp"></span>
+      <span class="who" id="who"></span>
+      <button class="btn ghost sm" id="signout">Sign out</button>
+    </div>
+
+    <div class="create">
+      <h1>Start an exam room</h1>
+      <p>Name it, share the code — students join from the website, no download. You'll see them arrive live.</p>
+      <div class="row">
+        <input class="input" id="title" placeholder="e.g. Physics · Period 3" maxlength="120">
+        <button class="btn ink" id="createBtn">Create exam</button>
+      </div>
+    </div>
+
+    <div class="head2"><h2>Your exams</h2><span class="n" id="count"></span></div>
+    <div id="list" class="grid"></div>
+  </div>
+  <div class="toast" id="toast"></div>
+
+  <script type="module">
+    import { sb, esc } from "/exam/sb.js";
+    const $ = id => document.getElementById(id);
+    const listEl = $("list"), countEl = $("count"), toastEl = $("toast");
+    const toast = (m) => { toastEl.textContent=m; toastEl.classList.add("show"); clearTimeout(toast._t); toast._t=setTimeout(()=>toastEl.classList.remove("show"),1700); };
+    const origin = location.origin;
+
+    let me = null;
+    (async () => {
+      const { data:{ user } } = await sb.auth.getUser();
+      if (!user || user.is_anonymous || !user.email) { location.replace("/exam/"); return; }
+      me = user;
+      $("who").innerHTML = "Signed in as <b>" + esc(user.email) + "</b>";
+      refresh();
+      setInterval(refresh, 5000);
+    })();
+
+    $("signout").onclick = async () => { await sb.auth.signOut(); location.href = "/exam/"; };
+
+    async function newCode(){
+      const { data, error } = await sb.rpc("new_exam_code");
+      if (error || !data) return Array.from({length:6}, () => "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"[Math.floor(Math.random()*31)]).join("");
+      return data;
+    }
+
+    $("createBtn").onclick = async () => {
+      const btn=$("createBtn"), title=$("title").value.trim() || "Exam";
+      btn.disabled = true;
+      try {
+        const code = await newCode();
+        const { error } = await sb.from("exams").insert({ code, title, owner: me.id, status: "open" });
+        if (error) throw error;
+        $("title").value = ""; toast("Exam created · code " + code); await refresh();
+      } catch (ex) { toast(ex.message || "Couldn't create exam"); }
+      btn.disabled = false;
+    };
+
+    async function presence(examId){
+      const { count } = await sb.from("participants").select("id",{count:"exact",head:true}).eq("exam_id",examId);
+      const { count:flag } = await sb.from("participants").select("id",{count:"exact",head:true}).eq("exam_id",examId).in("status",["warn","alert"]);
+      return { total: count||0, flagged: flag||0 };
+    }
+
+    function card(x){
+      const open = x.status === "open";
+      const el = document.createElement("div"); el.className = "exam";
+      el.innerHTML =
+        '<div class="top"><div class="title">'+esc(x.title)+'</div><span class="pill '+(open?"ok":"")+'">'+(open?"Open":"Ended")+'</span></div>'+
+        '<div class="code"><span class="big">'+esc(x.code)+'</span><span class="cp" data-cp="'+esc(x.code)+'">Copy invite</span></div>'+
+        '<div class="stat" data-p="'+esc(x.id)+'"><div><b>—</b>joined</div></div>'+
+        '<div class="acts">'+
+          '<a class="btn ink sm" href="/exam/live.html?e='+encodeURIComponent(x.id)+'">Live room</a>'+
+          (open?'<button class="btn ghost sm" data-close="'+esc(x.id)+'">Close</button>':'')+
+        '</div>';
+      return el;
+    }
+
+    async function refresh(){
+      const { data, error } = await sb.from("exams").select("id,code,title,status").eq("owner", me.id).order("created_at",{ascending:false});
+      if (error) { return; }
+      const rows = data || [];
+      countEl.textContent = rows.length ? rows.length + " total" : "";
+      if (!rows.length){ listEl.innerHTML = '<div class="empty"><b>No exams yet</b>Create your first room above — you\'ll get a code to share.</div>'; return; }
+      listEl.innerHTML = ""; rows.forEach(x => listEl.appendChild(card(x)));
+      rows.forEach(async x => {
+        const p = await presence(x.id); const slot = listEl.querySelector('[data-p="'+CSS.escape(x.id)+'"]');
+        if (slot) slot.innerHTML = '<div><b>'+p.total+'</b>joined</div><div><b>'+p.flagged+'</b>flagged</div>';
+      });
+    }
+
+    listEl.addEventListener("click", async (e) => {
+      const cp = e.target.closest("[data-cp]");
+      if (cp){ const code=cp.getAttribute("data-cp");
+        try{ await navigator.clipboard.writeText("Join my exam on Vigil — go to "+origin+"/exam and enter code "+code); toast("Invite copied"); }catch(_){ toast("Code: "+code); } return; }
+      const cl = e.target.closest("[data-close]");
+      if (cl){ if(!confirm("Close this exam? Students stop being monitored.")) return;
+        await sb.from("exams").update({ status:"closed", closed_at:new Date().toISOString() }).eq("id", cl.getAttribute("data-close"));
+        toast("Exam closed"); refresh(); }
+    });
+  </script>
+</body>
+</html>
