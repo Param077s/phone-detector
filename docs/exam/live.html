@@ -15,11 +15,13 @@
     .live{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);font-weight:600}
     .live i{width:8px;height:8px;border-radius:50%;background:var(--ink);animation:pulse 1.6s infinite}
     @keyframes pulse{0%,100%{opacity:1}50%{opacity:.25}}
-    .wrap{max-width:1100px;margin:0 auto;padding:22px}
+    .wrap{max-width:1200px;margin:0 auto;padding:22px;display:flex;gap:18px;align-items:flex-start}
+    #main{flex:1;min-width:0}
     .counts{display:flex;gap:8px}
     .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:14px}
     .tile{background:var(--card);border:1px solid var(--line);border-left:4px solid var(--faint);border-radius:var(--r-sm);
-      padding:15px;box-shadow:var(--shadow-sm);transition:box-shadow .3s,border-color .3s,transform .3s var(--spring);animation:pop .4s var(--spring) both}
+      padding:15px;box-shadow:var(--shadow-sm);cursor:pointer;transition:box-shadow .3s,border-color .3s,transform .3s var(--spring);animation:pop .4s var(--spring) both}
+    .tile:hover{box-shadow:var(--shadow);transform:translateY(-1px)}
     @keyframes pop{from{opacity:0;transform:scale(.9)}}
     .tile.ok{border-left-color:var(--ok)} .tile.warn{border-left-color:var(--warn);background:linear-gradient(180deg,var(--warn-soft),#fff 60%)}
     .tile.alert{border-left-color:var(--alert);background:linear-gradient(180deg,var(--alert-soft),#fff 60%)}
@@ -30,6 +32,28 @@
     .empty{text-align:center;color:var(--muted);padding:70px 20px} .empty .big{font-size:18px;color:var(--ink);margin-bottom:6px;font-weight:600}
     .backlink{color:var(--ink);font-size:13.5px;font-weight:600;display:inline-flex;align-items:center;gap:5px}
     .backlink svg{width:15px;height:15px}
+    /* live alerts feed */
+    .feed{flex:0 0 290px;width:290px;position:sticky;top:76px;background:var(--card);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow-sm);overflow:hidden}
+    .feed-h{font-size:12px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--faint);padding:14px 16px 8px}
+    .feed-list{max-height:70vh;overflow-y:auto}
+    .fi{display:flex;gap:10px;align-items:baseline;padding:9px 16px;border-top:1px solid var(--line);cursor:pointer;animation:pop .3s var(--spring) both}
+    .fi:hover{background:var(--soft)}
+    .fi .fdot{width:8px;height:8px;border-radius:50%;background:var(--alert);flex:0 0 8px;position:relative;top:4px}
+    .fi .fn{font-weight:600;font-size:13.5px;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .fi .fk{font-size:12.5px;color:var(--alert);font-weight:600} .fi .ft{font-size:11px;color:var(--faint);font-variant-numeric:tabular-nums}
+    .feed-empty{padding:14px 16px 18px;color:var(--faint);font-size:12.5px}
+    /* drill-down modal */
+    .modal{position:fixed;inset:0;z-index:100;display:none;place-items:center;padding:20px;background:rgba(243,242,239,.6);backdrop-filter:blur(12px)}
+    .modal.open{display:grid}
+    .modalCard{position:relative;width:min(460px,100%);max-height:80vh;overflow-y:auto;background:var(--card);border:1px solid var(--line);border-radius:20px;padding:24px;box-shadow:var(--shadow)}
+    .modalCard h3{font-size:18px;margin:0 0 3px} .modalCard .msub{color:var(--muted);font-size:13px;margin-bottom:14px}
+    .modalX{position:absolute;top:14px;right:14px;width:28px;height:28px;border-radius:50%;border:1px solid var(--line);background:var(--glass);cursor:pointer;color:var(--muted)}
+    .tl{position:relative;margin-left:4px;padding-left:18px;border-left:2px solid var(--line)}
+    .mev{position:relative;padding:7px 0;font-size:13.5px;display:flex;gap:12px}
+    .mev::before{content:"";position:absolute;left:-24px;top:13px;width:8px;height:8px;border-radius:50%;background:var(--faint);box-shadow:0 0 0 3px var(--card)}
+    .mev.warn::before{background:var(--warn)} .mev.alert::before{background:var(--alert)}
+    .mev .mt{color:var(--muted);font-variant-numeric:tabular-nums;flex:0 0 74px}
+    @media(max-width:860px){ .wrap{flex-direction:column} .feed{width:auto;flex:auto;position:static} .feed-list{max-height:none} }
   </style>
 </head>
 <body>
@@ -41,7 +65,22 @@
     <div class="sp"></div>
     <div class="counts"><span class="pill" id="cJoined">0 joined</span><span class="pill ok" id="cPresent">0 present</span><span class="pill alert" id="cFlag" style="display:none">0 flagged</span></div>
   </div>
-  <div class="wrap"><div id="out"><div class="empty"><div class="big">Waiting for students…</div>Share the code — names appear here the moment they join.</div></div></div>
+  <div class="wrap">
+    <div id="main"><div id="out"><div class="empty"><div class="big">Waiting for students…</div>Share the code — names appear here the moment they join.</div></div></div>
+    <aside class="feed" id="feed">
+      <div class="feed-h">Live alerts</div>
+      <div class="feed-list" id="feedList"><div class="feed-empty">Serious flags — phones, second faces, hiding Vigil — appear here the instant they happen.</div></div>
+    </aside>
+  </div>
+
+  <div class="modal" id="modal" aria-hidden="true">
+    <div class="modalCard">
+      <button class="modalX" id="modalX" aria-label="Close">✕</button>
+      <h3 id="mName">Student</h3>
+      <div class="msub" id="mSub"></div>
+      <div id="mBody"></div>
+    </div>
+  </div>
 
   <script type="module">
     import { sb, esc } from "/exam/sb.js";
@@ -49,6 +88,9 @@
     const examId = new URLSearchParams(location.search).get("e");
     const state = new Map();   // participant id -> row
     let CLOSED = false;        // a closed exam = static roster of who was in it
+    const LABELS = { head_down:"Looked down", look_away:"Looked away", face_absent:"Face not visible", second_face:"Second face detected", phone:"Phone detected", camera_off:"Camera off", monitor_hidden:"Hid / left Vigil", left_exam:"Closed Vigil", virtual_cam:"Virtual camera" };
+    const ALERT_KINDS = new Set(["second_face","phone","camera_off","monitor_hidden","left_exam","virtual_cam"]);
+    const hhmmss = iso => new Date(iso).toLocaleTimeString([], {hour:"2-digit",minute:"2-digit",second:"2-digit"});
 
     function fresh(row){ if (CLOSED) return true; return (Date.now() - new Date(row.last_seen).getTime()) < 15000; }
     function tileClass(row){ if(!fresh(row)) return "offline"; return row.status || "ok"; }
@@ -71,9 +113,41 @@
         : '<div class="empty"><div class="big">Waiting for students…</div>Share the code — names appear here the moment they join.</div>'; return; }
       $("out").innerHTML = '<div class="grid">' + rows.map(r => {
         const c = tileClass(r);
-        return '<div class="tile '+c+'"><div class="top"><span class="dot '+(c==="offline"?"":c)+'"></span><span class="name">'+esc(r.name)+'</span></div>'+
+        return '<div class="tile '+c+'" data-id="'+esc(r.id)+'"><div class="top"><span class="dot '+(c==="offline"?"":c)+'"></span><span class="name">'+esc(r.name)+'</span></div>'+
           '<div class="status">'+statusLabel(r)+'</div></div>';
       }).join("") + '</div>';
+    }
+
+    // ── drill-down: click a tile (or a feed item) → that student's timeline ──
+    async function openDrill(pid){
+      const row = state.get(pid);
+      $("mName").textContent = row ? row.name : "Student";
+      $("mSub").textContent = "Loading…"; $("mBody").innerHTML = ""; $("modal").classList.add("open");
+      const { data:evs } = await sb.from("events").select("kind,severity,at").eq("participant_id", pid).order("at",{ascending:false}).limit(60);
+      const list = evs || [];
+      $("mSub").textContent = list.length ? list.length + " flag" + (list.length===1?"":"s") : "No flags recorded";
+      $("mBody").innerHTML = list.length
+        ? '<div class="tl">' + list.map(e => '<div class="mev '+esc(e.severity)+'"><span class="mt">'+hhmmss(e.at)+'</span><span>'+esc(LABELS[e.kind]||e.kind)+'</span></div>').join("") + '</div>'
+        : '<div style="color:var(--muted);font-size:13.5px">This student has a clean record so far.</div>';
+    }
+    function closeDrill(){ $("modal").classList.remove("open"); }
+    $("modalX").onclick = closeDrill;
+    $("modal").addEventListener("click", e => { if (e.target === $("modal")) closeDrill(); });
+    addEventListener("keydown", e => { if (e.key === "Escape") closeDrill(); });
+    $("out").addEventListener("click", e => { const t = e.target.closest(".tile"); if (t) openDrill(t.getAttribute("data-id")); });
+
+    // ── live alerts feed (serious flags stream in as they happen) ──
+    function pushFeed(ev){
+      const row = state.get(ev.participant_id);
+      const el = $("feedList");
+      if (el.querySelector(".feed-empty")) el.innerHTML = "";
+      const item = document.createElement("div");
+      item.className = "fi"; item.setAttribute("data-id", ev.participant_id);
+      item.innerHTML = '<span class="fdot"></span><span class="fn">'+esc(row ? row.name : "A student")+'</span>'+
+        '<span class="fk">'+esc(LABELS[ev.kind]||ev.kind)+'</span><span class="ft">'+hhmmss(ev.at)+'</span>';
+      item.onclick = () => openDrill(ev.participant_id);
+      el.insertBefore(item, el.firstChild);
+      while (el.children.length > 40) el.removeChild(el.lastChild);
     }
 
     (async () => {
@@ -84,14 +158,14 @@
       // this page is the teacher's — only the exam's owner may watch its room
       if (!exam || exam.owner !== user.id) { location.replace("/exam/console.html"); return; }
       CLOSED = exam.status === "closed";
-      if (CLOSED) { const lv = document.querySelector(".live"); if (lv) lv.style.display = "none"; }
+      if (CLOSED) { const lv = document.querySelector(".live"); if (lv) lv.style.display = "none"; $("feed").style.display = "none"; }
       $("title").textContent = (CLOSED ? "Who was in · " : "") + exam.title; $("code").textContent = exam.code; document.title = "Vigil · " + exam.title;
 
       const { data:rows } = await sb.from("participants").select("*").eq("exam_id", examId);
       (rows||[]).forEach(r => state.set(r.id, r));
       render();
 
-      // realtime: names + status changes stream in
+      // realtime: names + status changes stream in; serious flags also feed the alerts panel
       sb.channel("exam-"+examId)
         .on("postgres_changes", { event:"*", schema:"public", table:"participants", filter:"exam_id=eq."+examId },
           (payload) => {
@@ -99,6 +173,8 @@
             else state.set(payload.new.id, payload.new);
             render();
           })
+        .on("postgres_changes", { event:"INSERT", schema:"public", table:"events", filter:"exam_id=eq."+examId },
+          (payload) => { const ev = payload.new; if (!CLOSED && ALERT_KINDS.has(ev.kind)) pushFeed(ev); })
         .subscribe();
 
       setInterval(render, 5000);   // re-evaluate presence freshness
