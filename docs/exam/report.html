@@ -15,9 +15,33 @@
     .gen{color:var(--faint);font-size:12px;margin:0 0 20px}
     .backlink{color:var(--ink);font-size:13.5px;font-weight:600;display:inline-flex;align-items:center;gap:5px}
     .backlink svg{width:15px;height:15px}
+    .summary{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:0 0 18px}
+    .stat{font-size:13px;font-weight:600;padding:6px 12px;border-radius:999px;background:var(--soft);border:1px solid var(--line);color:var(--muted)}
+    .stat b{color:var(--ink);font-variant-numeric:tabular-nums}
+    .stat.alert{color:var(--alert);background:var(--alert-soft);border-color:#f3c9ca} .stat.alert b{color:var(--alert)}
+    .stat.warn{color:var(--warn);background:var(--warn-soft);border-color:#f0dcb6} .stat.warn b{color:var(--warn)}
+    .stat.ok{color:var(--ok);background:var(--ok-soft);border-color:#c3e6d5} .stat.ok b{color:var(--ok)}
+    .toggle{margin-left:auto;font-size:13px;color:var(--muted);font-weight:600;display:inline-flex;align-items:center;gap:7px;cursor:pointer;user-select:none}
+    .toggle input{accent-color:var(--ink);width:15px;height:15px}
+    .sec-h{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--faint);font-weight:700;margin:22px 0 10px}
     .student{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:20px 22px;margin-bottom:16px;box-shadow:var(--shadow-sm)}
+    .student.hide{display:none}
+    .student.pri{border-color:#f3c9ca} .student.pri-w{border-color:#f0dcb6}
     .student h2{font-size:17px;margin:0 0 12px;display:flex;align-items:center;gap:10px}
+    .student h2 .sd{width:9px;height:9px;border-radius:50%;flex:0 0 9px;background:var(--faint)}
+    .student h2 .sd.warn{background:var(--warn)} .student h2 .sd.alert{background:var(--alert)}
+    .student h2 .n{flex:1} .student h2 .ct{font-size:12.5px;font-weight:600;color:var(--muted)}
     .chips{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 16px}
+    /* cleared students — compact, collapsed by default */
+    .clearbox{background:var(--card);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow-sm);margin-bottom:16px}
+    .clearbox>summary{list-style:none;cursor:pointer;padding:15px 20px;font-size:14px;font-weight:600;display:flex;align-items:center;gap:10px}
+    .clearbox>summary::-webkit-details-marker{display:none}
+    .clearbox>summary .sd{width:9px;height:9px;border-radius:50%;background:var(--ok)}
+    .clearbox>summary .cv{margin-left:auto;color:var(--faint);font-size:12px;font-weight:600}
+    .clearbox .names{display:flex;flex-wrap:wrap;gap:8px;padding:0 20px 18px}
+    .clearbox .names span{font-size:13px;padding:5px 11px;border-radius:999px;background:var(--soft);border:1px solid var(--line);color:var(--muted)}
+    .moreev{list-style:none} .moreev>summary{list-style:none;cursor:pointer;color:var(--muted);font-size:13px;font-weight:600;padding:8px 0}
+    .moreev>summary::-webkit-details-marker{display:none}
     .chip{font-size:12.5px;padding:5px 11px;border-radius:999px;background:var(--soft);border:1px solid var(--line);color:var(--muted)}
     .chip b{font-weight:700}
     .chip.warn{color:var(--warn);background:var(--warn-soft);border-color:#f0dcb6}
@@ -29,8 +53,10 @@
     .ev.warn::before{background:var(--warn)} .ev.alert::before{background:var(--alert)}
     .ev .time{color:var(--muted);font-variant-numeric:tabular-nums;flex:0 0 78px}
     .empty{color:var(--muted);text-align:center;padding:40px 0}
-    @media print{ body{background:#fff;background-image:none} .bar .btn,.backlink{display:none !important}
+    @media print{ body{background:#fff;background-image:none} .bar .btn,.backlink,.toggle{display:none !important}
       .student{box-shadow:none;break-inside:avoid;page-break-inside:avoid;margin-bottom:12px}
+      .student.hide{display:block !important} .clearbox .names{display:flex !important}
+      .moreev>summary{display:none}
       *{-webkit-print-color-adjust:exact;print-color-adjust:exact} }
   </style>
 </head>
@@ -46,6 +72,7 @@
     <h1 id="title">Exam report</h1>
     <p class="sub" id="sub"></p>
     <div class="gen" id="gen"></div>
+    <div class="summary" id="summary" style="display:none"></div>
     <div id="out"><div class="empty">Loading…</div></div>
   </div>
 
@@ -53,7 +80,9 @@
     import { sb, esc } from "/exam/sb.js";
     const $ = id => document.getElementById(id);
     const examId = new URLSearchParams(location.search).get("e");
-    const LABELS = { head_down:"Looked down", face_absent:"Face not visible", second_face:"Second face detected", camera_off:"Camera off", calibrated:"Calibrated" };
+    const LABELS = { head_down:"Looked down", look_away:"Looked away", face_absent:"Face not visible", second_face:"Second face detected", camera_off:"Camera off", calibrated:"Calibrated" };
+    const ALERT_KINDS = new Set(["second_face","camera_off"]);
+    const CAP = 8;   // events shown before a timeline collapses the rest
     const fmt = (iso) => { const d = new Date(iso); return d.toLocaleTimeString([], {hour:"2-digit",minute:"2-digit",second:"2-digit"}); };
 
     let rowsForCsv = [];
@@ -78,22 +107,64 @@
       const byP = new Map();
       (events||[]).forEach(e => { if(!byP.has(e.participant_id)) byP.set(e.participant_id, []); byP.get(e.participant_id).push(e); });
 
-      const students = (parts||[]).sort((a,b)=> new Date(a.joined_at)-new Date(b.joined_at));
-      if (!students.length){ $("out").innerHTML = '<div class="empty">No one joined this exam.</div>'; return; }
+      const roster = (parts||[]).sort((a,b)=> new Date(a.joined_at)-new Date(b.joined_at));
+      if (!roster.length){ $("out").innerHTML = '<div class="empty">No one joined this exam.</div>'; return; }
 
-      $("out").innerHTML = students.map(p => {
+      // build per-student info + CSV rows (CSV keeps every student, chronological)
+      const info = roster.map(p => {
         const evs = byP.get(p.id) || [];
-        const counts = {};
-        evs.forEach(e => counts[e.kind] = (counts[e.kind]||0)+1);
+        const counts = {}; let alerts = 0;
+        evs.forEach(e => { counts[e.kind] = (counts[e.kind]||0)+1; if (e.severity==="alert"||ALERT_KINDS.has(e.kind)) alerts++; });
         evs.forEach(e => rowsForCsv.push([p.name, LABELS[e.kind]||e.kind, e.severity, fmt(e.at)]));
-        const chips = Object.keys(counts).length
-          ? Object.entries(counts).map(([k,n]) => '<span class="chip '+(k==="second_face"||k==="camera_off"?"alert":"warn")+'"><b>'+n+'</b> '+esc(LABELS[k]||k)+'</span>').join("")
-          : '<span class="chip ok">No flags — clear throughout</span>';
-        const timeline = evs.length
-          ? '<div class="tl">'+evs.map(e => '<div class="ev '+esc(e.severity)+'"><span class="time">'+fmt(e.at)+'</span><span class="what">'+esc(LABELS[e.kind]||e.kind)+'</span></div>').join("")+'</div>'
-          : "";
-        return '<div class="student"><h2>'+esc(p.name)+'</h2><div class="chips">'+chips+'</div>'+timeline+'</div>';
-      }).join("");
+        return { p, evs, counts, alerts, flags: evs.length };
+      });
+      const flagged = info.filter(i => i.flags > 0)
+        .sort((a,b) => b.alerts - a.alerts || b.flags - a.flags || a.p.name.localeCompare(b.p.name));
+      const clear = info.filter(i => i.flags === 0);
+
+      // summary
+      const stat = (cls,n,label) => '<span class="stat '+cls+'"><b>'+n+'</b> '+label+'</span>';
+      const alertStudents = flagged.filter(i=>i.alerts>0).length;
+      $("summary").style.display = "flex";
+      $("summary").innerHTML =
+        stat("", roster.length, roster.length===1?"student":"students") +
+        (alertStudents ? stat("alert", alertStudents, "with alerts") : "") +
+        (flagged.length ? stat("warn", flagged.length, "flagged") : "") +
+        stat("ok", clear.length, "clear") +
+        (flagged.length && clear.length ? '<label class="toggle"><input type="checkbox" id="flagOnly"> Flagged only</label>' : "");
+
+      const card = (i) => {
+        const p = i.p, evs = i.evs;
+        const sev = i.alerts>0 ? "alert" : "warn";
+        const chips = Object.entries(i.counts)
+          .sort((a,b)=> b[1]-a[1])
+          .map(([k,n]) => '<span class="chip '+(ALERT_KINDS.has(k)?"alert":"warn")+'"><b>'+n+'</b> '+esc(LABELS[k]||k)+'</span>').join("");
+        const evHtml = e => '<div class="ev '+esc(e.severity)+'"><span class="time">'+fmt(e.at)+'</span><span class="what">'+esc(LABELS[e.kind]||e.kind)+'</span></div>';
+        let timeline;
+        if (evs.length <= CAP) {
+          timeline = '<div class="tl">'+evs.map(evHtml).join("")+'</div>';
+        } else {
+          const head = evs.slice(0, CAP).map(evHtml).join("");
+          const rest = evs.slice(CAP).map(evHtml).join("");
+          timeline = '<div class="tl">'+head+'<details class="moreev"><summary>Show '+(evs.length-CAP)+' more</summary>'+rest+'</details></div>';
+        }
+        return '<div class="student '+(i.alerts>0?"pri":"pri-w")+'"><h2><span class="sd '+sev+'"></span>'+
+          '<span class="n">'+esc(p.name)+'</span><span class="ct">'+i.flags+' flag'+(i.flags===1?"":"s")+'</span></h2>'+
+          '<div class="chips">'+chips+'</div>'+timeline+'</div>';
+      };
+
+      let html = "";
+      if (flagged.length) html += '<div class="sec-h">Needs review</div>' + flagged.map(card).join("");
+      if (clear.length) {
+        const names = clear.map(i => '<span>'+esc(i.p.name)+'</span>').join("");
+        html += '<details class="clearbox"'+(clear.length<=6?" open":"")+'><summary><span class="sd"></span>'+
+          clear.length+' student'+(clear.length===1?"":"s")+' clear — no flags<span class="cv">tap to '+(clear.length<=6?"hide":"view")+'</span></summary>'+
+          '<div class="names">'+names+'</div></details>';
+      }
+      $("out").innerHTML = html;
+
+      const flagOnly = $("flagOnly");
+      if (flagOnly) flagOnly.onchange = () => document.querySelector(".clearbox")?.classList.toggle("hide", flagOnly.checked);
 
       if (teacher){
         $("csvBtn").style.display=""; $("pdfBtn").style.display="";
@@ -104,6 +175,10 @@
         };
         $("pdfBtn").onclick = () => window.print();
       }
+
+      // make sure PDF/print shows everything, then restore the tidy view
+      addEventListener("beforeprint", () => document.querySelectorAll("details").forEach(d => { d.dataset.o = d.open?"1":""; d.open = true; }));
+      addEventListener("afterprint", () => document.querySelectorAll("details").forEach(d => { d.open = d.dataset.o==="1"; }));
     })();
   </script>
 </body>

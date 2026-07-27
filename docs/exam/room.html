@@ -58,8 +58,11 @@
         </div>
         <div class="tune hidden" id="tune">
           <div class="tRead" id="tRead">reading…</div>
+          <label class="tr">Looking-away sensitivity<span><b id="vGaze"></b> · lower = catches smaller eye movements</span><input type="range" id="sGaze" min="0.05" max="0.30" step="0.01"></label>
+          <label class="tr">Looking-away hold<span><b id="vGazeHold"></b></span><input type="range" id="sGazeHold" min="0.5" max="5" step="0.25"></label>
+          <label class="tr">Eyes-down sensitivity<span><b id="vEyeDown"></b> · lower = catches smaller downward glances</span><input type="range" id="sEyeDown" min="0.08" max="0.40" step="0.01"></label>
           <label class="tr">Head-down sensitivity<span><b id="vHeadEnter"></b> · lower = more sensitive</span><input type="range" id="sHeadEnter" min="0.05" max="0.30" step="0.01"></label>
-          <label class="tr">Head-down hold<span><b id="vHeadHold"></b></span><input type="range" id="sHeadHold" min="2" max="15" step="0.5"></label>
+          <label class="tr">Down hold (head &amp; eyes)<span><b id="vHeadHold"></b></span><input type="range" id="sHeadHold" min="2" max="15" step="0.5"></label>
           <label class="tr">Face-absent hold<span><b id="vAbsentHold"></b></span><input type="range" id="sAbsentHold" min="2" max="10" step="0.5"></label>
           <label class="tr">Second-face hold<span><b id="vSecondHold"></b></span><input type="range" id="sSecondHold" min="0.5" max="5" step="0.25"></label>
           <div class="tRow"><button class="btn ghost sm" id="tCopy" type="button">Copy settings</button><button class="btn ghost sm" id="tReset" type="button">Reset</button></div>
