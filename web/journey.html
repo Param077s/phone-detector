@@ -1,0 +1,548 @@
+<!DOCTYPE html>
+<html lang="en" class="journey">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Vigil — On-device vision intelligence</title>
+  <link rel="icon" href="/favicon.svg">
+  <meta name="theme-color" content="#f3f2ef">
+  <style>
+    @font-face{font-family:"Space Grotesk";src:url("/app/vendor/fonts/space-grotesk.woff2") format("woff2");
+      font-weight:300 700;font-style:normal;font-display:swap}
+    :root{
+      --paper:#ffffff; --bg:#f3f2ef; --ink:#0c0d10; --ink-2:#3b3e46; --muted:#7a7d84;
+      --faint:#a6a8ad; --line:rgba(12,13,16,.10); --line-2:rgba(12,13,16,.06);
+      --glass:rgba(255,255,255,.62);
+      --shadow:0 2px 6px rgba(15,17,24,.05),0 34px 64px -34px rgba(15,17,24,.22);
+      --shadow-sm:0 1px 2px rgba(15,17,24,.05),0 12px 26px -16px rgba(15,17,24,.16);
+      --display:"Space Grotesk",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+      --font:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Inter",system-ui,sans-serif;
+      --r:20px; --r-sm:12px; --spring:cubic-bezier(.2,.7,.2,1);
+    }
+    *{box-sizing:border-box;margin:0}
+    a{color:inherit;text-decoration:none}
+    html.journey,html.journey body{height:100%}
+    html.journey:not(.flat),html.journey:not(.flat) body{overflow:hidden}   /* deck owns the paging */
+    body{background:var(--bg);color:var(--ink);font:16px/1.6 var(--font);-webkit-font-smoothing:antialiased}
+    body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;opacity:.4;mix-blend-mode:soft-light;
+      background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E")}
+    h1,h2,h3{font-family:var(--display);letter-spacing:-.03em;line-height:1.03;font-weight:600}
+    .eyebrow{font-family:var(--display);font-size:12.5px;font-weight:600;letter-spacing:.14em;
+      text-transform:uppercase;color:var(--muted)}
+    .lead{color:var(--ink-2);font-size:18px;line-height:1.65}
+
+    .btn{display:inline-flex;align-items:center;gap:8px;font:600 14.5px/1 var(--font);letter-spacing:-.01em;
+      padding:13px 20px;border-radius:999px;border:1px solid transparent;cursor:pointer;
+      transition:transform .15s,box-shadow .2s,background .2s,border-color .2s}
+    .btn:active{transform:translateY(1px)}
+    .btn.ink{background:var(--ink);color:#fff;box-shadow:0 10px 24px -10px rgba(12,13,16,.6)}
+    .btn.ink:hover{transform:translateY(-1px);box-shadow:0 16px 30px -12px rgba(12,13,16,.55)}
+    .btn.glass{background:var(--glass);border-color:var(--line);color:var(--ink);backdrop-filter:blur(12px)}
+    .btn.glass:hover{border-color:var(--ink)}
+
+    /* primary CTAs — magnetic hover (JS) + an arrow that slides out on hover */
+    .cta .btn,.doors .btn{position:relative;
+      transition:transform .18s var(--spring),box-shadow .2s,background .2s,border-color .2s,padding-right .26s var(--spring)}
+    .cta .btn::after,.doors .btn::after{content:"→";position:absolute;right:16px;top:50%;
+      opacity:0;transform:translateY(-50%) translateX(-6px);transition:opacity .22s,transform .26s var(--spring)}
+    .cta .btn:hover,.doors .btn:hover{padding-right:40px}
+    .cta .btn:hover::after,.doors .btn:hover::after{opacity:1;transform:translateY(-50%) translateX(0)}
+
+    /* custom cursor — a smooth circle that inverts whatever it's over (text included) */
+    .cursor{position:fixed;top:0;left:0;width:20px;height:20px;border-radius:50%;background:#fff;
+      mix-blend-mode:difference;pointer-events:none;z-index:100000;opacity:0;
+      transform:translate(-50%,-50%);transition:opacity .3s,width .22s var(--spring),height .22s var(--spring)}
+    .cursor.big{width:54px;height:54px}
+    html.cursor-on,html.cursor-on *{cursor:none !important}
+
+    /* top bar */
+    .top{position:fixed;top:14px;left:0;right:0;z-index:50;display:flex;justify-content:center;pointer-events:none}
+    .top .bar{width:min(1120px,calc(100vw - 28px));display:flex;align-items:center;gap:14px;pointer-events:auto;
+      padding:10px 12px 10px 18px;border:1px solid var(--line);border-radius:999px;
+      background:rgba(255,255,255,.6);backdrop-filter:blur(16px) saturate(1.4);box-shadow:var(--shadow-sm)}
+    .brand{display:flex;align-items:center;gap:10px;font-family:var(--display);font-weight:700;font-size:17px;letter-spacing:-.02em}
+    .brand .mk{width:26px;height:26px;border-radius:8px;display:grid;place-items:center;background:var(--ink)}
+    .brand .mk svg{width:15px;height:15px}
+    .top .sp{flex:1} .top .btn{padding:10px 16px}
+    @media(max-width:560px){.top .btn.ghosthide{display:none}}
+
+    /* chapter rail */
+    .rail{position:fixed;right:20px;top:50%;transform:translateY(-50%);z-index:45;
+      display:flex;flex-direction:column;gap:16px;padding:8px}
+    .rail button{position:relative;display:block;width:12px;height:12px;border:0;background:none;padding:0;cursor:pointer}
+    .rail button span{position:absolute;inset:0;border-radius:50%;background:var(--line);
+      transition:transform .3s var(--spring),background .3s}
+    .rail button:hover span{background:var(--muted);transform:scale(1.25)}
+    .rail button.active span{background:var(--ink);transform:scale(1.5)}
+    .rail button em{position:absolute;right:22px;top:50%;transform:translateY(-50%) translateX(6px);
+      opacity:0;pointer-events:none;font-style:normal;font-size:12px;font-family:var(--display);font-weight:600;
+      color:var(--ink);background:var(--glass);border:1px solid var(--line);backdrop-filter:blur(10px);
+      padding:4px 11px;border-radius:999px;white-space:nowrap;box-shadow:var(--shadow-sm);
+      transition:opacity .2s,transform .2s var(--spring)}
+    .rail button:hover em,.rail button:focus-visible em{opacity:1;transform:translateY(-50%) translateX(0)}
+    .rail button:focus-visible{outline:2px solid var(--ink);outline-offset:4px;border-radius:50%}
+
+    /* a soft "continue" cue on the very first scene */
+    .cue{position:fixed;left:50%;bottom:26px;transform:translateX(-50%);z-index:45;
+      display:flex;flex-direction:column;align-items:center;gap:7px;color:var(--muted);
+      font-family:var(--display);font-size:11px;letter-spacing:.16em;text-transform:uppercase;
+      opacity:var(--cue,1);transition:opacity .4s;pointer-events:none}
+    .cue i{width:22px;height:34px;border:1.5px solid var(--line);border-radius:12px;position:relative}
+    .cue i::after{content:"";position:absolute;left:50%;top:7px;width:3px;height:6px;border-radius:2px;
+      background:var(--muted);transform:translateX(-50%);animation:wheel 1.5s var(--spring) infinite}
+    @keyframes wheel{0%{opacity:0;transform:translate(-50%,0)}30%{opacity:1}70%{opacity:1}100%{opacity:0;transform:translate(-50%,9px)}}
+
+    /* the persistent viewfinder */
+    .vf{position:fixed;inset:0;z-index:40;pointer-events:none;opacity:var(--vf-op,1);
+      --fx:40vw; --fy:38vh; --ds:.6}
+    /* the frame "locks on" with a single pulse when a scene settles */
+    .vf.lock{animation:vflock .5s var(--spring)}
+    @keyframes vflock{0%{transform:scale(1.035)}55%{transform:scale(.994)}100%{transform:scale(1)}}
+    .vf .br{position:absolute;left:50%;top:50%;width:54px;height:54px;
+      border-top:2px solid var(--ink);border-left:2px solid var(--ink);border-top-left-radius:6px;filter:blur(var(--vf-bl,0px))}
+    .vf .br.tl{transform:translate(calc(-50% - var(--fx)), calc(-50% - var(--fy)))}
+    .vf .br.tr{transform:translate(calc(-50% + var(--fx)), calc(-50% - var(--fy))) rotate(90deg)}
+    .vf .br.brr{transform:translate(calc(-50% + var(--fx)), calc(-50% + var(--fy))) rotate(180deg)}
+    .vf .br.bl{transform:translate(calc(-50% - var(--fx)), calc(-50% + var(--fy))) rotate(270deg)}
+    .vf .dot{position:absolute;left:50%;top:50%;width:12px;height:12px;border-radius:50%;background:var(--ink);
+      opacity:var(--dot-op,0);transform:translate(-50%,-50%) scale(var(--ds));box-shadow:0 0 0 6px rgba(12,13,16,.06)}
+
+    /* ── the deck: full-screen scenes, one shown at a time ── */
+    .deck{position:fixed;inset:0;z-index:1;overflow:hidden}
+    .scene{position:absolute;inset:0;display:grid;place-items:center;padding:96px 24px;opacity:0;
+      will-change:transform,opacity;--enter:1}
+    .shell{width:min(1120px,100%);margin:0 auto;position:relative;text-align:center}
+    .rise{opacity:var(--enter);transform:translateY(calc((1 - var(--enter)) * 26px))}
+
+    /* Scene 0 — FOCUS */
+    #s0 h1{font-size:clamp(40px,6.6vw,80px);max-width:14ch;margin:0 auto 22px}
+    #s0 .lead{max-width:52ch;margin:0 auto 30px}
+    #s0 .cta{display:flex;gap:12px;justify-content:center;flex-wrap:wrap}
+    .hud{position:absolute;inset:0;pointer-events:none;opacity:var(--hud,0);
+      font-family:var(--display);font-size:12px;letter-spacing:.06em;color:var(--muted)}
+    .hud b{display:block;font-size:22px;color:var(--ink);letter-spacing:-.02em;line-height:1.1}
+    .hud .h{position:absolute} .hud .h.a{left:4%;top:20%;text-align:left}
+    .hud .h.b{right:4%;top:20%;text-align:right} .hud .h.c{left:4%;bottom:16%;text-align:left}
+
+    /* Scene 1 — SCAN */
+    #s1 h2{font-size:clamp(30px,4.6vw,52px);max-width:16ch;margin:0 auto 18px}
+    #s1 .lead{max-width:54ch;margin:0 auto}
+    #s1 .scanbar{position:absolute;left:8%;right:8%;height:2px;pointer-events:none;top:16%;
+      opacity:var(--scanop,0);animation:scansweep 3.6s ease-in-out infinite;
+      background:linear-gradient(90deg,transparent,var(--ink),transparent);box-shadow:0 0 22px rgba(12,13,16,.25)}
+    @keyframes scansweep{0%,100%{top:16%}50%{top:82%}}
+
+    /* Scene 2 — SPLIT */
+    #s2 .head{margin-bottom:34px}
+    #s2 h2{font-size:clamp(28px,4vw,44px)}
+    #s2 .tiles{display:grid;grid-template-columns:repeat(3,1fr);gap:18px}
+    .tile{position:relative;background:var(--glass);border:1px solid var(--line);border-radius:var(--r);
+      padding:26px 24px;backdrop-filter:blur(14px);box-shadow:var(--shadow-sm);text-align:left}
+    .tile .ic{width:44px;height:44px;border-radius:12px;display:grid;place-items:center;background:var(--ink);color:#fff;margin-bottom:14px}
+    .tile .ic svg{width:22px;height:22px}
+    .tile h3{font-size:20px;margin-bottom:8px} .tile p{color:var(--muted);font-size:14px}
+    .tile .soon{font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--faint);margin-top:12px}
+    .tile .lock{position:absolute;inset:10px;border-radius:14px;pointer-events:none;
+      box-shadow:inset 0 0 0 2px var(--ink);opacity:var(--lock,0)}
+
+    /* Scene 3 — ZOOM (exam) */
+    /* frosted glass, just a hairline border — not a solid box */
+    #s3 .panel{position:relative;border-radius:28px;overflow:hidden;border:1px solid var(--line);
+      background:rgba(255,255,255,.40);backdrop-filter:blur(24px) saturate(1.2);-webkit-backdrop-filter:blur(24px) saturate(1.2);
+      box-shadow:0 30px 60px -34px rgba(15,17,24,.18);
+      width:min(980px,100%);padding:48px 40px;text-align:center;
+      transform:scale(calc(.9 + var(--enter) * .1));opacity:var(--enter)}
+    #s3 h2{font-size:clamp(26px,3.8vw,44px);max-width:16ch;margin:0 auto 14px}
+    #s3 .lead{max-width:52ch;margin:0 auto 22px;font-size:16px}
+    #s3 .flow{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;max-width:720px;margin:22px auto;text-align:left}
+    #s3 .step{background:var(--glass);border:1px solid var(--line);border-radius:var(--r-sm);padding:15px;backdrop-filter:blur(10px)}
+    #s3 .step .n{font-family:var(--display);font-size:12.5px;color:var(--faint);margin-bottom:6px}
+    #s3 .step h4{font-size:14.5px;margin-bottom:4px} #s3 .step p{font-size:12.5px;color:var(--muted)}
+    #s3 .doors{display:flex;gap:12px;justify-content:center;flex-wrap:wrap;margin-top:6px}
+    #s3 .wall{display:grid;grid-template-columns:repeat(6,1fr);gap:7px;max-width:400px;margin:0 auto 22px}
+    #s3 .wall i{height:24px;border-radius:6px;background:#e7e6e2;border:1px solid var(--line);
+      opacity:var(--wall,0);transform:scale(calc(.6 + var(--wall,0) * .4));
+      transition:background .55s ease,border-color .55s ease,box-shadow .55s ease,opacity .3s,transform .3s}
+    #s3 .wall i.g{background:linear-gradient(180deg,#e7f4ec,#fff);border-color:#c3e6d5;box-shadow:0 0 13px -3px rgba(31,157,99,.55)}
+    #s3 .wall i.r{background:linear-gradient(180deg,#fbeaea,#fff);border-color:#f0c9ca;box-shadow:0 0 13px -3px rgba(216,58,63,.55)}
+
+    /* Scene 4 — CLOSE */
+    #s4 .checks{list-style:none;display:flex;flex-direction:column;gap:12px;align-items:center;margin:0 0 32px;padding:0}
+    #s4 .checks li{display:flex;align-items:center;gap:11px;font-family:var(--display);font-size:15.5px;
+      font-weight:600;color:var(--ink-2);opacity:0;transform:translateY(10px);
+      transition:opacity .55s var(--spring),transform .55s var(--spring)}
+    #s4 .checks .ck{width:22px;height:22px;border-radius:50%;background:var(--ink);color:#fff;display:grid;place-items:center;flex:0 0 auto}
+    #s4 .checks .ck svg{width:12px;height:12px}
+    #s4 h2{font-size:clamp(30px,5vw,60px);max-width:18ch;margin:0 auto;
+      opacity:0;transform:translateY(12px);transition:opacity .6s var(--spring),transform .6s var(--spring)}
+    #s4 .k{color:var(--faint)}
+    #s4 .foot{margin-top:34px;display:flex;gap:16px;justify-content:center;align-items:center;
+      color:var(--muted);font-size:13.5px;flex-wrap:wrap;opacity:0;transition:opacity .6s var(--spring)}
+    #s4.show .checks li{opacity:1;transform:none}
+    #s4.show .checks li:nth-child(2){transition-delay:.13s}
+    #s4.show .checks li:nth-child(3){transition-delay:.26s}
+    #s4.show h2{opacity:1;transform:none;transition-delay:.46s}
+    #s4.show .foot{opacity:1;transition-delay:.66s}
+
+    /* ── FLAT fallback: reduced-motion + mobile → clean stacked document ── */
+    html.flat{overflow:auto}
+    html.flat body{overflow:visible;height:auto}
+    html.flat .vf,html.flat .rail,html.flat .cue{display:none}
+    html.flat .deck{position:static;overflow:visible}
+    html.flat .scene{position:relative;inset:auto;opacity:1;min-height:auto;padding:88px 24px}
+    html.flat .rise,html.flat #s3 .panel{opacity:1;transform:none}
+    html.flat .hud{position:static;opacity:1;display:flex;gap:30px;justify-content:center;margin-top:30px}
+    html.flat .hud .h{position:static}
+    html.flat #s1 .scanbar{display:none}
+    html.flat .tile .lock{display:none}
+    html.flat #s3 .wall i{opacity:1;transform:none}
+    @media(max-width:760px){
+      html.flat #s2 .tiles,html.flat #s3 .flow{grid-template-columns:1fr}
+    }
+  </style>
+</head>
+<body>
+  <svg width="0" height="0" style="position:absolute"><symbol id="v" viewBox="0 0 24 24" fill="none"><path d="M6 10V7.5A1.5 1.5 0 0 1 7.5 6H10M14 6h2.5A1.5 1.5 0 0 1 18 7.5V10M18 14v2.5a1.5 1.5 0 0 1-1.5 1.5H14M10 18H7.5A1.5 1.5 0 0 1 6 16.5V14" stroke="#fff" stroke-width="1.9" stroke-linecap="round"/><circle cx="12" cy="12" r="2.6" fill="#fff"/></symbol></svg>
+
+  <div class="cursor" id="cursor" aria-hidden="true"></div>
+
+  <div class="top"><div class="bar">
+    <a class="brand" href="/"><span class="mk"><svg><use href="#v"/></svg></span>Vigil</a>
+    <span class="sp"></span>
+    <a class="btn glass ghosthide" href="/app/exam.html">Join an exam</a>
+    <a class="btn ink" href="/login">Sign in</a>
+  </div></div>
+
+  <nav class="rail" id="rail" aria-label="Journey chapters">
+    <button data-i="0" aria-label="Focus"><span></span><em>Focus</em></button>
+    <button data-i="1" aria-label="Scan"><span></span><em>Scan</em></button>
+    <button data-i="2" aria-label="Targets"><span></span><em>Targets</em></button>
+    <button data-i="3" aria-label="Exam"><span></span><em>Exam</em></button>
+    <button data-i="4" aria-label="Close"><span></span><em>Close</em></button>
+  </nav>
+
+  <div class="cue" id="cue"><span>Scroll</span><i></i></div>
+
+  <div class="vf" id="vf" aria-hidden="true">
+    <span class="br tl"></span><span class="br tr"></span><span class="br brr"></span><span class="br bl"></span>
+    <span class="dot"></span>
+  </div>
+
+  <div class="deck" id="deck">
+    <!-- SCENE 0 · FOCUS -->
+    <section class="scene" id="s0" data-i="0">
+      <div class="hud">
+        <div class="h a"><b id="mDetect">0.9s</b><span id="mStatus">detect → alert</span></div>
+        <div class="h b"><b>0</b>uploads</div>
+        <div class="h c"><b>On-device</b>always</div>
+      </div>
+      <div class="shell">
+        <div class="eyebrow rise">On-device vision intelligence</div>
+        <h1 class="rise">The room sees clearly.<br>Nothing leaves it.</h1>
+        <p class="lead rise">Vigil turns ordinary cameras into private AI observers — flagging what matters in real time, on one machine. No uploads, no cloud, no footage anyone can watch.</p>
+        <div class="cta rise">
+          <a class="btn ink" href="/app/exam.html" data-morph data-morph-color="#0c0d10">Join an exam</a>
+          <a class="btn glass" href="/login" data-morph data-morph-color="#0b0d10">Monitor a room</a>
+        </div>
+      </div>
+    </section>
+
+    <!-- SCENE 1 · SCAN -->
+    <section class="scene" id="s1" data-i="1">
+      <div class="scanbar"></div>
+      <div class="shell">
+        <div class="eyebrow rise">The platform</div>
+        <h2 class="rise">One quiet machine,<br>watching for what you can't.</h2>
+        <p class="lead rise" style="margin-top:18px">Vigil runs its models locally and keeps every frame on the device. You get the signal — an alert, a pattern, a report — while the video itself never travels.</p>
+      </div>
+    </section>
+
+    <!-- SCENE 2 · SPLIT -->
+    <section class="scene" id="s2" data-i="2">
+      <div class="shell">
+        <div class="head">
+          <div class="eyebrow rise">Capabilities</div>
+          <h2 class="rise">What it's watching for.</h2>
+        </div>
+        <div class="tiles">
+          <div class="tile" data-t="0"><span class="lock"></span>
+            <div class="ic"><svg viewBox="0 0 24 24" fill="none"><rect x="7" y="3" width="10" height="18" rx="2" stroke="#fff" stroke-width="1.7"/><circle cx="12" cy="17.5" r="1" fill="#fff"/></svg></div>
+            <h3>Phone detection</h3>
+            <p>Catch a phone the instant it appears on your existing cameras — flagged and logged in under a second.</p>
+          </div>
+          <div class="tile" data-t="1"><span class="lock"></span>
+            <div class="ic"><svg viewBox="0 0 24 24" fill="none"><path d="M4 5.5A1.5 1.5 0 0 1 5.5 4h13A1.5 1.5 0 0 1 20 5.5V15a1.5 1.5 0 0 1-1.5 1.5H13l-4 3.5v-3.5H5.5A1.5 1.5 0 0 1 4 15V5.5Z" stroke="#fff" stroke-width="1.6"/><circle cx="12" cy="10" r="2.4" stroke="#fff" stroke-width="1.6"/></svg></div>
+            <h3>Exam integrity</h3>
+            <p>Monitor exams on each student's own device — privacy-first, video never leaves the laptop.</p>
+          </div>
+          <div class="tile" data-t="2"><span class="lock"></span>
+            <div class="ic"><svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="8" stroke="#fff" stroke-width="1.6"/><path d="M12 8v4l2.5 2" stroke="#fff" stroke-width="1.6" stroke-linecap="round"/></svg></div>
+            <h3>More, in time</h3>
+            <p>The same private, on-device engine — extending to new spaces and signals as we grow.</p>
+            <div class="soon">Coming soon</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- SCENE 3 · ZOOM (exam) -->
+    <section class="scene" id="s3" data-i="3">
+      <div class="panel">
+        <div class="eyebrow">Exam integrity</div>
+        <h2>Watch the exam, not the student.</h2>
+        <p class="lead">Each student's laptop runs the model locally and streams only tiny signals — never video. Teachers watch a calm wall that stays quiet until something genuinely needs attention.</p>
+        <div class="wall">
+          <i></i><i></i><i></i><i></i><i></i><i></i>
+          <i></i><i></i><i></i><i></i><i></i><i></i>
+        </div>
+        <div class="flow">
+          <div class="step"><div class="n">01 · Student</div><h4>Joins with a code</h4><p>Camera runs on their device. No video is ever sent or stored.</p></div>
+          <div class="step"><div class="n">02 · Teacher</div><h4>Watches the room</h4><p>Tiles glow only when a real pattern appears.</p></div>
+          <div class="step"><div class="n">03 · After</div><h4>Reviews the report</h4><p>A per-student timeline, exportable to PDF or CSV.</p></div>
+        </div>
+        <div class="doors">
+          <a class="btn ink" href="/app/exam.html" data-morph data-morph-color="#0c0d10">Join an exam</a>
+          <a class="btn glass" href="/login" data-morph data-morph-color="#0b0d10">Staff sign-in</a>
+        </div>
+      </div>
+    </section>
+
+    <!-- SCENE 4 · CLOSE -->
+    <section class="scene" id="s4" data-i="4">
+      <div class="shell">
+        <ul class="checks">
+          <li><span class="ck"><svg viewBox="0 0 24 24" fill="none"><path d="M20 6 9 17l-5-5" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></span>Monitoring complete</li>
+          <li><span class="ck"><svg viewBox="0 0 24 24" fill="none"><path d="M20 6 9 17l-5-5" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></span>Report generated</li>
+          <li><span class="ck"><svg viewBox="0 0 24 24" fill="none"><path d="M20 6 9 17l-5-5" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></span>Video stayed on device</li>
+        </ul>
+        <h2>Nothing leaves the device. <span class="k">That's the whole idea.</span></h2>
+        <div class="foot">
+          <a class="brand" href="/"><span class="mk"><svg><use href="#v"/></svg></span>Vigil</a>
+          <span>·</span><a href="/app/exam.html">Join an exam</a><span>·</span><a href="/login">Sign in</a>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <script>
+  (function(){
+    const root = document.documentElement;
+    const mqReduce = matchMedia("(prefers-reduced-motion:reduce)");
+    const mqSmall  = matchMedia("(max-width:760px)");
+    function wantFlat(){
+      const w = Math.max(window.innerWidth||0, root.clientWidth||0);
+      return mqReduce.matches || (w>0 && w<=760);
+    }
+    const FLAT = wantFlat();
+    [mqReduce, mqSmall].forEach(mq => mq.addEventListener("change", () => { if (wantFlat() !== FLAT) location.reload(); }));
+
+    const clamp = (v,a,b) => Math.max(a, Math.min(b, v));
+    const lerp  = (a,b,t) => a + (b-a)*t;
+    const ease  = t => t<.5 ? 4*t*t*t : 1-Math.pow(-2*t+2,3)/2;   // easeInOutCubic
+    const smooth = x => x*x*(3-2*x);
+
+    if (FLAT) { root.classList.add("flat"); return; }   // stacked document, native scroll
+
+    const scenes = [...document.querySelectorAll(".scene")];
+    const N = scenes.length;
+    const vf   = document.getElementById("vf");
+    const rail = [...document.querySelectorAll("#rail button")];
+    const cue  = document.getElementById("cue");
+
+    // viewfinder timeline over t ∈ [0 .. N-1]  → [t, spread, dotScale, opacity, blur]
+    const VF = [
+      [0.0, 1.02, 0.55, 1, 3],
+      [1.0, 0.92, 0.70, 1, 0],
+      [2.0, 0.95, 0.60, 1, 0],
+      [2.55,1.30, 0.50, 0, 0],   // pushing into the exam — frame opens past the edges & fades
+      [3.0, 1.20, 0.50, 0, 0],   // inside the exam: viewfinder hidden
+      [3.5, 1.00, 0.60, 1, 0],   // returning for the close
+      [4.0, 0.00, 1.15, 1, 0],   // shutter shuts onto the dot
+    ];
+    function sampleVF(t){
+      for (let i=0;i<VF.length-1;i++){ const a=VF[i], b=VF[i+1];
+        if (t<=b[0]){ const k=smooth(clamp((t-a[0])/((b[0]-a[0])||1),0,1));
+          return {sp:lerp(a[1],b[1],k),dot:lerp(a[2],b[2],k),op:lerp(a[3],b[3],k),bl:lerp(a[4],b[4],k)}; } }
+      const l=VF[VF.length-1]; return {sp:l[1],dot:l[2],op:l[3],bl:l[4]};
+    }
+
+    let t = 0, index = 0, animating = false, cooldownUntil = 0;
+
+    function renderT(t){
+      const vw = window.innerWidth, vh = window.innerHeight;
+      scenes.forEach((s,i)=>{
+        const d = t - i;                       // signed distance from centred
+        const pres = clamp(1 - Math.abs(d), 0, 1);
+        const op = smooth(pres);
+        s.style.opacity = op.toFixed(3);
+        s.style.visibility = pres<=0.001 ? "hidden" : "visible";
+        s.style.pointerEvents = pres>0.85 ? "auto" : "none";
+        // a gentle camera move: the leaving scene lifts, the arriving one settles up
+        s.style.transform = "translateY(" + (-d*6).toFixed(2) + "vh)";
+        s.style.setProperty("--enter", op.toFixed(3));
+        if (i===0) s.style.setProperty("--hud", smooth(clamp(pres,0,1)).toFixed(3));
+        if (i===1){ s.style.setProperty("--scanop", (op*0.9).toFixed(3)); }   // line self-oscillates via CSS
+        if (i===2){ s.querySelectorAll(".tile").forEach((tile,ti)=>{
+                      const st=0.42+ti*0.17; tile.style.setProperty("--lock", clamp((pres-st)/0.18,0,1).toFixed(3)); }); }
+        if (i===3){ s.querySelectorAll(".wall i").forEach((cell,ci)=>{
+                      const st=0.35+(ci/12)*0.4; cell.style.setProperty("--wall", clamp((pres-st)/0.2,0,1).toFixed(3)); }); }
+        if (i===4){ s.classList.toggle("show", pres>0.55); }   // ending checkmarks reveal
+      });
+      const v = sampleVF(t);
+      vf.style.setProperty("--fx",(v.sp*vw*0.44).toFixed(1)+"px");
+      vf.style.setProperty("--fy",(v.sp*vh*0.42).toFixed(1)+"px");
+      vf.style.setProperty("--ds", v.dot.toFixed(3));
+      vf.style.setProperty("--vf-op", v.op.toFixed(3));
+      vf.style.setProperty("--vf-bl", v.bl.toFixed(2)+"px");
+      // the focus dot only appears for the closing shutter — hidden the rest of the way
+      vf.style.setProperty("--dot-op", smooth(clamp((t-3.3)/0.7,0,1)).toFixed(3));
+      const near = Math.round(t);
+      rail.forEach((b,i)=>b.classList.toggle("active", i===near));
+      cue.style.setProperty("--cue", (t<0.15 ? 1 : 0));
+    }
+
+    function animateTo(to){
+      to = clamp(Math.round(to), 0, N-1);
+      if (to===index && !animating) return;
+      index = to; animating = true;
+      const from = t, dist = Math.abs(to-from);
+      const dur = 420 + dist*140, t0 = performance.now();   // snappier
+      (function step(now){
+        const k = clamp((now-t0)/dur, 0, 1);
+        t = lerp(from, to, ease(k));
+        renderT(t);
+        if (k<1) requestAnimationFrame(step);
+        else { t = to; renderT(t); cooldownUntil = performance.now()+200; animating = false;
+               vf.classList.remove("lock"); void vf.offsetWidth; vf.classList.add("lock"); }   // lock-on pulse
+      })(t0);
+    }
+    function go(dir){ if (animating || performance.now()<cooldownUntil) return; animateTo(index+dir); }
+
+    // one wheel gesture = one scene; input is locked while moving + a short cooldown after
+    addEventListener("wheel", e=>{ e.preventDefault();
+      if (Math.abs(e.deltaY) < 6) return;
+      go(e.deltaY>0 ? 1 : -1);
+    }, {passive:false});
+
+    addEventListener("keydown", e=>{
+      const k=e.key;
+      if (k==="ArrowDown"||k==="PageDown"||k===" "){ e.preventDefault(); go(1); }
+      else if (k==="ArrowUp"||k==="PageUp"){ e.preventDefault(); go(-1); }
+      else if (k==="Home"){ e.preventDefault(); animateTo(0); }
+      else if (k==="End"){ e.preventDefault(); animateTo(N-1); }
+    });
+
+    // touch swipe (tablets in the non-flat range)
+    let ty=null;
+    addEventListener("touchstart", e=>{ ty=e.touches[0].clientY; }, {passive:true});
+    addEventListener("touchend", e=>{ if (ty==null) return; const dy=ty-e.changedTouches[0].clientY;
+      if (Math.abs(dy)>44) go(dy>0?1:-1); ty=null; }, {passive:true});
+
+    rail.forEach(b=> b.addEventListener("click", ()=>{ if(!animating) animateTo(+b.dataset.i); }));
+    addEventListener("resize", ()=>renderT(t));
+
+    // Living detection wall — each tile drifts between clear (green) and flagged
+    // (red) at random, like a monitor making live predictions.
+    var wallCells = [].slice.call(document.querySelectorAll("#s3 .wall i"));
+    setInterval(function(){
+      for (var i=0;i<wallCells.length;i++){
+        if (Math.random() < 0.3){
+          var c = wallCells[i], r = Math.random();
+          c.classList.remove("g","r");
+          if (r < 0.62) c.classList.add("g");
+          else if (r < 0.82) c.classList.add("r");   // ~20% flag, mostly clear
+        }
+      }
+    }, 620);
+
+    // Live-feeling hero metrics — the detect time and status keep ticking.
+    var mDetect = document.getElementById("mDetect"), mStatus = document.getElementById("mStatus");
+    var statuses = ["detect → alert","monitoring…","pattern found","signal sent","clear"];
+    setInterval(function(){
+      if (mDetect) mDetect.textContent = "0." + (83 + Math.floor(Math.random()*12)) + "s";
+      if (mStatus && Math.random() < 0.6) mStatus.textContent = statuses[Math.floor(Math.random()*statuses.length)];
+    }, 1500);
+
+    // Magnetic hover on the primary CTAs — the button drifts toward the cursor.
+    document.querySelectorAll(".cta .btn, .doors .btn").forEach(function(b){
+      b.addEventListener("mousemove", function(e){
+        var r=b.getBoundingClientRect();
+        var dx=(e.clientX-(r.left+r.width/2))/r.width, dy=(e.clientY-(r.top+r.height/2))/r.height;
+        b.style.transform="translate("+(dx*12).toFixed(1)+"px,"+(dy*7).toFixed(1)+"px)";
+      });
+      b.addEventListener("mouseleave", function(){ b.style.transform=""; });
+    });
+
+    // Inverting cursor — a smooth circle that flips the colour of whatever it's over.
+    (function(){
+      if (!matchMedia("(pointer:fine)").matches) return;
+      var cur = document.getElementById("cursor");
+      root.classList.add("cursor-on");
+      var mx=innerWidth/2, my=innerHeight/2, px=mx, py=my, seen=false;
+      addEventListener("mousemove", function(e){ mx=e.clientX; my=e.clientY;
+        if(!seen){ seen=true; px=mx; py=my; cur.style.opacity=1; } }, {passive:true});
+      addEventListener("mouseover", function(e){
+        cur.classList.toggle("big", !!(e.target.closest && e.target.closest("a,button,[data-morph]"))); });
+      (function loop(){ px += (mx-px)*0.2; py += (my-py)*0.2;
+        cur.style.transform = "translate("+px.toFixed(1)+"px,"+py.toFixed(1)+"px) translate(-50%,-50%)";
+        requestAnimationFrame(loop); })();
+    })();
+
+    renderT(0);
+    void vf.offsetWidth; vf.classList.add("lock");   // initial lock-on
+  })();
+  </script>
+
+  <!-- shared page-morph: a tapped button expands to fill the screen into the next
+       page; the next page reveals by collapsing the same circle back to that spot.
+       (Identical copy lives in exam.html + the login template.) -->
+  <script>
+  (function(){
+    var RM = matchMedia("(prefers-reduced-motion:reduce)").matches;
+    var KEY = "vgMorph", EASE = "cubic-bezier(.66,0,.34,1)";
+    function maxR(x,y){ return Math.hypot(Math.max(x,innerWidth-x), Math.max(y,innerHeight-y)) + 6; }
+    function cover(color){
+      var o=document.createElement("div");
+      o.style.cssText="position:fixed;inset:0;z-index:99999;pointer-events:none;background:"+color+";will-change:clip-path";
+      document.body.appendChild(o); return o;
+    }
+    function clip(o,r,x,y){ var v="circle("+r+"px at "+x+"px "+y+"px)"; o.style.clipPath=v; o.style.webkitClipPath=v; }
+
+    // REVEAL on arrival — the cover holds full-screen, then melts away with a
+    // frosted blur into the page (it never shrinks back to a point).
+    (function(){
+      var raw; try{ raw=JSON.parse(sessionStorage.getItem(KEY)||"null"); }catch(e){}
+      if(!raw) return; sessionStorage.removeItem(KEY);
+      if(RM) return;
+      var o=cover(raw.color);
+      o.style.backdropFilter="blur(24px)"; o.style.webkitBackdropFilter="blur(24px)";
+      o.getBoundingClientRect();
+      setTimeout(function(){
+        o.style.transition="background-color .5s ease, backdrop-filter .95s ease .06s, -webkit-backdrop-filter .95s ease .06s";
+        o.style.backgroundColor="transparent";
+        o.style.backdropFilter="blur(0px)"; o.style.webkitBackdropFilter="blur(0px)";
+      }, 24);
+      setTimeout(function(){ o.remove(); }, 1100);   // always cleans up, even if the transition is skipped
+    })();
+
+    // FORWARD on click — expand the button's circle to fill, then navigate.
+    document.addEventListener("click", function(e){
+      var a=e.target.closest("[data-morph]");
+      if(!a || e.defaultPrevented || e.metaKey || e.ctrlKey || e.shiftKey || e.button) return;
+      var href=a.getAttribute("href"); if(!href) return;
+      e.preventDefault();
+      var nav=function(){ location.href=href; };
+      if(RM){ nav(); return; }
+      var rc=a.getBoundingClientRect(), cx=rc.left+rc.width/2, cy=rc.top+rc.height/2;
+      var color=a.getAttribute("data-morph-color") || getComputedStyle(a).backgroundColor || "#0c0d10";
+      sessionStorage.setItem(KEY, JSON.stringify({x:cx/innerWidth, y:cy/innerHeight, color:color}));
+      var o=cover(color);
+      clip(o, Math.max(rc.width,rc.height)/2, cx, cy);
+      o.getBoundingClientRect();
+      setTimeout(function(){ o.style.transition="clip-path .42s "+EASE+", -webkit-clip-path .42s "+EASE; clip(o, maxR(cx,cy), cx, cy); }, 12);
+      setTimeout(nav, 400);
+    });
+  })();
+  </script>
+</body>
+</html>

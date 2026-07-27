@@ -33,6 +33,9 @@ hiddenimports = (["app", "mac_native"] if sys.platform == "darwin" else ["app"])
     # Web Push (real phone notifications) — pulled in dynamically, so PyInstaller
     # needs these named explicitly or they won't make it into the bundle.
     "pywebpush", "py_vapid", "http_ece", "cryptography",
+    # uvicorn selects its WebSocket backend by string at runtime, so PyInstaller
+    # misses it unless named. Needed for /ws/exam (exam mode) and /ws/push.
+    "websockets", "uvicorn.protocols.websockets.websockets_impl",
 ]
 
 # Ship a default model inside the bundle so the first launch works offline.

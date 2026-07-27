@@ -2,6 +2,10 @@
 
 All notable changes to Vigil. Dates are the release date.
 
+## 1.5.0 — 2026-07-27
+- A new living homepage: scroll through Vigil as one continuous journey
+- Exam integrity: monitor exams on each student's own device, video never leaves the laptop
+
 ## 1.4.1 — 2026-07-24
 - A cleaner Alerts flow on the phone
 

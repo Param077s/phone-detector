@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Vigil — On-device vision intelligence</title>
+  <link rel="icon" href="/favicon.svg">
+  <meta name="theme-color" content="#f4f3f0">
+  <style>
+    @font-face{font-family:"Space Grotesk";src:url("/app/vendor/fonts/space-grotesk.woff2") format("woff2");
+      font-weight:300 700;font-style:normal;font-display:swap}
+    :root{
+      --paper:#ffffff; --bg:#f3f2ef; --ink:#0c0d10; --ink-2:#3b3e46; --muted:#7a7d84;
+      --faint:#a6a8ad; --line:rgba(12,13,16,.10); --line-2:rgba(12,13,16,.06);
+      --glass:rgba(255,255,255,.62); --shadow:0 2px 6px rgba(15,17,24,.05),0 34px 64px -34px rgba(15,17,24,.22);
+      --shadow-sm:0 1px 2px rgba(15,17,24,.05),0 12px 26px -16px rgba(15,17,24,.16);
+      --display:"Space Grotesk",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+      --font:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Inter",system-ui,sans-serif;
+      --r:20px; --r-sm:12px;
+    }
+    *{box-sizing:border-box;margin:0}
+    html{scroll-behavior:smooth}
+    body{background:var(--bg);color:var(--ink);font:16px/1.6 var(--font);-webkit-font-smoothing:antialiased;overflow-x:hidden}
+    body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;opacity:.4;mix-blend-mode:soft-light;
+      background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E")}
+    .shell{max-width:1120px;margin:0 auto;padding:0 24px;position:relative;z-index:1}
+    a{color:inherit;text-decoration:none}
+    h1,h2,h3{font-family:var(--display);letter-spacing:-.03em;line-height:1.02;font-weight:600}
+    .eyebrow{font-family:var(--display);font-size:12.5px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+    .lead{color:var(--ink-2);font-size:18px;line-height:1.65}
+    .muted{color:var(--muted)}
+
+    /* buttons */
+    .btn{display:inline-flex;align-items:center;gap:8px;font:600 14.5px/1 var(--font);letter-spacing:-.01em;
+      padding:13px 20px;border-radius:999px;border:1px solid transparent;cursor:pointer;transition:transform .15s,box-shadow .2s,background .2s,border-color .2s}
+    .btn:active{transform:translateY(1px)}
+    .btn.ink{background:var(--ink);color:#fff;box-shadow:0 10px 24px -10px rgba(12,13,16,.6)}
+    .btn.ink:hover{transform:translateY(-1px);box-shadow:0 16px 30px -12px rgba(12,13,16,.55)}
+    .btn.glass{background:var(--glass);border-color:var(--line);color:var(--ink);backdrop-filter:blur(12px)}
+    .btn.glass:hover{border-color:var(--ink);}
+
+    /* nav */
+    .nav{position:fixed;top:14px;left:0;right:0;z-index:50}
+    .nav .bar{max-width:1120px;margin:0 auto;display:flex;align-items:center;gap:22px;
+      padding:11px 14px 11px 20px;border:1px solid var(--line);border-radius:999px;
+      background:rgba(255,255,255,.6);backdrop-filter:blur(16px) saturate(1.4);box-shadow:var(--shadow-sm)}
+    .brand{display:flex;align-items:center;gap:10px;font-family:var(--display);font-weight:700;font-size:17px;letter-spacing:-.02em}
+    .brand .mk{width:26px;height:26px;border-radius:8px;display:grid;place-items:center;background:var(--ink)}
+    .brand .mk svg{width:15px;height:15px}
+    .nav .links{display:flex;gap:26px;margin-left:8px;font-size:14px;color:var(--ink-2)}
+    .nav .links a{transition:color .15s} .nav .links a:hover{color:var(--ink)}
+    .nav .sp{flex:1}
+    @media(max-width:720px){.nav .links{display:none}}
+
+    /* sun-ray hero */
+    .hero{position:relative;padding:190px 0 90px;text-align:center;overflow:hidden}
+    .rays{position:absolute;top:-46%;left:50%;transform:translateX(-50%);width:min(1500px,140vw);height:1100px;
+      pointer-events:none;z-index:0;
+      background:
+        radial-gradient(520px 360px at 50% 22%, rgba(255,255,255,.95), rgba(255,255,255,0) 70%),
+        conic-gradient(from 180deg at 50% 12%,
+          rgba(255,255,255,0) 0deg, rgba(255,255,255,.85) 2deg, rgba(255,255,255,0) 5deg,
+          rgba(255,255,255,0) 10deg, rgba(255,255,255,.6) 12deg, rgba(255,255,255,0) 15deg,
+          rgba(255,255,255,0) 24deg, rgba(255,255,255,.8) 26deg, rgba(255,255,255,0) 30deg,
+          rgba(255,255,255,0) 40deg, rgba(255,255,255,.55) 42deg, rgba(255,255,255,0) 46deg,
+          rgba(255,255,255,0) 320deg, rgba(255,255,255,.55) 322deg, rgba(255,255,255,0) 326deg,
+          rgba(255,255,255,0) 334deg, rgba(255,255,255,.8) 336deg, rgba(255,255,255,0) 340deg,
+          rgba(255,255,255,0) 348deg, rgba(255,255,255,.6) 350deg, rgba(255,255,255,0) 353deg,
+          rgba(255,255,255,0) 360deg);
+      -webkit-mask:radial-gradient(closest-side at 50% 12%, #000 10%, transparent 80%);
+      mask:radial-gradient(closest-side at 50% 12%, #000 10%, transparent 80%);
+      filter:blur(2px)}
+    .hero h1{font-size:clamp(42px,7vw,84px);max-width:14ch;margin:0 auto 22px}
+    .hero .lead{max-width:52ch;margin:0 auto 34px}
+    .hero .cta{display:flex;gap:12px;justify-content:center;flex-wrap:wrap}
+    .hero .tele{display:flex;gap:34px;justify-content:center;margin-top:56px;flex-wrap:wrap;color:var(--muted);font-size:13px}
+    .hero .tele b{display:block;font-family:var(--display);font-size:26px;color:var(--ink);letter-spacing:-.02em;margin-bottom:3px}
+
+    /* generic section */
+    section{position:relative;padding:96px 0}
+    .head{max-width:640px;margin-bottom:44px}
+    .head h2{font-size:clamp(30px,4vw,46px);margin:14px 0 0}
+
+    /* glass cards */
+    .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:18px}
+    .card{background:var(--glass);border:1px solid var(--line);border-radius:var(--r);padding:26px;
+      backdrop-filter:blur(14px);box-shadow:var(--shadow-sm);transition:transform .3s,box-shadow .3s}
+    .card:hover{transform:translateY(-4px);box-shadow:var(--shadow)}
+    .card .ic{width:44px;height:44px;border-radius:12px;display:grid;place-items:center;background:var(--ink);color:#fff;margin-bottom:16px}
+    .card .ic svg{width:22px;height:22px}
+    .card h3{font-size:20px;margin-bottom:8px}
+    .card p{color:var(--muted);font-size:14.5px}
+    .card .soon{font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--faint);margin-top:14px}
+
+    /* exam feature — its own purpose-built moment */
+    .exam{padding:110px 0}
+    .exam .panel{position:relative;border-radius:28px;overflow:hidden;border:1px solid var(--line);
+      background:linear-gradient(180deg,#fbfbfa,#f0efec);box-shadow:var(--shadow)}
+    .exam .panel::before{content:"";position:absolute;top:-40%;left:50%;transform:translateX(-50%);width:900px;height:700px;
+      background:radial-gradient(closest-side,rgba(255,255,255,.9),transparent 70%);pointer-events:none}
+    .exam .inner{position:relative;padding:64px 48px;text-align:center}
+    .exam h2{font-size:clamp(30px,4.4vw,52px);max-width:16ch;margin:16px auto 18px}
+    .exam .lead{max-width:56ch;margin:0 auto 30px}
+    .exam .flow{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;max-width:760px;margin:38px auto 34px;text-align:left}
+    .exam .step{background:var(--glass);border:1px solid var(--line);border-radius:var(--r-sm);padding:18px;backdrop-filter:blur(10px)}
+    .exam .step .n{font-family:var(--display);font-size:13px;color:var(--faint);margin-bottom:8px}
+    .exam .step h4{font-size:15.5px;margin-bottom:5px}
+    .exam .step p{font-size:13px;color:var(--muted)}
+    .exam .doors{display:flex;gap:12px;justify-content:center;flex-wrap:wrap}
+    @media(max-width:680px){.exam .flow{grid-template-columns:1fr}.exam .inner{padding:44px 22px}}
+
+    /* privacy statement */
+    .quote{text-align:center;padding:120px 0}
+    .quote h2{font-size:clamp(30px,5vw,60px);max-width:18ch;margin:0 auto}
+    .quote .k{color:var(--faint)}
+
+    /* footer */
+    footer{border-top:1px solid var(--line);padding:44px 0 60px;color:var(--muted);font-size:14px}
+    footer .row{display:flex;align-items:center;gap:16px;flex-wrap:wrap}
+    footer .sp{flex:1}
+
+    /* scroll reveal */
+    .reveal{opacity:0;transform:translateY(22px);transition:opacity .8s cubic-bezier(.2,.7,.2,1),transform .8s cubic-bezier(.2,.7,.2,1)}
+    .reveal.in{opacity:1;transform:none}
+    .reveal[data-d="1"]{transition-delay:.08s} .reveal[data-d="2"]{transition-delay:.16s} .reveal[data-d="3"]{transition-delay:.24s}
+
+    /* ── navigation layer ─────────────────────────────────────────── */
+    /* scroll progress — a hairline ink read-out of how far down you are */
+    .progress{position:fixed;top:0;left:0;height:2px;width:0;z-index:60;background:var(--ink);
+      border-radius:0 2px 2px 0;transition:width .1s linear;will-change:width}
+
+    /* active-section underline in the pill nav */
+    .nav .links a{position:relative}
+    .nav .links a::after{content:"";position:absolute;left:0;right:0;bottom:-6px;height:2px;border-radius:2px;
+      background:var(--ink);transform:scaleX(0);transform-origin:left;transition:transform .3s cubic-bezier(.2,.7,.2,1)}
+    .nav .links a:hover::after,.nav .links a.active::after{transform:scaleX(1)}
+    .nav .links a.active{color:var(--ink)}
+
+    /* floating section dock — compact, right-edge, self-labelling */
+    .dock{position:fixed;right:18px;top:50%;transform:translateY(-50%);z-index:45;
+      display:flex;flex-direction:column;gap:15px;padding:6px}
+    .dock a{position:relative;display:block;width:11px;height:11px}
+    .dock a span{position:absolute;inset:0;border-radius:50%;background:var(--line);
+      transition:transform .28s cubic-bezier(.2,.7,.2,1),background .28s}
+    .dock a:hover span{background:var(--muted);transform:scale(1.25)}
+    .dock a.active span{background:var(--ink);transform:scale(1.45)}
+    .dock a em{position:absolute;right:22px;top:50%;transform:translateY(-50%) translateX(6px);
+      opacity:0;pointer-events:none;font-style:normal;font-size:12px;font-family:var(--display);font-weight:600;
+      color:var(--ink);background:var(--glass);border:1px solid var(--line);backdrop-filter:blur(10px);
+      padding:4px 11px;border-radius:999px;white-space:nowrap;box-shadow:var(--shadow-sm);
+      transition:opacity .2s,transform .2s cubic-bezier(.2,.7,.2,1)}
+    .dock a:hover em,.dock a:focus-visible em{opacity:1;transform:translateY(-50%) translateX(0)}
+    @media(max-width:900px){.dock{display:none}}
+
+    /* back-to-top — appears only once you've travelled */
+    .totop{position:fixed;right:20px;bottom:22px;z-index:55;width:44px;height:44px;border-radius:999px;
+      border:1px solid var(--line);background:var(--glass);backdrop-filter:blur(12px);box-shadow:var(--shadow-sm);
+      display:grid;place-items:center;cursor:pointer;color:var(--ink);
+      opacity:0;transform:translateY(10px) scale(.92);pointer-events:none;
+      transition:opacity .3s,transform .35s cubic-bezier(.2,.7,.2,1),border-color .2s}
+    .totop.show{opacity:1;transform:none;pointer-events:auto}
+    .totop:hover{border-color:var(--ink);transform:translateY(-2px)}
+    .totop svg{width:18px;height:18px}
+
+    /* clickable capability card → its own section */
+    a.card.link{cursor:pointer;color:inherit}
+    .card .go{display:inline-flex;align-items:center;gap:6px;margin-top:16px;font-weight:600;
+      font-size:13.5px;color:var(--ink);transition:gap .22s cubic-bezier(.2,.7,.2,1)}
+    .card .go svg{width:15px;height:15px;transition:transform .22s cubic-bezier(.2,.7,.2,1)}
+    a.card.link:hover .go{gap:10px} a.card.link:hover .go svg{transform:translateX(2px)}
+
+    /* keyboard focus — real, accessible navigation */
+    a:focus-visible,.btn:focus-visible,.card.link:focus-visible,.dock a:focus-visible{
+      outline:2px solid var(--ink);outline-offset:3px;border-radius:14px}
+
+    @media(prefers-reduced-motion:reduce){
+      .reveal{opacity:1;transform:none}html{scroll-behavior:auto}
+      .progress,.totop,.dock a span{transition:none}
+    }
+  </style>
+</head>
+<body>
+  <div class="progress" id="progress"></div>
+
+  <!-- floating section navigator -->
+  <nav class="dock" id="dock" aria-label="Sections">
+    <a href="#top" data-s="top"><span></span><em>Top</em></a>
+    <a href="#platform" data-s="platform"><span></span><em>Platform</em></a>
+    <a href="#capabilities" data-s="capabilities"><span></span><em>Capabilities</em></a>
+    <a href="#exam" data-s="exam"><span></span><em>Exams</em></a>
+    <a href="#privacy" data-s="privacy"><span></span><em>Privacy</em></a>
+  </nav>
+
+  <button class="totop" id="totop" aria-label="Back to top">
+    <svg viewBox="0 0 24 24" fill="none"><path d="M12 19V6M6 12l6-6 6 6" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>
+  </button>
+
+  <!-- reusable logo mark -->
+  <svg width="0" height="0" style="position:absolute"><symbol id="v" viewBox="0 0 24 24" fill="none"><path d="M6 10V7.5A1.5 1.5 0 0 1 7.5 6H10M14 6h2.5A1.5 1.5 0 0 1 18 7.5V10M18 14v2.5a1.5 1.5 0 0 1-1.5 1.5H14M10 18H7.5A1.5 1.5 0 0 1 6 16.5V14" stroke="#fff" stroke-width="1.9" stroke-linecap="round"/><circle cx="12" cy="12" r="2.6" fill="#fff"/></symbol></svg>
+
+  <nav class="nav">
+    <div class="bar">
+      <a class="brand" href="/"><span class="mk"><svg><use href="#v"/></svg></span>Vigil</a>
+      <div class="links">
+        <a href="#platform">Platform</a><a href="#capabilities">Capabilities</a>
+        <a href="#exam">Exams</a><a href="#privacy">Privacy</a>
+      </div>
+      <span class="sp"></span>
+      <a class="btn glass" href="/app/exam.html">Join an exam</a>
+      <a class="btn ink" href="/login">Sign in</a>
+    </div>
+  </nav>
+
+  <header class="hero" id="top">
+    <div class="rays" id="rays"></div>
+    <div class="shell">
+      <div class="eyebrow reveal">On-device vision intelligence</div>
+      <h1 class="reveal" data-d="1">The room sees clearly.<br>Nothing leaves it.</h1>
+      <p class="lead reveal" data-d="2">Vigil turns ordinary cameras into private AI observers — flagging what matters in real time, on one machine. No uploads, no cloud, no footage anyone can watch.</p>
+      <div class="cta reveal" data-d="3">
+        <a class="btn ink" href="#exam">Explore exam monitoring</a>
+        <a class="btn glass" href="#platform">How it works</a>
+      </div>
+      <div class="tele reveal" data-d="3">
+        <div><b>~0.9s</b>detect → alert</div>
+        <div><b>0</b>uploads</div>
+        <div><b>On-device</b>always</div>
+      </div>
+    </div>
+  </header>
+
+  <section id="platform">
+    <div class="shell">
+      <div class="head reveal">
+        <div class="eyebrow">The platform</div>
+        <h2>One quiet machine, watching for what you can't.</h2>
+      </div>
+      <p class="lead reveal" data-d="1" style="max-width:60ch">Vigil runs its models locally and keeps every frame on the device. You get the signal — an alert, a pattern, a report — while the video itself never travels. It's surveillance intelligence that respects the room it's in.</p>
+    </div>
+  </section>
+
+  <section id="capabilities">
+    <div class="shell">
+      <div class="head reveal">
+        <div class="eyebrow">Capabilities</div>
+        <h2>Purpose-built for what you need to see.</h2>
+      </div>
+      <div class="cards">
+        <div class="card reveal">
+          <div class="ic"><svg viewBox="0 0 24 24" fill="none"><rect x="7" y="3" width="10" height="18" rx="2" stroke="#fff" stroke-width="1.7"/><circle cx="12" cy="17.5" r="1" fill="#fff"/></svg></div>
+          <h3>Phone detection</h3>
+          <p>Catch a phone the instant it appears on your existing cameras — flagged, captured, and logged in under a second.</p>
+        </div>
+        <a href="#exam" class="card link reveal" data-d="1" aria-label="Exam integrity — see how it works">
+          <div class="ic"><svg viewBox="0 0 24 24" fill="none"><path d="M4 5.5A1.5 1.5 0 0 1 5.5 4h13A1.5 1.5 0 0 1 20 5.5V15a1.5 1.5 0 0 1-1.5 1.5H13l-4 3.5v-3.5H5.5A1.5 1.5 0 0 1 4 15V5.5Z" stroke="#fff" stroke-width="1.6"/><circle cx="12" cy="10" r="2.4" stroke="#fff" stroke-width="1.6"/></svg></div>
+          <h3>Exam integrity</h3>
+          <p>Monitor online & in-person exams on each student's own device — privacy-first, video never leaves the laptop.</p>
+          <span class="go">See how <svg viewBox="0 0 24 24" fill="none"><path d="M5 12h14M13 6l6 6-6 6" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+        </a>
+        <div class="card reveal" data-d="2">
+          <div class="ic"><svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="8" stroke="#fff" stroke-width="1.6"/><path d="M12 8v4l2.5 2" stroke="#fff" stroke-width="1.6" stroke-linecap="round"/></svg></div>
+          <h3>More, in time</h3>
+          <p>The same private, on-device engine — extending to new spaces and signals as we grow.</p>
+          <div class="soon">Coming soon</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="exam" class="exam">
+    <div class="shell">
+      <div class="panel reveal">
+        <div class="inner">
+          <div class="eyebrow">Exam integrity</div>
+          <h2>Watch the exam, not the student.</h2>
+          <p class="lead">Each student's laptop camera runs the model locally and streams only tiny signals — never video. Teachers watch a calm wall of tiles that stay quiet until something genuinely needs attention. A full timeline is waiting afterward.</p>
+          <div class="flow">
+            <div class="step"><div class="n">01 · Student</div><h4>Joins with a code</h4><p>Camera runs on their device. No video is ever sent or stored.</p></div>
+            <div class="step"><div class="n">02 · Teacher</div><h4>Watches the room</h4><p>Tiles glow only when a real pattern appears — head-down, a second face, going dark.</p></div>
+            <div class="step"><div class="n">03 · After</div><h4>Reviews the report</h4><p>A per-student timeline of exactly what happened, exportable to PDF or CSV.</p></div>
+          </div>
+          <div class="doors">
+            <a class="btn ink" href="/app/exam.html">Join an exam</a>
+            <a class="btn glass" href="/login">Staff sign-in</a>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="privacy" class="quote">
+    <div class="shell reveal">
+      <h2>Nothing leaves the device. <span class="k">That's the whole idea.</span></h2>
+    </div>
+  </section>
+
+  <footer>
+    <div class="shell row">
+      <a class="brand" href="/"><span class="mk"><svg><use href="#v"/></svg></span>Vigil</a>
+      <span class="sp"></span>
+      <span>On-device vision intelligence</span>
+      <a href="/app/exam.html">Join an exam</a>
+      <a href="/login">Sign in</a>
+    </div>
+  </footer>
+
+  <script src="/app/vendor/lenis/lenis.min.js"></script>
+  <script>
+    // Smooth, physics-based scrolling (Lenis).
+    if (window.Lenis && !matchMedia("(prefers-reduced-motion:reduce)").matches) {
+      const lenis = new Lenis({ lerp: 0.09, wheelMultiplier: 1 });
+      window.lenis = lenis;
+      function raf(t){ lenis.raf(t); requestAnimationFrame(raf); }
+      requestAnimationFrame(raf);
+      document.querySelectorAll('a[href^="#"]').forEach(a =>
+        a.addEventListener("click", e => { const href = a.getAttribute("href");
+          const t = href === "#top" ? 0 : document.querySelector(href);
+          if (t !== null) { e.preventDefault(); lenis.scrollTo(t, { offset: t === 0 ? 0 : -80 }); } }));
+      // gentle parallax on the sun rays + keep the nav layer in sync
+      const rays = document.getElementById("rays");
+      lenis.on("scroll", ({ scroll }) => {
+        rays.style.transform = `translateX(-50%) translateY(${scroll * 0.12}px)`;
+        updateNav(scroll);
+      });
+    }
+
+    // Scroll-reveal
+    const io = new IntersectionObserver((es) => es.forEach(x => { if (x.isIntersecting){ x.target.classList.add("in"); io.unobserve(x.target); } }), { threshold: 0.14 });
+    document.querySelectorAll(".reveal").forEach(el => io.observe(el));
+
+    // ── Navigation layer — one scroll-position-driven update, no reliance on
+    //    native scroll events firing (Lenis calls updateNav directly). ──────
+    const progress = document.getElementById("progress");
+    const totop = document.getElementById("totop");
+    const sections = [...document.querySelectorAll("header[id], section[id]")];
+    const dockLinks = [...document.querySelectorAll(".dock a")];
+    const navLinks = [...document.querySelectorAll(".nav .links a")];
+    let activeId = null;
+    function setActive(id) {
+      if (id === activeId) return;
+      activeId = id;
+      dockLinks.forEach(a => a.classList.toggle("active", a.dataset.s === id));
+      navLinks.forEach(a => a.classList.toggle("active", a.getAttribute("href") === "#" + id));
+    }
+    function updateNav(y) {
+      y = (y == null) ? (window.scrollY || document.documentElement.scrollTop) : y;
+      const vh = window.innerHeight || document.documentElement.clientHeight || 800;
+      const max = document.documentElement.scrollHeight - vh;
+      progress.style.width = (max > 0 ? Math.min(1, Math.max(0, y / max)) * 100 : 0) + "%";
+      totop.classList.toggle("show", y > vh * 0.6);
+      // active = the last section whose top has passed the upper third of the viewport
+      const line = y + vh * 0.35;
+      let cur = sections[0]?.id;
+      for (const s of sections) { if (s.offsetTop <= line) cur = s.id; }
+      if (cur) setActive(cur);
+    }
+    addEventListener("scroll", () => updateNav(), { passive: true });
+    addEventListener("resize", () => updateNav(), { passive: true });
+    updateNav();
+    totop.addEventListener("click", () =>
+      window.lenis ? window.lenis.scrollTo(0) : scrollTo({ top: 0, behavior: "smooth" }));
+  </script>
+</body>
+</html>

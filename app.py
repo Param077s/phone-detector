@@ -395,30 +395,43 @@ _sync_vlm()
 # links use whatever address the browser is already on (same-network only).
 PUBLIC_URL = os.getenv("PUBLIC_URL", "").rstrip("/")
 
-print(f"Loading YOLO ({MODEL_NAME})...")
-model = YOLO(MODEL_NAME)
+# Exam mode is 100% client-side — the vision model runs in each student's
+# browser, and the server only relays tiny JSON events. When Vigil runs purely
+# as an exam server (VIGIL_EXAM_ONLY=1) we skip the heavy YOLO load AND the
+# camera producers entirely: no webcam contention with the student's own
+# getUserMedia on the same machine, and a fast, lightweight server.
+EXAM_ONLY = os.getenv("VIGIL_EXAM_ONLY") == "1"
 
-# Auto-detect which class id is the phone, so a FINE-TUNED model works too:
-#   COCO pretrained -> 67 ("cell phone");  fine-tuned single-class -> usually 0 ("phone")
-try:
-    PHONE_CLASS = next((i for i, n in model.names.items() if "phone" in str(n).lower()), PHONE_CLASS)
-    print(f"Phone class id: {PHONE_CLASS} ({model.names.get(PHONE_CLASS)})")
-except Exception:
-    pass
 model_lock = threading.Lock()          # YOLO is shared across camera threads
+DEVICE = "cpu"
 
-# Use the Mac's GPU (Apple Silicon "mps") if available — a big speed-up. Else CPU.
-try:
-    import torch
-    DEVICE = "mps" if torch.backends.mps.is_available() else ("cuda" if torch.cuda.is_available() else "cpu")
-except Exception:
-    DEVICE = "cpu"
-try:
-    model(np.zeros((IMG_SIZE, IMG_SIZE, 3), dtype=np.uint8), imgsz=IMG_SIZE, device=DEVICE, verbose=False)
-    print(f"Detection device: {DEVICE}")
-except Exception as e:
-    print(f"Device '{DEVICE}' unavailable ({e}); falling back to CPU")
-    DEVICE = "cpu"
+if EXAM_ONLY:
+    print("VIGIL_EXAM_ONLY=1 — exam server: skipping YOLO model + cameras.")
+    model = None
+else:
+    print(f"Loading YOLO ({MODEL_NAME})...")
+    model = YOLO(MODEL_NAME)
+
+    # Auto-detect which class id is the phone, so a FINE-TUNED model works too:
+    #   COCO pretrained -> 67 ("cell phone");  fine-tuned single-class -> usually 0 ("phone")
+    try:
+        PHONE_CLASS = next((i for i, n in model.names.items() if "phone" in str(n).lower()), PHONE_CLASS)
+        print(f"Phone class id: {PHONE_CLASS} ({model.names.get(PHONE_CLASS)})")
+    except Exception:
+        pass
+
+    # Use the Mac's GPU (Apple Silicon "mps") if available — a big speed-up. Else CPU.
+    try:
+        import torch
+        DEVICE = "mps" if torch.backends.mps.is_available() else ("cuda" if torch.cuda.is_available() else "cpu")
+    except Exception:
+        DEVICE = "cpu"
+    try:
+        model(np.zeros((IMG_SIZE, IMG_SIZE, 3), dtype=np.uint8), imgsz=IMG_SIZE, device=DEVICE, verbose=False)
+        print(f"Detection device: {DEVICE}")
+    except Exception as e:
+        print(f"Device '{DEVICE}' unavailable ({e}); falling back to CPU")
+        DEVICE = "cpu"
 
 
 def reload_model():
@@ -480,11 +493,12 @@ def apply_watch_target():
     return True
 
 
-try:
-    apply_watch_target()
-    print(f"Watching for: {TARGET_NAME} (class {TARGET_CLASS})")
-except Exception as _e:
-    print(f"Watch-target init failed ({_e}); defaulting to phone")
+if not EXAM_ONLY:
+    try:
+        apply_watch_target()
+        print(f"Watching for: {TARGET_NAME} (class {TARGET_CLASS})")
+    except Exception as _e:
+        print(f"Watch-target init failed ({_e}); defaulting to phone")
 
 
 # ---------------------------------------------------------------------------
@@ -511,8 +525,8 @@ def _load_cameras():
                 return out
     except Exception:
         pass
-    # Cloud deploys have no local webcam — start with no cameras there
-    if os.getenv("VIGIL_NO_DEFAULT_CAMERA") == "1":
+    # Cloud deploys and exam-only servers have no local webcam — no cameras.
+    if EXAM_ONLY or os.getenv("VIGIL_NO_DEFAULT_CAMERA") == "1":
         return []
     # Default: one camera = the Mac's built-in webcam
     return [{"id": "cam1", "label": "Camera 1 · Webcam", "source": "0"}]
@@ -725,6 +739,36 @@ def init_db():
             c.execute("ALTER TABLE alerts ADD COLUMN description TEXT DEFAULT ''")
         except sqlite3.OperationalError:
             pass
+        # ── Exam mode: laptop-webcam integrity monitoring ──────────────────
+        # Kept separate from `alerts` (that's the phone/CCTV world). A session
+        # is one exam; events are the tiny JSON pings a student's browser emits
+        # while the vision model runs LOCALLY on their laptop — the camera video
+        # itself never reaches the server.
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS exam_sessions (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                code        TEXT UNIQUE,
+                title       TEXT,
+                created_by  TEXT,
+                status      TEXT DEFAULT 'open',
+                created_at  TEXT,
+                ended_at    TEXT
+            )
+        """)
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS exam_events (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                session_id  INTEGER,
+                student     TEXT,
+                type        TEXT,
+                severity    TEXT DEFAULT 'info',
+                value       REAL,
+                detail      TEXT DEFAULT '',
+                created_at  TEXT
+            )
+        """)
+        c.execute("CREATE INDEX IF NOT EXISTS idx_exam_events_session "
+                  "ON exam_events(session_id, created_at)")
 
 
 def _store_alert(jpg_bytes, confidence, camera, status="pending", dt=None, thing="Phone",
@@ -1030,24 +1074,20 @@ def remove_push_sub(endpoint):
             _save_subs(subs)
 
 
-def send_push_alert(thing, confidence, camera_label, alert_id, description=""):
-    """Fire a Web Push to every subscribed phone, in the background. Prunes any
-    subscription the push service reports as gone (404/410)."""
+def _push_broadcast(payload_dict, usernames=None):
+    """Fire a Web Push with this JSON payload to subscribed browsers, in the
+    background. If `usernames` is given, only THOSE users' subscriptions are
+    notified (per-exam scoping); None means everyone. Prunes any subscription the
+    push service reports as gone (404/410)."""
     if not (_WEBPUSH_OK and VAPID_PRIVATE_PEM):
         return
     with _push_lock:
         subs = _load_subs()
+    if usernames is not None:
+        subs = {ep: rec for ep, rec in subs.items() if rec.get("username") in usernames}
     if not subs:
         return
-    body = f"{round((confidence or 0) * 100)}% confidence · tap to review"
-    if description:
-        body = description
-    payload = json.dumps({
-        "title": f"{thing} detected · {camera_label}",
-        "body": body,
-        "id": alert_id,
-        "camera": camera_label,
-    })
+    payload = json.dumps(payload_dict)
 
     def _worker():
         dead = []
@@ -1072,6 +1112,17 @@ def send_push_alert(thing, confidence, camera_label, alert_id, description=""):
             remove_push_sub(endpoint)
 
     threading.Thread(target=_worker, daemon=True).start()
+
+
+def send_push_alert(thing, confidence, camera_label, alert_id, description=""):
+    """Phone-detection alert → every subscribed phone (tap opens the app)."""
+    body = description or f"{round((confidence or 0) * 100)}% confidence · tap to review"
+    _push_broadcast({
+        "title": f"{thing} detected · {camera_label}",
+        "body": body,
+        "id": alert_id,
+        "camera": camera_label,
+    })
 
 
 # --- AI review queue: the vision model runs HERE, on its own thread, so it never
@@ -1102,7 +1153,8 @@ def _vlm_worker():
             print(f"[vlm] worker error on #{alert_id}: {type(e).__name__}: {e}")
 
 
-threading.Thread(target=_vlm_worker, daemon=True).start()
+if not EXAM_ONLY:                       # no detections in exam mode → no VLM worker
+    threading.Thread(target=_vlm_worker, daemon=True).start()
 
 
 def maybe_add_alert(crop, confidence, camera_label, camera_id, context=None):
@@ -1549,6 +1601,23 @@ _PUBLIC = {"/login", "/setup", "/logout", "/favicon.svg", "/auth/google"} | _PWA
 _API_PREFIXES = ("/alerts", "/cameras", "/evidence/list", "/evidence/image", "/snapshot", "/stream", "/camera_status", "/push", "/api")
 
 
+def _is_exam_public(path, method):
+    """The exam-join surface reachable WITHOUT a staff account — the exam CODE is
+    the invite (same philosophy as the /sender camera links). Just the student
+    page, its vendored model assets, and the read-only single-code lookup. NOT
+    the admin endpoints (create/sessions/events/live) and NOT the staff console.
+    The event WebSocket is separately gated on a valid open code."""
+    if path in ("/app/exam.html", "/app/exam.js", "/app/exam.css"):
+        return True
+    if path.startswith("/app/vendor/"):
+        return True
+    # GET /api/exam/<code> validates one code. Exclude the admin list endpoint.
+    if method == "GET" and path != "/api/exam/sessions" \
+            and re.match(r"^/api/exam/[A-Za-z0-9]+$", path):
+        return True
+    return False
+
+
 @app.middleware("http")
 async def auth_gate(request: Request, call_next):
     path = request.url.path
@@ -1567,7 +1636,13 @@ async def auth_gate(request: Request, call_next):
 
     user = current_user(request)
     if not user:
-        if path == "/":   # visitors get the public website; the app stays behind login
+        if path == "/":   # visitors get the premium marketing site; the app stays behind login
+            # The immersive scroll journey is the default landing. The previous
+            # static page stays reachable at /?classic=1 as an instant fallback.
+            _name = "home.html" if request.query_params.get("classic") == "1" else "journey.html"
+            _home = os.path.join(_WEB_DIR, _name)
+            if os.path.exists(_home):
+                return FileResponse(_home, headers={"Cache-Control": "no-cache"})
             return HTMLResponse(LANDING_HTML.replace("__LOGO__", LOGO_MARK))
         # Shared device-camera links work with NO account — that's the whole point
         # of handing someone off your network a link. The camera id is an
@@ -1579,9 +1654,24 @@ async def auth_gate(request: Request, call_next):
             src, _ = _find_camera(cam_id)
             if src == "browser":
                 return await call_next(request)
+        # A student can open the exam-join page with just a code — no account.
+        if _is_exam_public(path, request.method):
+            return await call_next(request)
         if path.startswith(_API_PREFIXES):
             return JSONResponse({"error": "unauthorized"}, status_code=401)
         return RedirectResponse("/login")
+
+    # Students live entirely in exam mode — never the staff console. Let them
+    # reach the exam surface, the root (which routes them onward), and logout;
+    # bounce everything else back to their exam page.
+    if user.get("role") == "student":
+        if path == "/" or path == "/logout" or path == "/api/me" or path in _PUBLIC \
+                or _is_exam_public(path, request.method):
+            request.state.user = user
+            return await call_next(request)
+        if path.startswith(_API_PREFIXES):
+            return JSONResponse({"error": "forbidden"}, status_code=403)
+        return RedirectResponse("/app/exam.html")
 
     # Only admins may change cameras or manage users
     if request.method in ("POST", "PUT", "DELETE") and \
@@ -1603,11 +1693,15 @@ async def auth_gate(request: Request, call_next):
 # fonts need.
 _CSP = (
     "default-src 'self'; "
-    "script-src 'self' 'unsafe-inline' https://accounts.google.com https://apis.google.com; "
+    # 'wasm-unsafe-eval' lets the LOCALLY-served MediaPipe model compile its
+    # WebAssembly (exam mode); it permits WASM only, not arbitrary JS eval.
+    "script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' https://accounts.google.com https://apis.google.com; "
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
     "img-src 'self' data: blob:; "
     "font-src 'self' data: https://fonts.gstatic.com; "
     "connect-src 'self' https://accounts.google.com https://oauth2.googleapis.com; "
+    # MediaPipe runs its WASM in a blob-URL worker, all from our own origin.
+    "worker-src 'self' blob:; "
     "frame-src https://accounts.google.com; "
     "frame-ancestors 'none'; object-src 'none'; base-uri 'self'; form-action 'self'"
 )
@@ -1761,6 +1855,342 @@ async def ws_push(camera_id: str, ws: WebSocket):
             _get_producer(camera_id)
     except (WebSocketDisconnect, RuntimeError):
         pass
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# EXAM MODE  (laptop-webcam integrity monitoring)
+#
+# The student's browser runs the vision model (MediaPipe) LOCALLY and streams
+# only tiny JSON events here — never a single video frame. Live presence (the
+# last heartbeat per student) is kept in memory for the teacher's live view;
+# the durable record is the exam_events table, read back by the report page.
+# ═══════════════════════════════════════════════════════════════════════════
+exam_lock = threading.Lock()
+exam_presence = {}   # (session_code, student) -> {"last": ts, "camera": "on"|"off"}
+exam_watchers = {}   # session_code -> set(usernames invigilating it) — who gets pushes
+
+# The server — never the client — decides how serious an event is. A tampered
+# browser can lie about what happened, but it can't upgrade its own severity.
+_EXAM_SEVERITY = {
+    "head_down":    "warn",
+    "face_absent":  "warn",
+    "second_face":  "alert",
+    "camera_off":   "alert",
+    "disconnected": "alert",
+    "joined":       "info",
+    "calibrated":   "info",
+}
+
+
+def _new_exam_code():
+    # Short join code, no visually confusable characters (no 0/O, 1/I/L).
+    alphabet = "ABCDEFGHJKMNPQRSTUVWXYZ23456789"
+    return "".join(secrets.choice(alphabet) for _ in range(6))
+
+
+def _create_exam_session(title, created_by):
+    with _db() as c:
+        for _ in range(5):
+            code = _new_exam_code()
+            try:
+                cur = c.execute(
+                    "INSERT INTO exam_sessions (code, title, created_by, status, created_at)"
+                    " VALUES (?,?,?,?,?)",
+                    (code, title or "Exam", created_by or "", "open",
+                     datetime.now().isoformat()))
+                return {"id": cur.lastrowid, "code": code, "title": title or "Exam"}
+            except sqlite3.IntegrityError:
+                continue   # code collision — vanishingly rare, just retry
+    raise RuntimeError("could not allocate exam code")
+
+
+def _exam_session(code):
+    if not code:
+        return None
+    with _db() as c:
+        row = c.execute("SELECT * FROM exam_sessions WHERE code = ?",
+                        (code.upper(),)).fetchone()
+    return dict(row) if row else None
+
+
+def _store_exam_event(session_id, student, etype, severity="info", value=None, detail=""):
+    with _db() as c:
+        c.execute(
+            "INSERT INTO exam_events (session_id, student, type, severity, value, detail, created_at)"
+            " VALUES (?,?,?,?,?,?,?)",
+            (session_id, student, etype, severity,
+             float(value) if value is not None else None, detail or "",
+             datetime.now().isoformat()))
+
+
+# Which exam events are urgent enough to push to a teacher who ISN'T watching the
+# tiles. Kept to the serious ones — head-down / face-absent are visible on the
+# wall and pushing them would only add noise.
+_EXAM_PUSH_LABEL = {
+    "second_face":  "has a second face in frame",
+    "camera_off":   "turned their camera off",
+    "disconnected": "went offline",
+}
+_EXAM_PUSH_COOLDOWN = 45           # seconds, per student, so one can't flood
+_exam_push_last = {}              # (code, student) -> ts
+
+
+def push_exam_flag(code, title, student, etype):
+    """Ping subscribed staff about a serious exam flag, rate-limited per student.
+    Tapping the notification opens that exam's live room."""
+    label = _EXAM_PUSH_LABEL.get(etype)
+    if not label:
+        return
+    now = time.time()
+    key = (code, student)
+    with exam_lock:
+        if now - _exam_push_last.get(key, 0) < _EXAM_PUSH_COOLDOWN:
+            return
+        _exam_push_last[key] = now
+        watchers = set(exam_watchers.get(code) or ())
+    _push_broadcast({
+        "title": f"{title} · integrity alert",
+        "body": f"{student} {label}",
+        "url": f"/app/live.html#{code}",
+        "tag": f"exam-{code}-{student}",     # one live notification per student
+    }, usernames=watchers or None)           # scoped to invigilators; empty → all staff
+
+
+@app.websocket("/ws/exam/{code}/{student}")
+async def ws_exam(code: str, student: str, ws: WebSocket):
+    """A student's browser opens ONE socket and streams heartbeat + detection
+    events. Like /ws/push, the HTTP auth middleware doesn't run for websockets,
+    so a valid OPEN session code is the gate. NO video is ever sent here — only
+    the small JSON events the browser computes locally."""
+    sess = _exam_session(code)
+    if not sess or sess["status"] != "open":
+        await ws.close(code=4404)
+        return
+    await ws.accept()
+    student = (student or "student")[:80]
+    key = (sess["code"], student)
+    await run_in_threadpool(_store_exam_event, sess["id"], student, "joined")
+    with exam_lock:
+        exam_presence[key] = {"last": time.time(), "camera": "on"}
+    try:
+        while True:
+            raw = await ws.receive_text()
+            try:
+                msg = json.loads(raw)
+            except (ValueError, TypeError):
+                continue
+            etype = str(msg.get("type", ""))[:40]
+            if not etype:
+                continue
+            if etype == "heartbeat":
+                cam = "off" if msg.get("camera") == "off" else "on"
+                with exam_lock:
+                    prev = exam_presence.get(key, {})
+                    exam_presence[key] = {"last": time.time(), "camera": cam}
+                    changed = prev.get("camera", "on") != cam
+                # Only the state CHANGE is worth a row, not every 4-second beat.
+                if changed and cam == "off":
+                    await run_in_threadpool(_store_exam_event, sess["id"], student,
+                                            "camera_off", _EXAM_SEVERITY["camera_off"])
+                    push_exam_flag(sess["code"], sess["title"], student, "camera_off")
+                continue
+            if etype in _EXAM_SEVERITY:
+                try:
+                    val = float(msg.get("value")) if msg.get("value") is not None else None
+                except (ValueError, TypeError):
+                    val = None
+                detail = str(msg.get("detail", ""))[:200]
+                await run_in_threadpool(_store_exam_event, sess["id"], student, etype,
+                                        _EXAM_SEVERITY[etype], val, detail)
+                push_exam_flag(sess["code"], sess["title"], student, etype)
+    except (WebSocketDisconnect, RuntimeError):
+        pass
+    finally:
+        with exam_lock:
+            exam_presence.pop(key, None)
+        # Going dark is itself a signal — record it so the report shows the gap.
+        await run_in_threadpool(_store_exam_event, sess["id"], student,
+                                "disconnected", _EXAM_SEVERITY["disconnected"])
+        push_exam_flag(sess["code"], sess["title"], student, "disconnected")
+
+
+@app.post("/api/exam/create")
+async def api_exam_create(request: Request):
+    u, err = _require_staff(request)
+    if err:
+        return err
+    try:
+        payload = await request.json()
+    except Exception:
+        payload = {}
+    title = (str(payload.get("title", "Exam")).strip() or "Exam")[:120]
+    sess = await run_in_threadpool(_create_exam_session, title, u["username"])
+    return {"ok": True, **sess}
+
+
+@app.get("/api/exam/sessions")
+def api_exam_sessions(request: Request):
+    u, err = _require_staff(request)
+    if err:
+        return err
+    with _db() as c:
+        rows = c.execute(
+            "SELECT id, code, title, status, created_at, ended_at FROM exam_sessions"
+            " ORDER BY id DESC LIMIT 100").fetchall()
+    return [dict(r) for r in rows]
+
+
+# Public: the student join page asks whether Google Sign-In is available. Placed
+# ABOVE /api/exam/{code} so "config" isn't parsed as a session code.
+@app.get("/api/exam/config")
+def api_exam_config():
+    cid = GOOGLE_CLIENT_ID.strip()
+    return {"google": bool(cid), "client_id": cid}
+
+
+# NOTE: the specific /api/exam/sessions and /api/exam/create routes are declared
+# ABOVE the parametric /api/exam/{code}, so "sessions"/"create" never get
+# swallowed as a session code.
+@app.get("/api/exam/{code}")
+def api_exam_info(code: str, request: Request):
+    sess = _exam_session(code)
+    if not sess:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    return {"code": sess["code"], "title": sess["title"], "status": sess["status"]}
+
+
+@app.get("/api/exam/{code}/events")
+def api_exam_events(code: str, request: Request):
+    sess = _exam_session(code)
+    if not sess:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    with _db() as c:
+        rows = c.execute(
+            "SELECT student, type, severity, value, detail, created_at FROM exam_events"
+            " WHERE session_id = ? ORDER BY created_at", (sess["id"],)).fetchall()
+    return {"code": sess["code"], "title": sess["title"], "status": sess["status"],
+            "events": [dict(r) for r in rows]}
+
+
+_STALE_AFTER = 12          # no heartbeat for this long → treat as gone (3 missed beats)
+_FLAG_LEVEL_ORDER = {"alert": 0, "warn": 1, "ok": 2}
+
+
+@app.get("/api/exam/{code}/live")
+def api_exam_live(code: str, request: Request):
+    """The teacher's live room: one entry per student who has joined this exam,
+    each with a computed tile status. Presence comes from the in-memory heartbeat
+    map; the roster and recent flags come from the durable event log — so a
+    student who goes dark stays on screen as a red tile (that IS the signal)."""
+    sess = _exam_session(code)
+    if not sess:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    now = time.time()
+    now_dt = datetime.now()
+    with exam_lock:
+        pres = {k[1]: dict(v) for k, v in exam_presence.items() if k[0] == sess["code"]}
+    with _db() as c:
+        names = [r["student"] for r in c.execute(
+            "SELECT DISTINCT student FROM exam_events WHERE session_id=?",
+            (sess["id"],)).fetchall()]
+        flag_rows = c.execute(
+            "SELECT student, type, value, created_at FROM exam_events"
+            " WHERE session_id=? AND severity IN ('warn','alert') ORDER BY created_at",
+            (sess["id"],)).fetchall()
+
+    last_flag, flag_count = {}, {}
+    for r in flag_rows:                      # ASC order → last write per student wins
+        flag_count[r["student"]] = flag_count.get(r["student"], 0) + 1
+        last_flag[r["student"]] = r
+
+    students = []
+    for name in names:
+        p = pres.get(name)
+        age = round(now - p["last"], 1) if p else None
+        online = bool(p) and age is not None and age <= _STALE_AFTER
+        camera = p["camera"] if p else "off"
+
+        lf = last_flag.get(name)
+        flag_age, flag_label = None, None
+        if lf:
+            flag_label = lf["type"]
+            try:
+                flag_age = (now_dt - datetime.fromisoformat(lf["created_at"])).total_seconds()
+            except (ValueError, TypeError):
+                flag_age = None
+
+        if not online:
+            presence, level = "offline", "alert"
+        elif camera == "off":
+            presence, level = "camera_off", "alert"
+        else:
+            presence, level = "active", "ok"
+            if flag_age is not None:
+                if lf["type"] == "second_face" and flag_age < 30:
+                    level = "alert"
+                elif flag_age < 20:
+                    level = "warn"
+
+        students.append({
+            "student": name, "presence": presence, "online": online, "camera": camera,
+            "age": age, "level": level, "last_flag": flag_label,
+            "flag_age": round(flag_age, 1) if flag_age is not None else None,
+            "flags": flag_count.get(name, 0),
+        })
+
+    students.sort(key=lambda s: (_FLAG_LEVEL_ORDER.get(s["level"], 3), s["student"].lower()))
+    counts = {"total": len(students),
+              "flagged": sum(1 for s in students if s["level"] != "ok"),
+              "offline": sum(1 for s in students if s["presence"] == "offline")}
+    return {"code": sess["code"], "title": sess["title"], "status": sess["status"],
+            "students": students, "counts": counts}
+
+
+@app.post("/api/exam/{code}/watch")
+def api_exam_watch(code: str, request: Request):
+    """A teacher opening this exam's live room asks to receive its push alerts.
+    Scoped by USERNAME so alerts reach all their devices — they watch on a laptop,
+    the push lands on their phone. Persists until they unwatch or the exam closes."""
+    u, err = _require_staff(request)
+    if err:
+        return err
+    sess = _exam_session(code)
+    if not sess:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    with exam_lock:
+        exam_watchers.setdefault(sess["code"], set()).add(u["username"])
+    return {"ok": True}
+
+
+@app.post("/api/exam/{code}/unwatch")
+def api_exam_unwatch(code: str, request: Request):
+    u, err = _require_staff(request)
+    if err:
+        return err
+    sess = _exam_session(code)
+    if not sess:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    with exam_lock:
+        w = exam_watchers.get(sess["code"])
+        if w:
+            w.discard(u["username"])
+    return {"ok": True}
+
+
+@app.post("/api/exam/{code}/close")
+async def api_exam_close(code: str, request: Request):
+    u, err = _require_staff(request)
+    if err:
+        return err
+    sess = _exam_session(code)
+    if not sess:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    with _db() as c:
+        c.execute("UPDATE exam_sessions SET status='closed', ended_at=? WHERE id=?",
+                  (datetime.now().isoformat(), sess["id"]))
+    with exam_lock:
+        exam_watchers.pop(sess["code"], None)      # exam over → stop its alerts
+    return {"ok": True}
 
 
 @app.get("/cameras")
@@ -1932,6 +2362,17 @@ def _require_admin(request):
     return u, None
 
 
+def _require_staff(request):
+    """Admin OR invigilator — the people who run and watch exams. Students are
+    the one role kept out of the staff-facing endpoints."""
+    u = getattr(request.state, "user", None) or current_user(request)
+    if not u:
+        return None, JSONResponse({"error": "unauthorized"}, status_code=401)
+    if u.get("role") == "student":
+        return None, JSONResponse({"error": "forbidden"}, status_code=403)
+    return u, None
+
+
 @app.get("/api/me")
 def api_me(request: Request):
     u = getattr(request.state, "user", None) or current_user(request)
@@ -1950,6 +2391,7 @@ def api_me(request: Request):
             is_loopback = client.host == "localhost"
     return {"username": u["username"], "role": u["role"],
             "desktop": os.environ.get("VIGIL_DESKTOP") == "1" and is_loopback,
+            "exam_only": EXAM_ONLY,
             "version": VIGIL_VERSION}
 
 
@@ -2298,7 +2740,7 @@ async def api_push_test(request: Request):
 
 # ---- Updates --------------------------------------------------------------
 # Bump this on every release (it's what Check for updates compares against).
-VIGIL_VERSION = "1.4.1"
+VIGIL_VERSION = "1.5.0"
 _UPDATE_REPO = "Param077s/vigil"
 
 
@@ -3724,11 +4166,12 @@ def _admin_nav(user):
 
 @app.get("/", response_class=HTMLResponse)
 def dashboard(request: Request):
-    # The redesigned SPA at /app is now home for EVERYONE — desktop app and
-    # browser alike — and on a phone it becomes the purpose-built teacher UI.
-    # Every login path (password, Google, first-run setup) lands on "/", so this
-    # sends them all straight into /app. (The classic inline dashboard below is
-    # kept only as an emergency fallback and is no longer the default.)
+    # The redesigned SPA at /app is home for STAFF (admin + invigilator). Every
+    # login path (password, Google, first-run setup) lands on "/", so this routes
+    # by role: students go to their exam page, staff go to the console.
+    user = getattr(request.state, "user", None) or current_user(request)
+    if user and user.get("role") == "student":
+        return RedirectResponse("/app/exam.html")
     return RedirectResponse("/app/")
 
 
@@ -4218,7 +4661,10 @@ LANDING_HTML = """<!doctype html>
     <a href="#capabilities">CAPABILITIES</a><a href="#detection">DETECTION</a>
     <a href="#deployment">DEPLOYMENT</a><a href="#invigilators">GET THE APP</a><a href="#privacy">PRIVACY</a><a href="#faq">FAQ</a>
   </nav>
-  <a class="btn btn-grn" href="/login">OPEN DASHBOARD</a>
+  <span style="display:flex;gap:10px">
+    <a class="btn btn-ghost" href="/app/exam.html">JOIN AN EXAM</a>
+    <a class="btn btn-grn" href="/login">STAFF SIGN-IN</a>
+  </span>
 </div></div>
 
 <main class="shell">
@@ -4231,9 +4677,11 @@ LANDING_HTML = """<!doctype html>
         observers. A phone appears — it's <b>flagged, photographed and logged in under a second</b>.
         Runs entirely on one machine. Nothing leaves the building.</p>
       <div class="ctas reveal in" style="--d:.18s">
-        <a class="btn btn-grn" href="/login">OPEN THE DASHBOARD</a>
-        <a class="btn btn-ghost" href="#deployment">RUN A PILOT</a>
+        <a class="btn btn-grn" href="/app/exam.html">JOIN AN EXAM</a>
+        <a class="btn btn-ghost" href="/login">STAFF SIGN-IN</a>
       </div>
+      <p class="sub reveal in" style="--d:.2s;margin:14px 0 0;font-size:13px">
+        <b>Students</b> join with the code from their invigilator. <b>Teachers &amp; admins</b> sign in to run and review exams.</p>
       <div class="telemetry reveal in" style="--d:.24s">
         <div class="lat"><b>~0.9s</b>DETECT → ALERT</div>
         <div><b>0</b>UPLOADS</div>
@@ -4540,8 +4988,16 @@ AUTH_TEMPLATE = """<!doctype html>
   .getapp__ios{font-size:12.5px;color:var(--text-2);line-height:1.7}
   .getapp__ios b{color:var(--text)}
   .getapp__ios kbd{font:inherit;background:var(--surface-2);border:1px solid var(--border-strong);border-radius:5px;padding:1px 5px}
+  .homeback{position:fixed;top:16px;left:16px;z-index:20;width:38px;height:38px;border-radius:50%;
+    display:grid;place-items:center;background:var(--surface);border:1px solid var(--border-strong);
+    color:var(--text-2);cursor:pointer;transition:border-color .18s,color .18s,transform .18s}
+  .homeback:hover{border-color:var(--accent);color:var(--text);transform:translateX(-1px)}
+  .homeback svg{width:18px;height:18px}
 </style></head>
 <body>
+  <a class="homeback" href="/?journey=1" data-morph data-morph-color="#0b0d10" aria-label="Back to home">
+    <svg viewBox="0 0 24 24" fill="none"><path d="M15 18l-6-6 6-6" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>
+  </a>
   <div class="brand"><svg viewBox="0 0 24 24" fill="none"><rect width="24" height="24" rx="7" fill="#161A20"/><path d="M6 10V7.5A1.5 1.5 0 0 1 7.5 6H10M14 6h2.5A1.5 1.5 0 0 1 18 7.5V10M18 14v2.5a1.5 1.5 0 0 1-1.5 1.5H14M10 18H7.5A1.5 1.5 0 0 1 6 16.5V14" stroke="#6C7580" stroke-width="1.8" stroke-linecap="round"/><circle cx="12" cy="12" r="2.6" fill="#2FB37D"/></svg><b>Vigil</b></div>
   <form class="auth" method="post" action="__ACTION__">
     <h2>__HEADING__</h2>
@@ -4557,6 +5013,45 @@ AUTH_TEMPLATE = """<!doctype html>
   </form>
   <div class="foot"><span class="d"></span> On-device AI · runs entirely on this machine</div>
   __INSTALL__
+  <script>
+  (function(){
+    var RM = matchMedia("(prefers-reduced-motion:reduce)").matches;
+    var KEY = "vgMorph", EASE = "cubic-bezier(.66,0,.34,1)";
+    function maxR(x,y){ return Math.hypot(Math.max(x,innerWidth-x), Math.max(y,innerHeight-y)) + 6; }
+    function cover(color){ var o=document.createElement("div");
+      o.style.cssText="position:fixed;inset:0;z-index:99999;pointer-events:none;background:"+color+";will-change:clip-path";
+      document.body.appendChild(o); return o; }
+    function clip(o,r,x,y){ var v="circle("+r+"px at "+x+"px "+y+"px)"; o.style.clipPath=v; o.style.webkitClipPath=v; }
+    (function(){
+      var raw; try{ raw=JSON.parse(sessionStorage.getItem(KEY)||"null"); }catch(e){}
+      if(!raw) return; sessionStorage.removeItem(KEY);
+      if(RM) return;
+      var o=cover(raw.color);
+      o.style.backdropFilter="blur(24px)"; o.style.webkitBackdropFilter="blur(24px)";
+      o.getBoundingClientRect();
+      setTimeout(function(){
+        o.style.transition="background-color .5s ease, backdrop-filter .95s ease .06s, -webkit-backdrop-filter .95s ease .06s";
+        o.style.backgroundColor="transparent";
+        o.style.backdropFilter="blur(0px)"; o.style.webkitBackdropFilter="blur(0px)";
+      }, 24);
+      setTimeout(function(){ o.remove(); }, 1100);
+    })();
+    document.addEventListener("click", function(e){
+      var a=e.target.closest("[data-morph]");
+      if(!a || e.defaultPrevented || e.metaKey || e.ctrlKey || e.shiftKey || e.button) return;
+      var href=a.getAttribute("href"); if(!href) return;
+      e.preventDefault();
+      var nav=function(){ location.href=href; };
+      if(RM){ nav(); return; }
+      var rc=a.getBoundingClientRect(), cx=rc.left+rc.width/2, cy=rc.top+rc.height/2;
+      var color=a.getAttribute("data-morph-color") || getComputedStyle(a).backgroundColor || "#0c0d10";
+      sessionStorage.setItem(KEY, JSON.stringify({x:cx/innerWidth, y:cy/innerHeight, color:color}));
+      var o=cover(color); clip(o, Math.max(rc.width,rc.height)/2, cx, cy); o.getBoundingClientRect();
+      setTimeout(function(){ o.style.transition="clip-path .42s "+EASE+", -webkit-clip-path .42s "+EASE; clip(o, maxR(cx,cy), cx, cy); }, 12);
+      setTimeout(nav, 400);
+    });
+  })();
+  </script>
 </body></html>"""
 
 # "Get the app" card shown on the LOGIN page. Because Vigil's phone app is a PWA,
@@ -4773,6 +5268,7 @@ async def auth_google(request: Request):
     email = (claims.get("email") or "").strip().lower()
     if not email:
         return JSONResponse({"error": "Google returned no email address."}, status_code=401)
+    exam_code = str(payload.get("exam_code", "")).strip()
     user = find_user_by_email(email)
     if user is None:
         if user_count() == 0:                            # bootstrap: first account = admin
@@ -4780,10 +5276,21 @@ async def auth_google(request: Request):
             if not ok:
                 return JSONResponse({"error": err}, status_code=400)
             user = find_user_by_email(email)
+        elif exam_code:
+            # A student self-onboards by presenting a valid open exam code — the
+            # code IS the invite, so no admin has to pre-add 60 students.
+            s = _exam_session(exam_code)
+            if not s or s["status"] != "open":
+                return JSONResponse({"error": "That exam code isn't valid."}, status_code=403)
+            ok, err = create_google_user(email, role="student")
+            if not ok:
+                return JSONResponse({"error": err}, status_code=400)
+            user = find_user_by_email(email)
         else:
             return JSONResponse({"error": f"{email} isn't authorized yet - ask your admin "
                                           "to add it on the Users page."}, status_code=403)
-    resp = JSONResponse({"ok": True, "username": user["username"], "role": user["role"]})
+    resp = JSONResponse({"ok": True, "username": user["username"],
+                         "role": user["role"], "exam_code": exam_code})
     resp.set_cookie("vigil_session", _sign(user["username"]), **_COOKIE_KW)
     return resp
 
@@ -4824,7 +5331,7 @@ def users_page(request: Request):
 @app.post("/users")
 def users_add(username: str = Form(...), password: str = Form(""), role: str = Form("invigilator"),
               auth: str = Form("password")):
-    role = "admin" if role == "admin" else "invigilator"
+    role = role if role in ("admin", "invigilator", "student") else "invigilator"
     if auth == "google":
         create_google_user(username, role)               # username field holds the email
     else:
@@ -5219,4 +5726,6 @@ if os.getenv("VIGIL_DEMO") == "1":
     _seed_demo_alerts()
 
 # Start a producer for every configured camera (detection/alerts run for all).
-ensure_producers()
+# Skipped entirely in exam-only mode — no cameras, so nothing to produce.
+if not EXAM_ONLY:
+    ensure_producers()

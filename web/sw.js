@@ -15,20 +15,29 @@ self.addEventListener("push", (e) => {
     body: d.body || "",
     icon: "/app/icon-192.png",
     badge: "/app/icon-192.png",
-    tag: "vigil-" + (d.id || "push"),
+    // Exam pushes set their own tag (per student) so each updates in place;
+    // detection alerts fall back to a per-id tag.
+    tag: d.tag || ("vigil-" + (d.id || "push")),
     renotify: true,
     vibrate: [140, 70, 140],
-    data: { id: d.id, camera: d.camera },
+    data: { id: d.id, camera: d.camera, url: d.url },
   };
   e.waitUntil(self.registration.showNotification(title, opts));
 });
 
-// Tap a "phone detected" notification → focus the open app, or open it.
+// Tap a notification → go where it points (exam pushes carry a live-room URL),
+// focusing an already-open Vigil window when there is one.
 self.addEventListener("notificationclick", (e) => {
   e.notification.close();
+  const url = (e.notification.data && e.notification.data.url) || "/app/";
   e.waitUntil((async () => {
     const wins = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
-    for (const c of wins) { if ("focus" in c) return c.focus(); }
-    if (self.clients.openWindow) return self.clients.openWindow("/app/");
+    for (const c of wins) {
+      if ("focus" in c) {
+        try { if ("navigate" in c) await c.navigate(url); } catch (_) {}
+        return c.focus();
+      }
+    }
+    if (self.clients.openWindow) return self.clients.openWindow(url);
   })());
 });

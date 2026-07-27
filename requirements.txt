@@ -2,6 +2,7 @@ ultralytics
 opencv-python
 fastapi
 uvicorn
+websockets            # uvicorn's WebSocket backend — needed for /ws/exam and /ws/push
 python-multipart
 qrcode
 pywebpush

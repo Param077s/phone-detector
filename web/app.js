@@ -282,6 +282,10 @@ const api = {
   saveSettings: (form) => fetch("/settings", { method: "POST", body: form }),
   addUser: (form) => fetch("/users", { method: "POST", body: form }),
   delUser: (username) => { const f = new FormData(); f.append("username", username); return fetch("/users/delete", { method: "POST", body: f }); },
+
+  examSessions: () => MOCK ? Promise.resolve([]) : api._get("/api/exam/sessions"),
+  examCreate: (title) => fetch("/api/exam/create", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ title }) }).then(r => r.json()),
+  examClose: (code) => fetch(`/api/exam/${code}/close`, { method: "POST" }).then(r => r.json()),
 };
 
 const MOCKDATA = {
@@ -1288,7 +1292,7 @@ const Users = {
     if (!rows.length) { body.innerHTML = `<tr><td colspan="5">${Users.empty()}</td></tr>`; return; }
     body.innerHTML = rows.map(u => `<tr>
       <td><div class="user-cell"><span class="avatar">${initials(u.username)}</span><div><div class="user-name">${esc(u.username.replace(/@.*/,""))}</div>${u.email?`<div class="user-email">${esc(u.email)}</div>`:""}</div></div></td>
-      <td><span class="badge ${u.role==="admin"?"badge--accent":""}">${u.role==="admin"?"Admin":"Invigilator"}</span></td>
+      <td><span class="badge ${u.role==="admin"?"badge--accent":""}">${u.role==="admin"?"Admin":u.role==="student"?"Student":"Invigilator"}</span></td>
       <td class="muted">${u.auth==="google"?"Google":"Password"}</td>
       <td class="muted">${esc(u.last_login||"—")}</td>
       <td style="text-align:right"><button class="btn btn--icon btn--ghost btn--sm" data-more="${esc(u.username)}">${icon("more")}</button></td>
@@ -1306,7 +1310,7 @@ const Users = {
       <div class="modal__body">
         <div class="field"><label class="label">Username or Google email</label><input class="input" data-f="username" placeholder="name or name@gmail.com"></div>
         <div class="field"><label class="label">Password <span class="muted">(leave blank for Google sign-in)</span></label><input class="input" type="password" data-f="password"></div>
-        <div class="field"><label class="label">Role</label><select class="select" data-f="role"><option value="invigilator">Invigilator — review only</option><option value="admin">Admin — full access</option></select></div>
+        <div class="field"><label class="label">Role</label><select class="select" data-f="role"><option value="invigilator">Invigilator — review only</option><option value="admin">Admin — full access</option><option value="student">Student — exam only</option></select></div>
       </div><div class="modal__foot"><button class="btn" data-x>Cancel</button><button class="btn btn--primary" data-save>Add user</button></div></div>`);
     const close = openModal(node); $$("[data-x]", node).forEach(b => b.onclick = close);
     $("[data-save]", node).onclick = async () => {
@@ -1339,6 +1343,83 @@ const Users = {
     if (u.username === state.me.username) { toast("You can't remove yourself", { kind: "danger" }); return; }
     if (!await confirmDialog({ title: "Remove user?", body: `${u.username} will lose access to Vigil.`, confirmText: "Remove user", danger: true })) return;
     await api.delUser(u.username); toast("User removed", { kind: "ok" }); Users.render($("#view"));
+  },
+};
+
+/* =========================================================================
+   8b. EXAMS  (laptop-webcam integrity monitoring — create sessions, review)
+   ========================================================================= */
+const Exams = {
+  list: [],
+  async render(root) {
+    root.className = "content";
+    root.innerHTML = `<div class="users-wrap">
+      <div class="page-head">
+        <div><h1>Exams</h1><div class="muted">Create a monitored exam, share the code with students, and review each one's activity.</div></div>
+        <div class="spacer"></div>
+        <button class="btn btn--primary" id="newExam">${icon("plus")} New exam</button>
+      </div>
+      <div class="card"><table class="table"><thead><tr>
+        <th>Exam</th><th>Join code</th><th>Status</th><th>Created</th><th></th>
+      </tr></thead><tbody id="exBody">${skel.rows(3)}</tbody></table></div></div>`;
+    $("#newExam").onclick = () => Exams.create();
+    try { Exams.list = await api.examSessions(); } catch { Exams.list = []; }
+    Exams.paint();
+  },
+  destroy() {},
+  paint() {
+    const body = $("#exBody");
+    if (!body) return;
+    if (!Exams.list.length) {
+      body.innerHTML = `<tr><td colspan="5"><div class="empty" style="padding:var(--s10)">
+        <div class="empty__icon">${icon("shield")}</div><div class="empty__title">No exams yet</div>
+        <div class="muted">Create one to get a join code for your students.</div></div></td></tr>`;
+      return;
+    }
+    body.innerHTML = Exams.list.map(s => `<tr>
+      <td><div class="user-name">${esc(s.title || "Exam")}</div></td>
+      <td><code style="font:600 13px ui-monospace,Menlo,monospace;letter-spacing:2px">${esc(s.code)}</code></td>
+      <td><span class="badge ${s.status === "open" ? "badge--accent" : ""}">${s.status === "open" ? "Open" : "Closed"}</span></td>
+      <td class="muted">${esc((s.created_at || "").slice(0, 10))}</td>
+      <td style="text-align:right"><button class="btn btn--icon btn--ghost btn--sm" data-more="${esc(s.code)}">${icon("more")}</button></td>
+    </tr>`).join("");
+    $$("[data-more]").forEach(b => b.onclick = () => {
+      const s = Exams.list.find(x => x.code === b.dataset.more);
+      const r = b.getBoundingClientRect();
+      contextMenu(r.right - 190, r.bottom + 4, [
+        { label: "Live view", icon: "live", onClick: () => window.open(`/app/live.html#${s.code}`, "_blank") },
+        { label: "Copy join link", icon: "check", onClick: () => Exams.copyLink(s) },
+        { label: "Open report", icon: "evidence", onClick: () => window.open(`/app/report.html#${s.code}`, "_blank") },
+        ...(s.status === "open" ? [{ sep: true }, { label: "Close exam", icon: "x", danger: true, onClick: () => Exams.close(s) }] : []),
+      ]);
+    });
+  },
+  create() {
+    const node = h(`<div class="modal"><div class="modal__head"><div class="modal__title">New exam</div><div class="spacer"></div><button class="btn btn--icon btn--ghost" data-x>${icon("x")}</button></div>
+      <div class="modal__body">
+        <div class="field"><label class="label">Exam name</label><input class="input" data-f="title" placeholder="e.g. Math 101 · Midterm" autofocus></div>
+        <p class="muted" style="margin:var(--s2) 0 0">You'll get a short join code to share. Students open <b>/app/exam.html</b>, enter it, and monitoring runs on their own device.</p>
+      </div><div class="modal__foot"><button class="btn" data-x>Cancel</button><button class="btn btn--primary" data-save>Create exam</button></div></div>`);
+    const close = openModal(node); $$("[data-x]", node).forEach(b => b.onclick = close);
+    $("[data-save]", node).onclick = async () => {
+      const title = ($("[data-f=title]", node).value || "").trim() || "Exam";
+      try {
+        const r = await api.examCreate(title);
+        if (!r || !r.ok) throw new Error();
+        close(); toast(`Exam created — code ${r.code}`, { kind: "ok" }); Exams.render($("#view"));
+      } catch { toast("Could not create exam", { kind: "danger" }); }
+    };
+  },
+  copyLink(s) {
+    const url = location.origin + "/app/exam.html#" + s.code;
+    if (navigator.clipboard) navigator.clipboard.writeText(url).then(
+      () => toast("Join link copied", { kind: "ok" }), () => toast(url, { kind: "info" }));
+    else toast(url, { kind: "info" });
+  },
+  async close(s) {
+    if (!await confirmDialog({ title: "Close this exam?", body: `Students will no longer be able to join ${s.title || "this exam"}.`, confirmText: "Close exam", danger: true })) return;
+    try { await api.examClose(s.code); toast("Exam closed", { kind: "ok" }); Exams.render($("#view")); }
+    catch { toast("Could not close exam", { kind: "danger" }); }
   },
 };
 
@@ -1805,6 +1886,7 @@ const Updates = {
 const ROUTES = {
   live:     { title: "Live Footage", sub: "Real-time monitoring", view: Live, section: "monitor" },
   evidence: { title: "Evidence",     sub: "Detected events",       view: Evidence, section: "monitor" },
+  exams:    { title: "Exams",        sub: "Integrity monitoring",  view: Exams, section: "monitor" },
   users:    { title: "Users",        sub: "Access & roles",        view: Users, section: "manage" },
   settings: { title: "Settings",     sub: "Configuration",         view: Settings, section: "manage" },
 };
@@ -1818,8 +1900,9 @@ function shell() {
       <div class="nav__resize" id="navResize" title="Drag to resize · double-click to reset"></div>
       <div class="nav__brand">${LOGO}<span class="nav__brand-name">Vigil</span></div>
       <div class="nav__section">Monitor</div>
-      ${nav("live","live","Live Footage")}
-      ${nav("evidence","evidence","Evidence", state.stats.pending || "")}
+      ${state.me.exam_only ? "" : nav("live","live","Live Footage")}
+      ${state.me.exam_only ? "" : nav("evidence","evidence","Evidence", state.stats.pending || "")}
+      ${nav("exams","shield","Exams")}
       <div class="nav__section">Manage</div>
       ${nav("users","users","Users")}
       ${nav("settings","settings","Settings")}
@@ -1830,7 +1913,7 @@ function shell() {
       </div>
       <div class="nav__user" id="navUser">
         <span class="avatar">${initials(state.me.username)}</span>
-        <div class="nav__user-meta"><div class="nav__user-name">${esc(state.me.username||"—")}</div><div class="nav__user-role">${state.me.role==="admin"?"Administrator":"Invigilator"}</div></div>
+        <div class="nav__user-meta"><div class="nav__user-name">${esc(state.me.username||"—")}</div><div class="nav__user-role">${state.me.role==="admin"?"Administrator":state.me.role==="student"?"Student":"Invigilator"}</div></div>
       </div>
     </aside>
     <header class="topbar">
@@ -1882,8 +1965,12 @@ function shell() {
 function go(route) { location.hash = "#/" + route; }
 
 async function mount() {
-  const route = (location.hash.replace(/^#\/?/, "") || "live").split("?")[0];
-  state.route = ROUTES[route] ? route : "live";
+  const fallback = state.me.exam_only ? "exams" : "live";
+  let route = (location.hash.replace(/^#\/?/, "") || fallback).split("?")[0];
+  if (!ROUTES[route]) route = fallback;
+  // Exam-only servers have no cameras — Live/Evidence don't exist here.
+  if (state.me.exam_only && (route === "live" || route === "evidence")) route = "exams";
+  state.route = route;
   localStorage.setItem("vigil.route", state.route);   // reopen where you left off
   // tear down anything transient left over from the previous view
   $$(".menu").forEach(m => m.remove());

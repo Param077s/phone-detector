@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Vigil · Exam</title>
+  <link rel="icon" href="/favicon.svg">
+  <meta name="theme-color" content="#eef1f6">
+  <link rel="stylesheet" href="/app/exam.css">
+  <style>
+    .wrap{min-height:100%;display:flex;align-items:center;justify-content:center;padding:22px;position:relative}
+    /* soft spotlight focusing on the card (Aceternity-style, but static & calm) */
+    .wrap::before{content:"";position:absolute;left:50%;top:42%;width:min(680px,94vw);height:460px;
+      transform:translate(-50%,-50%);pointer-events:none;z-index:0;filter:blur(28px);
+      background:radial-gradient(closest-side,rgba(255,255,255,.85),transparent 72%)}
+    .card{width:100%;max-width:440px;padding:28px;overflow:hidden}
+    .card > *{position:relative;z-index:2}
+    /* cursor-follow glare across the glass (Linear-style) */
+    .card::before{content:"";position:absolute;inset:0;border-radius:inherit;pointer-events:none;
+      opacity:0;transition:opacity .4s;z-index:1;
+      background:radial-gradient(320px circle at var(--mx,50%) var(--my,50%),rgba(255,255,255,.6),transparent 60%)}
+    .card:hover::before{opacity:1}
+    .brand{margin-bottom:20px}
+    h1{font-size:22px;margin:0 0 6px;letter-spacing:-.02em}
+    .lead{color:var(--muted);margin:0 0 6px}
+    .err{color:var(--alert);font-size:13.5px;margin-top:12px;min-height:16px}
+
+    /* signed-in chip */
+    .signed{display:flex;align-items:center;gap:10px;background:var(--soft);
+      border:1px solid var(--line);border-radius:var(--radius-sm);padding:12px 14px;margin-top:16px;font-size:14px}
+    .signed .who{font-weight:600}
+    .signed .out{margin-left:auto;color:var(--accent);font-size:13px;text-decoration:none;font-weight:500}
+    .orline{display:flex;align-items:center;gap:12px;margin:18px 0 14px;color:var(--faint);font-size:12px}
+    .orline::before,.orline::after{content:"";flex:1;height:1px;background:var(--line)}
+    #gbtn{display:flex;justify-content:center}
+
+    /* consent — the reassuring privacy list */
+    .privacy{background:var(--soft);border:1px solid var(--line);border-radius:var(--radius-sm);padding:16px 16px 6px;margin:16px 0 4px}
+    .privacy .p-row{display:flex;gap:10px;align-items:flex-start;margin-bottom:12px;font-size:14px;line-height:1.5}
+    .privacy .p-row svg{width:18px;height:18px;flex:0 0 auto;margin-top:1px;color:var(--ink)}
+    .privacy .p-row b{font-weight:600}
+
+    /* calibration + monitor camera preview */
+    .preview{position:relative;border-radius:var(--radius-sm);overflow:hidden;background:#0e1116;
+      aspect-ratio:4/3;margin:14px 0;border:1px solid var(--line-strong)}
+    .preview video{width:100%;height:100%;object-fit:cover;transform:scaleX(-1)}
+    .preview .tag{position:absolute;left:10px;bottom:10px;background:rgba(255,255,255,.92);color:var(--ink);
+      font-size:11.5px;font-weight:600;padding:5px 9px;border-radius:8px;box-shadow:var(--shadow-sm)}
+    .bar{height:8px;background:var(--soft);border-radius:6px;overflow:hidden;margin-top:14px}
+    .bar > i{display:block;height:100%;width:0;background:var(--accent);border-radius:6px;transition:width .1s linear}
+
+    /* monitor status */
+    .status-lg{display:flex;align-items:center;gap:12px;margin:4px 0 8px}
+    .status-lg .dot{width:13px;height:13px;background:var(--ok);box-shadow:0 0 0 5px var(--ok-soft)}
+    .status-lg .dot.warn{background:var(--warn);box-shadow:0 0 0 5px var(--warn-soft)}
+    .status-lg .dot.alert{background:var(--alert);box-shadow:0 0 0 5px var(--alert-soft)}
+    .status-lg .t{font-size:16px;font-weight:600}
+    .status-lg .s{font-size:13px;color:var(--muted)}
+    .rows{border-top:1px solid var(--line);margin-top:8px}
+    .row{display:flex;justify-content:space-between;align-items:center;padding:12px 2px;border-bottom:1px solid var(--line);font-size:14px}
+    .row .k{color:var(--muted)}
+    .row .v{font-weight:600;color:var(--ink)}
+    .v.ok{color:var(--ok)} .v.warn{color:var(--warn)} .v.alert{color:var(--alert)}
+    .debug{margin-top:14px;font:11.5px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--faint);white-space:pre}
+    .stack > .btn{margin-top:12px}
+    /* back-to-home (triggers the shared page-morph) */
+    .homeback{position:fixed;top:16px;left:16px;z-index:20;width:38px;height:38px;border-radius:50%;
+      display:grid;place-items:center;background:var(--glass);border:1px solid var(--line);
+      backdrop-filter:blur(10px);box-shadow:var(--shadow-sm);color:var(--ink);
+      transition:border-color .18s,transform .18s}
+    .homeback:hover{border-color:var(--ink);transform:translateX(-1px)}
+    .homeback svg{width:18px;height:18px}
+  </style>
+</head>
+<body>
+  <a class="homeback" href="/?journey=1" data-morph data-morph-color="#0c0d10" aria-label="Back to home">
+    <svg viewBox="0 0 24 24" fill="none"><path d="M15 18l-6-6 6-6" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>
+  </a>
+  <div class="wrap">
+    <div class="card">
+      <div class="brand">
+        <span class="logo"><svg viewBox="0 0 24 24" fill="none"><path d="M6 10V7.5A1.5 1.5 0 0 1 7.5 6H10M14 6h2.5A1.5 1.5 0 0 1 18 7.5V10M18 14v2.5a1.5 1.5 0 0 1-1.5 1.5H14M10 18H7.5A1.5 1.5 0 0 1 6 16.5V14" stroke="#fff" stroke-width="1.8" stroke-linecap="round"/><circle cx="12" cy="12" r="2.6" fill="#fff"/></svg></span>
+        <b>Vigil</b><span class="tag">· Exam monitoring</span>
+      </div>
+
+      <!-- 1. JOIN -->
+      <section id="s-join">
+        <h1>Join your exam</h1>
+        <p class="lead">Enter the code your invigilator gave you.</p>
+        <label class="label" for="code">Exam code</label>
+        <input class="input" id="code" maxlength="6" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="ABC123" style="text-transform:uppercase;letter-spacing:3px;font-weight:600">
+        <div id="nameWrap">
+          <label class="label" for="name">Your name</label>
+          <input class="input" id="name" autocomplete="name" placeholder="e.g. Priya Sharma">
+        </div>
+        <div id="signedIn" class="signed hidden">
+          <span class="who"></span><a class="out" href="/logout">Not you?</a>
+        </div>
+        <div class="stack"><button class="btn primary block" id="joinBtn">Continue</button></div>
+        <div id="googleWrap" class="hidden">
+          <div class="orline">or</div>
+          <div id="gbtn"></div>
+        </div>
+        <div class="err" id="joinErr"></div>
+      </section>
+
+      <!-- 2. CONSENT -->
+      <section id="s-consent" class="hidden">
+        <h1 id="consentTitle">Before you start</h1>
+        <p class="lead">This exam is monitored for integrity. Here's exactly what that means:</p>
+        <div class="privacy">
+          <div class="p-row"><svg viewBox="0 0 24 24" fill="none"><path d="M20 6 9 17l-5-5" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Your camera runs <b>only on this device</b>. No video is ever sent or stored.</span></div>
+          <div class="p-row"><svg viewBox="0 0 24 24" fill="none"><path d="M20 6 9 17l-5-5" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg><span>No one — not your teacher, not the admin — can see your camera.</span></div>
+          <div class="p-row"><svg viewBox="0 0 24 24" fill="none"><path d="M20 6 9 17l-5-5" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg><span>The app reports <b>activity patterns</b> (e.g. looking away for long stretches) to your invigilator.</span></div>
+          <div class="p-row"><svg viewBox="0 0 24 24" fill="none"><path d="M20 6 9 17l-5-5" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg><span>If the camera turns off, your invigilator is told the monitor stopped.</span></div>
+        </div>
+        <div class="stack">
+          <button class="btn primary block" id="consentBtn">I understand — turn on my camera</button>
+          <button class="btn ghost block" id="backBtn">Back</button>
+        </div>
+        <div class="err" id="consentErr"></div>
+      </section>
+
+      <!-- 3. CALIBRATE -->
+      <section id="s-calib" class="hidden">
+        <h1>Getting ready</h1>
+        <p class="lead" id="calibMsg">Look at your screen normally and hold still for a few seconds.</p>
+        <div class="preview"><video id="calibVid" playsinline muted></video><span class="tag">🔒 On this device only</span></div>
+        <div class="bar"><i id="calibBar"></i></div>
+      </section>
+
+      <!-- 4. MONITOR -->
+      <section id="s-monitor" class="hidden">
+        <div class="status-lg">
+          <span class="dot" id="mDot"></span>
+          <div><div class="t" id="mTitle">Exam</div><div class="s" id="mSub">Monitored · you may begin</div></div>
+        </div>
+        <div class="preview"><video id="monVid" playsinline muted></video><span class="tag" id="monTag">🟢 Camera active · nothing is uploaded</span></div>
+        <div class="rows">
+          <div class="row"><span class="k">Monitor</span><span class="v ok" id="rState">Looking at screen</span></div>
+          <div class="row"><span class="k">Connection</span><span class="v ok" id="rConn">Connected</span></div>
+        </div>
+        <div class="debug hidden" id="debug"></div>
+      </section>
+
+      <!-- ERROR -->
+      <section id="s-error" class="hidden">
+        <h1>Something went wrong</h1>
+        <p class="lead" id="errMsg">Could not start monitoring.</p>
+        <div class="stack"><button class="btn primary block" id="retryBtn">Try again</button></div>
+      </section>
+    </div>
+  </div>
+
+  <script type="module" src="/app/exam.js"></script>
+  <!-- shared page-morph (mirror of the copy in journey.html + the login template) -->
+  <script>
+  (function(){
+    var RM = matchMedia("(prefers-reduced-motion:reduce)").matches;
+    var KEY = "vgMorph", EASE = "cubic-bezier(.66,0,.34,1)";
+    function maxR(x,y){ return Math.hypot(Math.max(x,innerWidth-x), Math.max(y,innerHeight-y)) + 6; }
+    function cover(color){ var o=document.createElement("div");
+      o.style.cssText="position:fixed;inset:0;z-index:99999;pointer-events:none;background:"+color+";will-change:clip-path";
+      document.body.appendChild(o); return o; }
+    function clip(o,r,x,y){ var v="circle("+r+"px at "+x+"px "+y+"px)"; o.style.clipPath=v; o.style.webkitClipPath=v; }
+    (function(){
+      var raw; try{ raw=JSON.parse(sessionStorage.getItem(KEY)||"null"); }catch(e){}
+      if(!raw) return; sessionStorage.removeItem(KEY);
+      if(RM) return;
+      var o=cover(raw.color);
+      o.style.backdropFilter="blur(24px)"; o.style.webkitBackdropFilter="blur(24px)";
+      o.getBoundingClientRect();
+      setTimeout(function(){
+        o.style.transition="background-color .5s ease, backdrop-filter .95s ease .06s, -webkit-backdrop-filter .95s ease .06s";
+        o.style.backgroundColor="transparent";
+        o.style.backdropFilter="blur(0px)"; o.style.webkitBackdropFilter="blur(0px)";
+      }, 24);
+      setTimeout(function(){ o.remove(); }, 1100);
+    })();
+    document.addEventListener("click", function(e){
+      var a=e.target.closest("[data-morph]");
+      if(!a || e.defaultPrevented || e.metaKey || e.ctrlKey || e.shiftKey || e.button) return;
+      var href=a.getAttribute("href"); if(!href) return;
+      e.preventDefault();
+      var nav=function(){ location.href=href; };
+      if(RM){ nav(); return; }
+      var rc=a.getBoundingClientRect(), cx=rc.left+rc.width/2, cy=rc.top+rc.height/2;
+      var color=a.getAttribute("data-morph-color") || getComputedStyle(a).backgroundColor || "#0c0d10";
+      sessionStorage.setItem(KEY, JSON.stringify({x:cx/innerWidth, y:cy/innerHeight, color:color}));
+      var o=cover(color); clip(o, Math.max(rc.width,rc.height)/2, cx, cy); o.getBoundingClientRect();
+      setTimeout(function(){ o.style.transition="clip-path .42s "+EASE+", -webkit-clip-path .42s "+EASE; clip(o, maxR(cx,cy), cx, cy); }, 12);
+      setTimeout(nav, 400);
+    });
+  })();
+  </script>
+</body>
+</html>
