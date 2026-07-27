@@ -1,637 +1,517 @@
-<!doctype html>
-<html lang="en" style="scroll-behavior:smooth"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Vigil — Local AI phone detection for exams & secure spaces</title>
-<meta name="description" content="Vigil watches your camera feeds with on-device AI and raises an alert with photo evidence the moment a phone appears. Runs 100% on your computer — webcams, old phones, or CCTV. Set up in 2 minutes.">
-<meta property="og:title" content="Vigil — the room is watching">
-<meta property="og:description" content="On-premise vision intelligence. A phone appears — flagged, photographed, logged in under a second. Nothing leaves the building.">
-<meta name="theme-color" content="#07090c">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
-<link rel="canonical" href="https://phone-detector-one.vercel.app/">
-<link rel="icon" href="favicon.svg">
-<script type="application/ld+json">{"@context":"https://schema.org","@type":"SoftwareApplication","name":"Vigil","operatingSystem":"macOS, Windows, Linux","applicationCategory":"SecurityApplication","description":"Local AI phone detection: watches your camera feeds on-device and raises alerts with photo evidence the moment a phone appears. For exams, testing centres and secure spaces.","offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"url":"https://phone-detector-one.vercel.app/","downloadUrl":"https://github.com/Param077s/vigil/releases/latest/download/Vigil.zip"}</script>
-<style>
-  :root { --ease:cubic-bezier(.22,.9,.3,1);
-    --bg:#07090c; --panel:#0c1015; --line:rgba(255,255,255,.07); --line2:rgba(255,255,255,.12);
-    --txt:#e8ebf1; --mut:#8b95a3; --dim:#525c6b; --grn:#3ecf8e; --red:#ef4444;
-    --mono:'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
-    --disp:'Space Grotesk','Inter',sans-serif; }
-  * { box-sizing:border-box; margin:0; padding:0; -webkit-tap-highlight-color:transparent; }
-  html,body { background:var(--bg); color:var(--txt); overflow-x:clip;
-    font-family:'Inter',-apple-system,Segoe UI,Roboto,sans-serif; -webkit-font-smoothing:antialiased; }
-  a, button { -webkit-tap-highlight-color:transparent; }
-  ::selection { background:rgba(62,207,142,.28); }
-  a { color:inherit; text-decoration:none; }
-  h1,h2,h3 { font-family:var(--disp); }
+<!DOCTYPE html>
+<html lang="en" class="journey">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Vigil — On-device vision intelligence for exams & secure spaces</title>
+  <meta name="description" content="Vigil turns the cameras you already own into private AI observers. A phone appears — flagged, photographed, logged in under a second. Runs 100% on one machine. Nothing leaves the building.">
+  <link rel="icon" href="/favicon.svg">
+  <meta name="theme-color" content="#f3f2ef">
+  <meta property="og:title" content="Vigil — the room sees clearly">
+  <meta property="og:description" content="On-device vision intelligence. Flagged, photographed, logged in under a second — nothing leaves the building.">
+  <meta property="og:type" content="website">
+  <meta name="twitter:card" content="summary_large_image">
+  <style>
+    @font-face{font-family:"Space Grotesk";src:url("/vendor/fonts/space-grotesk.woff2") format("woff2");
+      font-weight:300 700;font-style:normal;font-display:swap}
+    :root{
+      --paper:#ffffff; --bg:#f3f2ef; --ink:#0c0d10; --ink-2:#3b3e46; --muted:#7a7d84;
+      --faint:#a6a8ad; --line:rgba(12,13,16,.10); --line-2:rgba(12,13,16,.06);
+      --glass:rgba(255,255,255,.62);
+      --shadow:0 2px 6px rgba(15,17,24,.05),0 34px 64px -34px rgba(15,17,24,.22);
+      --shadow-sm:0 1px 2px rgba(15,17,24,.05),0 12px 26px -16px rgba(15,17,24,.16);
+      --display:"Space Grotesk",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+      --font:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Inter",system-ui,sans-serif;
+      --r:20px; --r-sm:12px; --spring:cubic-bezier(.2,.7,.2,1);
+    }
+    *{box-sizing:border-box;margin:0}
+    a{color:inherit;text-decoration:none}
+    html.journey,html.journey body{height:100%}
+    html.journey:not(.flat),html.journey:not(.flat) body{overflow:hidden}   /* deck owns the paging */
+    body{background:var(--bg);color:var(--ink);font:16px/1.6 var(--font);-webkit-font-smoothing:antialiased}
+    body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;opacity:.4;mix-blend-mode:soft-light;
+      background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E")}
+    h1,h2,h3{font-family:var(--display);letter-spacing:-.03em;line-height:1.03;font-weight:600}
+    .eyebrow{font-family:var(--display);font-size:12.5px;font-weight:600;letter-spacing:.14em;
+      text-transform:uppercase;color:var(--muted)}
+    .lead{color:var(--ink-2);font-size:18px;line-height:1.65}
 
-  /* blueprint grid + grain over the whole page */
-  .gridbg { position:fixed; inset:0; z-index:0; pointer-events:none;
-    background-image:linear-gradient(rgba(255,255,255,.05) 1px, transparent 1px),
-                     linear-gradient(90deg, rgba(255,255,255,.05) 1px, transparent 1px);
-    background-size:64px 64px; opacity:.5;
-    mask-image:radial-gradient(1600px 1400px at 50% -5%, #000 42%, rgba(0,0,0,.25) 78%, transparent 110%); }
-  .grainbg { position:fixed; inset:0; z-index:0; pointer-events:none; opacity:.04; mix-blend-mode:overlay;
-    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"); }
+    .btn{display:inline-flex;align-items:center;gap:8px;font:600 14.5px/1 var(--font);letter-spacing:-.01em;
+      padding:13px 20px;border-radius:999px;border:1px solid transparent;cursor:pointer;
+      transition:transform .15s,box-shadow .2s,background .2s,border-color .2s}
+    .btn:active{transform:translateY(1px)}
+    .btn.ink{background:var(--ink);color:#fff;box-shadow:0 10px 24px -10px rgba(12,13,16,.6)}
+    .btn.ink:hover{transform:translateY(-1px);box-shadow:0 16px 30px -12px rgba(12,13,16,.55)}
+    .btn.glass{background:var(--glass);border-color:var(--line);color:var(--ink);backdrop-filter:blur(12px)}
+    .btn.glass:hover{border-color:var(--ink)}
 
-  .shell { position:relative; z-index:1; max-width:1120px; margin:0 auto; padding:0 28px; }
+    /* primary CTAs — magnetic hover (JS) + an arrow that slides out on hover */
+    .cta .btn,.doors .btn{position:relative;
+      transition:transform .18s var(--spring),box-shadow .2s,background .2s,border-color .2s,padding-right .26s var(--spring)}
+    .cta .btn::after,.doors .btn::after{content:"→";position:absolute;right:16px;top:50%;
+      opacity:0;transform:translateY(-50%) translateX(-6px);transition:opacity .22s,transform .26s var(--spring)}
+    .cta .btn:hover,.doors .btn:hover{padding-right:40px}
+    .cta .btn:hover::after,.doors .btn:hover::after{opacity:1;transform:translateY(-50%) translateX(0)}
 
-  /* ---- system bar ---- */
-  .sysbar { position:relative; z-index:5; border-bottom:1px solid var(--line);
-    font-family:var(--mono); font-size:10.5px; letter-spacing:.8px; color:var(--dim); }
-  .sysbar .row { max-width:1120px; margin:0 auto; padding:9px 28px; display:flex; gap:26px; }
-  .sysbar b { color:var(--grn); font-weight:500; }
-  .sysbar .ok::before { content:'●'; color:var(--grn); margin-right:6px; font-size:8px; }
-  .sysbar .right { margin-left:auto; display:flex; gap:26px; }
-  @media (max-width:920px){ .sysbar .hidem { display:none; } }
+    /* custom cursor — a smooth circle that inverts whatever it's over (text included) */
+    .cursor{position:fixed;top:0;left:0;width:20px;height:20px;border-radius:50%;background:#fff;
+      mix-blend-mode:difference;pointer-events:none;z-index:100000;opacity:0;
+      transform:translate(-50%,-50%);transition:opacity .3s,width .22s var(--spring),height .22s var(--spring)}
+    .cursor.big{width:54px;height:54px}
+    html.cursor-on,html.cursor-on *{cursor:none !important}
 
-  /* ---- nav ---- */
-  .site-head { position:sticky; top:0; z-index:10; backdrop-filter:blur(16px); -webkit-backdrop-filter:blur(16px);
-    background:rgba(7,9,12,.72); border-bottom:1px solid transparent; transition:border-color .4s, background .4s; }
-  .site-head.scrolled { border-color:var(--line); background:rgba(7,9,12,.9); }
-  .site-head .row { display:flex; align-items:center; gap:30px; height:64px; max-width:1120px; margin:0 auto; padding:0 28px; }
-  .brand { display:flex; align-items:center; gap:10px; font-weight:700; font-size:19px; font-family:var(--disp); }
-  .brand svg { color:#6b7687; }
-  .brand b span { color:var(--grn); }
-  .site-nav { display:flex; gap:4px; margin-left:auto; }
-  .site-nav a { font-family:var(--mono); font-size:10.5px; letter-spacing:1.4px; color:var(--mut);
-    padding:8px 12px; transition:color .3s; }
-  .site-nav a:hover { color:var(--txt); }
-  .btn { display:inline-flex; align-items:center; justify-content:center; gap:9px; border-radius:6px;
-    font-family:var(--mono); font-size:11.5px; font-weight:600; letter-spacing:1.2px;
-    padding:13px 24px; cursor:pointer; border:none; transition:box-shadow .45s var(--ease), background .3s, border-color .3s; }
-  .btn-grn { background:var(--grn); color:#07090c; box-shadow:0 4px 24px rgba(62,207,142,.22); }
-  .btn-grn:hover { box-shadow:0 10px 44px rgba(62,207,142,.4); }
-  .btn-ghost { background:transparent; color:var(--txt); border:1px solid var(--line2); }
-  .btn-ghost:hover { border-color:rgba(255,255,255,.28); background:rgba(255,255,255,.03); }
-  .site-head .btn { padding:9px 18px; font-size:10.5px; }
+    /* top bar */
+    .top{position:fixed;top:14px;left:0;right:0;z-index:50;display:flex;justify-content:center;pointer-events:none}
+    .top .bar{width:min(1120px,calc(100vw - 28px));display:flex;align-items:center;gap:14px;pointer-events:auto;
+      padding:10px 12px 10px 18px;border:1px solid var(--line);border-radius:999px;
+      background:rgba(255,255,255,.6);backdrop-filter:blur(16px) saturate(1.4);box-shadow:var(--shadow-sm)}
+    .brand{display:flex;align-items:center;gap:10px;font-family:var(--display);font-weight:700;font-size:17px;letter-spacing:-.02em}
+    .brand .mk{width:26px;height:26px;border-radius:8px;display:grid;place-items:center;background:var(--ink)}
+    .brand .mk svg{width:15px;height:15px}
+    .top .sp{flex:1} .top .btn{padding:10px 16px}
+    @media(max-width:560px){.top .btn.ghosthide{display:none}}
 
-  /* ---- hero ---- */
-  .hero { position:relative; padding:96px 0 84px; display:grid; grid-template-columns:1.04fr 1fr; gap:60px; align-items:center; }
-  .hero-glow { position:absolute; right:-8%; top:0; width:660px; height:660px; pointer-events:none; z-index:0;
-    background:radial-gradient(circle, rgba(62,207,142,.09) 0%, rgba(62,207,142,.03) 40%, transparent 68%);
-    filter:blur(12px); }
-  .hero > *:not(.hero-glow) { position:relative; z-index:1; }
-  .kicker { font-family:var(--mono); font-size:10.5px; letter-spacing:2.4px; color:var(--grn); display:block; margin-bottom:26px; }
-  .kicker::before { content:'// '; color:var(--dim); }
-  h1 { font-size:clamp(40px,5.4vw,68px); line-height:1.02; letter-spacing:-0.03em; font-weight:700; }
-  .hero p.sub { font-size:16px; color:var(--mut); line-height:1.7; margin:26px 0 34px; max-width:470px; }
-  .hero p.sub b { color:var(--txt); font-weight:600; }
-  .ctas { display:flex; gap:12px; flex-wrap:wrap; }
-  .telemetry { display:flex; gap:0; margin-top:44px; border:1px solid var(--line); border-radius:8px;
-    overflow:hidden; width:fit-content; }
-  .telemetry div { font-family:var(--mono); font-size:10px; letter-spacing:1px; color:var(--dim);
-    padding:12px 18px; border-right:1px solid var(--line); }
-  .telemetry div:last-child { border-right:none; }
-  .telemetry b { display:block; color:var(--txt); font-size:14px; letter-spacing:0; margin-bottom:3px; font-weight:600; }
-  .telemetry .lat b { color:var(--grn); }
+    /* chapter rail */
+    .rail{position:fixed;right:20px;top:50%;transform:translateY(-50%);z-index:45;
+      display:flex;flex-direction:column;gap:16px;padding:8px}
+    .rail button{position:relative;display:block;width:12px;height:12px;border:0;background:none;padding:0;cursor:pointer}
+    .rail button span{position:absolute;inset:0;border-radius:50%;background:var(--line);
+      transition:transform .3s var(--spring),background .3s}
+    .rail button:hover span{background:var(--muted);transform:scale(1.25)}
+    .rail button.active span{background:var(--ink);transform:scale(1.5)}
+    .rail button em{position:absolute;right:22px;top:50%;transform:translateY(-50%) translateX(6px);
+      opacity:0;pointer-events:none;font-style:normal;font-size:12px;font-family:var(--display);font-weight:600;
+      color:var(--ink);background:var(--glass);border:1px solid var(--line);backdrop-filter:blur(10px);
+      padding:4px 11px;border-radius:999px;white-space:nowrap;box-shadow:var(--shadow-sm);
+      transition:opacity .2s,transform .2s var(--spring)}
+    .rail button:hover em,.rail button:focus-visible em{opacity:1;transform:translateY(-50%) translateX(0)}
+    .rail button:focus-visible{outline:2px solid var(--ink);outline-offset:4px;border-radius:50%}
 
-  /* evidence frame around the monitor mock */
-  .evidence { position:relative; padding:20px; }
-  .evidence::before, .evidence::after, .evidence .ck::before, .evidence .ck::after { content:'';
-    position:absolute; width:22px; height:22px; border:1.5px solid var(--line2); }
-  .evidence::before { top:0; left:0; border-right:none; border-bottom:none; }
-  .evidence::after  { top:0; right:0; border-left:none; border-bottom:none; }
-  .evidence .ck::before { bottom:0; left:0; border-right:none; border-top:none; }
-  .evidence .ck::after  { bottom:0; right:0; border-left:none; border-top:none; }
-  .ev-meta { position:absolute; top:-9px; left:34px; background:var(--bg); padding:0 10px;
-    font-family:var(--mono); font-size:9.5px; letter-spacing:1.6px; color:var(--dim); }
-  .ev-time { position:absolute; bottom:-8px; right:34px; background:var(--bg); padding:0 10px;
-    font-family:var(--mono); font-size:9.5px; letter-spacing:1.2px; color:var(--dim); }
-  .ev-time b { color:var(--grn); font-weight:500; }
+    /* a soft "continue" cue on the very first scene */
+    .cue{position:fixed;left:50%;bottom:26px;transform:translateX(-50%);z-index:45;
+      display:flex;flex-direction:column;align-items:center;gap:7px;color:var(--muted);
+      font-family:var(--display);font-size:11px;letter-spacing:.16em;text-transform:uppercase;
+      opacity:var(--cue,1);transition:opacity .4s;pointer-events:none}
+    .cue i{width:22px;height:34px;border:1.5px solid var(--line);border-radius:12px;position:relative}
+    .cue i::after{content:"";position:absolute;left:50%;top:7px;width:3px;height:6px;border-radius:2px;
+      background:var(--muted);transform:translateX(-50%);animation:wheel 1.5s var(--spring) infinite}
+    @keyframes wheel{0%{opacity:0;transform:translate(-50%,0)}30%{opacity:1}70%{opacity:1}100%{opacity:0;transform:translate(-50%,9px)}}
 
-  .mock { background:rgba(13,17,23,.82); backdrop-filter:blur(16px); -webkit-backdrop-filter:blur(16px);
-    border:1px solid rgba(255,255,255,.08); border-radius:12px; overflow:hidden;
-    box-shadow:0 60px 120px -20px rgba(0,0,0,.7), 0 30px 60px -30px rgba(0,0,0,.55), inset 0 1px 0 rgba(255,255,255,.07);
-    will-change:transform; }
-  .mock-bar { display:flex; align-items:center; gap:7px; padding:11px 14px; border-bottom:1px solid var(--line); }
-  .mock-bar i { width:9px; height:9px; border-radius:50%; background:#1e2631; }
-  .mock-bar span { font-family:var(--mono); font-size:9.5px; letter-spacing:1.4px; color:var(--dim); margin-left:8px; }
-  .mock-bar em { margin-left:auto; font-style:normal; font-family:var(--mono); font-size:9px; font-weight:600;
-    color:var(--grn); letter-spacing:1px; animation:pulse 1.6s infinite; }
-  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.3} }
-  .mock-body { display:grid; grid-template-columns:1fr 150px; gap:10px; padding:12px; }
-  .mock-grid { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
-  .tile { background:#0a0e13; border:1px solid #161d26; border-radius:8px; overflow:hidden;
-    transition:border-color .4s, box-shadow .4s; }
-  .tile .t-head { display:flex; align-items:center; font-family:var(--mono); font-size:8px; letter-spacing:.6px;
-    color:#77828f; padding:6px 9px; border-bottom:1px solid #141a22; }
-  .tile .t-head b { margin-left:auto; color:var(--grn); font-size:7.5px; letter-spacing:1px; }
-  .t-view { position:relative; height:86px; overflow:hidden; background:linear-gradient(165deg,#10161e 0%,#0a0e13 70%); }
-  .t-view .desk { position:absolute; bottom:10px; width:34%; height:25px; border-radius:6px 6px 0 0; background:#151c26; }
-  .t-view .desk::after { content:''; position:absolute; top:-15px; left:50%; transform:translateX(-50%);
-    width:15px; height:15px; border-radius:50%; background:#1c2530; }
-  .t-view .d1 { left:9%; } .t-view .d2 { right:9%; }
-  .scan { position:absolute; left:0; right:0; height:30px; top:-36px;
-    background:linear-gradient(180deg,transparent,rgba(62,207,142,.07) 65%,rgba(62,207,142,.26));
-    animation:scan 3.6s linear infinite; }
-  @keyframes scan { to { top:110%; } }
-  .bbox { position:absolute; top:16px; left:15%; width:32px; height:44px; border:1.5px solid var(--red);
-    border-radius:3px; opacity:0; transform:scale(.75); box-shadow:0 0 16px rgba(239,68,68,.45); }
-  .bbox::after { content:'PHONE 0.93'; position:absolute; top:-14px; left:-2px; font-family:var(--mono);
-    font-size:6.5px; font-weight:600; letter-spacing:.4px; color:#fff; background:var(--red); padding:1.5px 4px; border-radius:2px; white-space:nowrap; }
-  .tile.hit { border-color:rgba(239,68,68,.6); box-shadow:0 0 0 1px rgba(239,68,68,.32), 0 0 26px rgba(239,68,68,.14); }
-  .tile.hit .bbox { opacity:1; transform:scale(1); transition:all .3s var(--ease); }
-  .mock-side { background:#0a0e13; border:1px solid #161d26; border-radius:8px; padding:9px; overflow:hidden; }
-  .ms-head { font-family:var(--mono); font-size:8px; letter-spacing:1.6px; color:#77828f; margin-bottom:8px; }
-  .ms-card { display:flex; gap:7px; background:#0f151d; border:1px solid rgba(239,68,68,.28);
-    border-radius:6px; padding:6px; margin-bottom:7px; animation:msIn .5s var(--ease); }
-  @keyframes msIn { from { opacity:0; transform:translateX(22px); } }
-  .ms-card .ph { width:20px; height:26px; border-radius:3px; background:linear-gradient(150deg,#26303f,#12181f); flex-shrink:0; }
-  .ms-card div b { display:block; font-family:var(--mono); font-size:7.5px; color:var(--txt); letter-spacing:.3px; }
-  .ms-card div span { font-family:var(--mono); font-size:6.5px; color:#77828f; }
+    /* the persistent viewfinder */
+    .vf{position:fixed;inset:0;z-index:40;pointer-events:none;opacity:var(--vf-op,1);
+      --fx:40vw; --fy:38vh; --ds:.6}
+    /* the frame "locks on" with a single pulse when a scene settles */
+    .vf.lock{animation:vflock .5s var(--spring)}
+    @keyframes vflock{0%{transform:scale(1.035)}55%{transform:scale(.994)}100%{transform:scale(1)}}
+    .vf .br{position:absolute;left:50%;top:50%;width:54px;height:54px;
+      border-top:2px solid var(--ink);border-left:2px solid var(--ink);border-top-left-radius:6px;filter:blur(var(--vf-bl,0px))}
+    .vf .br.tl{transform:translate(calc(-50% - var(--fx)), calc(-50% - var(--fy)))}
+    .vf .br.tr{transform:translate(calc(-50% + var(--fx)), calc(-50% - var(--fy))) rotate(90deg)}
+    .vf .br.brr{transform:translate(calc(-50% + var(--fx)), calc(-50% + var(--fy))) rotate(180deg)}
+    .vf .br.bl{transform:translate(calc(-50% - var(--fx)), calc(-50% + var(--fy))) rotate(270deg)}
+    .vf .dot{position:absolute;left:50%;top:50%;width:12px;height:12px;border-radius:50%;background:var(--ink);
+      opacity:var(--dot-op,0);transform:translate(-50%,-50%) scale(var(--ds));box-shadow:0 0 0 6px rgba(12,13,16,.06)}
 
+    /* ── the deck: full-screen scenes, one shown at a time ── */
+    .deck{position:fixed;inset:0;z-index:1;overflow:hidden}
+    .scene{position:absolute;inset:0;display:grid;place-items:center;padding:96px 24px;opacity:0;
+      will-change:transform,opacity;--enter:1}
+    .shell{width:min(1120px,100%);margin:0 auto;position:relative;text-align:center}
+    .rise{opacity:var(--enter);transform:translateY(calc((1 - var(--enter)) * 26px))}
 
-  /* ---- sections: numbered spec-sheet ---- */
-  section { padding:110px 0; position:relative; }
-  .sec-head { display:flex; align-items:baseline; gap:18px; border-bottom:1px solid var(--line);
-    padding-bottom:18px; margin-bottom:8px; }
-  .sec-no { font-family:var(--mono); font-size:11px; letter-spacing:2px; color:var(--grn); }
-  h2 { font-size:clamp(28px,3.4vw,44px); letter-spacing:-0.02em; font-weight:700; }
-  .sec-sub { color:var(--mut); font-size:15px; line-height:1.7; max-width:560px; margin-top:22px; }
+    /* Scene 0 — FOCUS */
+    #s0 h1{font-size:clamp(40px,6.6vw,80px);max-width:14ch;margin:0 auto 22px}
+    #s0 .lead{max-width:52ch;margin:0 auto 30px}
+    #s0 .cta{display:flex;gap:12px;justify-content:center;flex-wrap:wrap}
+    .hud{position:absolute;inset:0;pointer-events:none;opacity:var(--hud,0);
+      font-family:var(--display);font-size:12px;letter-spacing:.06em;color:var(--muted)}
+    .hud b{display:block;font-size:22px;color:var(--ink);letter-spacing:-.02em;line-height:1.1}
+    .hud .h{position:absolute} .hud .h.a{left:4%;top:20%;text-align:left}
+    .hud .h.b{right:4%;top:20%;text-align:right} .hud .h.c{left:4%;bottom:16%;text-align:left}
 
-  /* capability ledger rows */
-  .ledger { margin-top:26px; }
-  .cap-row { display:grid; grid-template-columns:64px 250px 1fr; gap:26px; align-items:baseline;
-    padding:26px 10px; border-bottom:1px solid var(--line); position:relative; transition:background .4s; }
-  .cap-row::before { content:''; position:absolute; left:0; top:0; bottom:0; width:2px; background:var(--grn);
-    transform:scaleY(0); transition:transform .4s var(--ease); transform-origin:top; }
-  .cap-row:hover { background:rgba(255,255,255,.015); }
-  .cap-row:hover::before { transform:scaleY(1); }
-  .cap-row .no { font-family:var(--mono); font-size:11px; color:var(--dim); letter-spacing:1px; }
-  .cap-row h3 { font-size:18px; font-weight:600; letter-spacing:-.01em; }
-  .cap-row p { font-size:14px; color:var(--mut); line-height:1.65; }
-  @media (max-width:920px){ .cap-row { grid-template-columns:1fr; gap:8px; } }
+    /* Scene 1 — SCAN */
+    #s1 h2{font-size:clamp(30px,4.6vw,52px);max-width:16ch;margin:0 auto 18px}
+    #s1 .lead{max-width:54ch;margin:0 auto}
+    #s1 .scanbar{position:absolute;left:8%;right:8%;height:2px;pointer-events:none;top:16%;
+      opacity:var(--scanop,0);animation:scansweep 3.6s ease-in-out infinite;
+      background:linear-gradient(90deg,transparent,var(--ink),transparent);box-shadow:0 0 22px rgba(12,13,16,.25)}
+    @keyframes scansweep{0%,100%{top:16%}50%{top:82%}}
 
-  /* detection timeline */
-  .timeline { display:grid; grid-template-columns:repeat(4,1fr); gap:0; margin-top:64px; position:relative; }
-  .timeline::before { content:''; position:absolute; top:5px; left:2%; right:2%; height:1px; background:var(--line2); }
-  .t-node { position:relative; padding:34px 26px 0 0; }
-  .t-node::before { content:''; position:absolute; top:0; left:0; width:11px; height:11px; border-radius:50%;
-    background:var(--bg); border:2px solid var(--dim); transition:border-color .5s, box-shadow .5s; }
-  .t-node .ts { font-family:var(--mono); font-size:11px; letter-spacing:1px; color:var(--grn); display:block; margin-bottom:10px; }
-  .t-node h3 { font-size:15.5px; font-weight:600; margin-bottom:8px; letter-spacing:.2px; }
-  .t-node p { font-size:13px; color:var(--mut); line-height:1.6; }
-  .t-node.alarm .ts { color:var(--red); }
-  .timeline.in .t-node::before { border-color:var(--grn); box-shadow:0 0 12px rgba(62,207,142,.5); }
-  .timeline.in .t-node.alarm::before { border-color:var(--red); box-shadow:0 0 12px rgba(239,68,68,.5); }
-  .timeline.in .t-node:nth-child(1)::before { transition-delay:.1s; } .timeline.in .t-node:nth-child(1) { transition-delay:.1s; }
-  .timeline.in .t-node:nth-child(2)::before { transition-delay:.5s; }
-  .timeline.in .t-node:nth-child(3)::before { transition-delay:.9s; }
-  .timeline.in .t-node:nth-child(4)::before { transition-delay:1.3s; }
-  @media (max-width:920px){ .timeline { grid-template-columns:1fr; gap:30px; } .timeline::before { display:none; } }
+    /* Scene 2 — SPLIT */
+    #s2 .head{margin-bottom:34px}
+    #s2 h2{font-size:clamp(28px,4vw,44px)}
+    #s2 .tiles{display:grid;grid-template-columns:repeat(3,1fr);gap:18px}
+    .tile{position:relative;background:var(--glass);border:1px solid var(--line);border-radius:var(--r);
+      padding:26px 24px;backdrop-filter:blur(14px);box-shadow:var(--shadow-sm);text-align:left}
+    .tile .ic{width:44px;height:44px;border-radius:12px;display:grid;place-items:center;background:var(--ink);color:#fff;margin-bottom:14px}
+    .tile .ic svg{width:22px;height:22px}
+    .tile h3{font-size:20px;margin-bottom:8px} .tile p{color:var(--muted);font-size:14px}
+    .tile .soon{font-size:11px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--faint);margin-top:12px}
+    .tile .lock{position:absolute;inset:10px;border-radius:14px;pointer-events:none;
+      box-shadow:inset 0 0 0 2px var(--ink);opacity:var(--lock,0)}
 
-  /* deployment spec sheet */
-  .spec { display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-top:40px; }
-  .spec-col { border:1px solid var(--line); border-radius:12px; background:var(--panel); padding:30px;
-    transition:border-color .5s var(--ease), box-shadow .5s var(--ease); }
-  .spec-col:hover { border-color:var(--line2); box-shadow:0 24px 60px -24px rgba(0,0,0,.55); }
-  .spec-col .sc-head { font-family:var(--mono); font-size:10px; letter-spacing:2px; color:var(--grn); margin-bottom:22px; }
-  .spec-row { display:flex; gap:14px; padding:13px 0; border-bottom:1px solid var(--line); font-size:14px; }
-  .spec-row:last-child { border-bottom:none; }
-  .spec-row .k { font-family:var(--mono); font-size:10.5px; letter-spacing:1px; color:var(--dim); min-width:36px; padding-top:2px; }
-  .spec-row div b { color:var(--txt); font-weight:600; display:block; margin-bottom:2px; }
-  .spec-row div span { color:var(--mut); font-size:13px; line-height:1.55; }
-  @media (max-width:920px){ .spec { grid-template-columns:1fr; } }
-  .note { display:flex; gap:12px; align-items:flex-start; margin-top:22px; background:rgba(62,207,142,.05);
-    border:1px solid rgba(62,207,142,.18); border-radius:10px; padding:16px 18px; font-size:13.5px;
-    color:var(--mut); line-height:1.6; }
-  .note b { color:var(--txt); }
-  .note .nico { color:var(--grn); flex-shrink:0; margin-top:1px; }
+    /* Scene 3 — ZOOM (exam) */
+    /* frosted glass, just a hairline border — not a solid box */
+    #s3 .panel{position:relative;border-radius:28px;overflow:hidden;border:1px solid var(--line);
+      background:rgba(255,255,255,.40);backdrop-filter:blur(24px) saturate(1.2);-webkit-backdrop-filter:blur(24px) saturate(1.2);
+      box-shadow:0 30px 60px -34px rgba(15,17,24,.18);
+      width:min(980px,100%);padding:48px 40px;text-align:center;
+      transform:scale(calc(.9 + var(--enter) * .1));opacity:var(--enter)}
+    #s3 h2{font-size:clamp(26px,3.8vw,44px);max-width:16ch;margin:0 auto 14px}
+    #s3 .lead{max-width:52ch;margin:0 auto 22px;font-size:16px}
+    #s3 .flow{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;max-width:720px;margin:22px auto;text-align:left}
+    #s3 .step{background:var(--glass);border:1px solid var(--line);border-radius:var(--r-sm);padding:15px;backdrop-filter:blur(10px)}
+    #s3 .step .n{font-family:var(--display);font-size:12.5px;color:var(--faint);margin-bottom:6px}
+    #s3 .step h4{font-size:14.5px;margin-bottom:4px} #s3 .step p{font-size:12.5px;color:var(--muted)}
+    #s3 .doors{display:flex;gap:12px;justify-content:center;flex-wrap:wrap;margin-top:6px}
+    #s3 .wall{display:grid;grid-template-columns:repeat(6,1fr);gap:7px;max-width:400px;margin:0 auto 22px}
+    #s3 .wall i{height:24px;border-radius:6px;background:#e7e6e2;border:1px solid var(--line);
+      opacity:var(--wall,0);transform:scale(calc(.6 + var(--wall,0) * .4));
+      transition:background .55s ease,border-color .55s ease,box-shadow .55s ease,opacity .3s,transform .3s}
+    #s3 .wall i.g{background:linear-gradient(180deg,#e7f4ec,#fff);border-color:#c3e6d5;box-shadow:0 0 13px -3px rgba(31,157,99,.55)}
+    #s3 .wall i.r{background:linear-gradient(180deg,#fbeaea,#fff);border-color:#f0c9ca;box-shadow:0 0 13px -3px rgba(216,58,63,.55)}
 
-  /* privacy doctrine */
-  .doctrine h2 { font-size:clamp(30px,4vw,52px); max-width:720px; }
-  .doctrine h2 em { font-style:normal; color:var(--grn); }
-  .ledge { margin-top:52px; border-top:1px solid var(--line); }
-  .ledge div { display:grid; grid-template-columns:280px 1fr; gap:20px; padding:16px 8px;
-    border-bottom:1px solid var(--line); font-family:var(--mono); font-size:11.5px; letter-spacing:1.4px; }
-  .ledge .k { color:var(--dim); }
-  .ledge .v { color:var(--grn); }
-  @media (max-width:920px){ .ledge div { grid-template-columns:1fr; gap:4px; } }
+    /* Scene 4 — CLOSE */
+    #s4 .checks{list-style:none;display:flex;flex-direction:column;gap:12px;align-items:center;margin:0 0 32px;padding:0}
+    #s4 .checks li{display:flex;align-items:center;gap:11px;font-family:var(--display);font-size:15.5px;
+      font-weight:600;color:var(--ink-2);opacity:0;transform:translateY(10px);
+      transition:opacity .55s var(--spring),transform .55s var(--spring)}
+    #s4 .checks .ck{width:22px;height:22px;border-radius:50%;background:var(--ink);color:#fff;display:grid;place-items:center;flex:0 0 auto}
+    #s4 .checks .ck svg{width:12px;height:12px}
+    #s4 h2{font-size:clamp(30px,5vw,60px);max-width:18ch;margin:0 auto;
+      opacity:0;transform:translateY(12px);transition:opacity .6s var(--spring),transform .6s var(--spring)}
+    #s4 .k{color:var(--faint)}
+    #s4 .foot{margin-top:34px;display:flex;gap:16px;justify-content:center;align-items:center;
+      color:var(--muted);font-size:13.5px;flex-wrap:wrap;opacity:0;transition:opacity .6s var(--spring)}
+    #s4.show .checks li{opacity:1;transform:none}
+    #s4.show .checks li:nth-child(2){transition-delay:.13s}
+    #s4.show .checks li:nth-child(3){transition-delay:.26s}
+    #s4.show h2{opacity:1;transform:none;transition-delay:.46s}
+    #s4.show .foot{opacity:1;transition-delay:.66s}
 
-  /* faq */
-  .faq { max-width:760px; margin-top:26px; }
-  .qa { border-bottom:1px solid var(--line); }
-  .qa button { width:100%; display:flex; align-items:center; gap:18px; text-align:left; background:none; border:none;
-    color:var(--txt); font-size:15.5px; font-weight:600; font-family:'Inter',sans-serif; padding:22px 4px; cursor:pointer; }
-  .qa button .qno { font-family:var(--mono); font-size:10.5px; color:var(--dim); letter-spacing:1px; }
-  .qa button i { margin-left:auto; font-style:normal; color:var(--grn); font-size:18px; transition:transform .4s var(--ease); }
-  .qa.open button i { transform:rotate(45deg); }
-  .qa .a { max-height:0; overflow:hidden; transition:max-height .45s var(--ease); }
-  .qa .a p { padding:0 4px 22px 44px; font-size:14px; color:var(--mut); line-height:1.7; }
-
-  /* setups / download cards (shared) */
-  .setups { display:grid; grid-template-columns:repeat(3,1fr); gap:14px; margin-top:36px; }
-  .setup-c { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:26px;
-    transition:border-color .5s var(--ease), box-shadow .5s var(--ease); }
-  .setup-c:hover { border-color:rgba(62,207,142,.26); box-shadow:0 24px 60px -24px rgba(0,0,0,.55); }
-  .setup-c .ico { width:38px; height:38px; border-radius:9px; background:#131a23; color:var(--grn);
-    display:flex; align-items:center; justify-content:center; }
-  .setup-c h3 { font-size:15.5px; margin:14px 0 8px; font-weight:600; }
-  .setup-c p { font-size:13.5px; color:var(--mut); line-height:1.7; }
-  .setup-c code { background:#0a0e13; border:1px solid var(--line); padding:2px 7px; border-radius:5px;
-    color:var(--grn); font-family:var(--mono); font-size:11.5px; }
-  @media (max-width:920px){ .setups { grid-template-columns:1fr; } }
-
-  /* invigilator app — "open your school's Vigil" */
-  .invig-go { display:flex; flex-direction:column; gap:14px; margin-top:18px; }
-  .invig-go input { width:100%; background:#0a0e13; border:1px solid var(--line); border-radius:9px;
-    color:var(--txt); font-family:var(--mono); font-size:13px; padding:13px 14px; outline:none;
-    transition:border-color .3s var(--ease), box-shadow .3s var(--ease); }
-  .invig-go input:focus { border-color:rgba(62,207,142,.5); box-shadow:0 0 0 3px rgba(62,207,142,.12); }
-  .invig-go input::placeholder { color:var(--dim); }
-  .invig-go .btn { align-self:flex-start; }
-  .igo-hint { font-size:12.5px; color:var(--mut); line-height:1.7; margin:2px 0 0; }
-  .igo-hint code { background:#0a0e13; border:1px solid var(--line); padding:1px 6px; border-radius:5px;
-    color:var(--grn); font-family:var(--mono); font-size:11px; }
-
-  /* final */
-  .final { text-align:center; padding:130px 0 120px; }
-  .final h2 { font-size:clamp(32px,4.4vw,56px); }
-  .final .sec-sub { margin:20px auto 0; }
-  .final .ctas { justify-content:center; margin-top:36px; }
-  footer { border-top:1px solid var(--line); position:relative; z-index:1; }
-  footer .frow { display:flex; align-items:center; gap:14px; max-width:1120px; margin:0 auto; padding:26px 28px;
-    font-family:var(--mono); font-size:10.5px; letter-spacing:1px; color:var(--dim); }
-  footer .frow a:hover { color:var(--txt); }
-  footer .right { margin-left:auto; display:flex; gap:22px; }
-
-  .reveal { opacity:0; transform:translateY(20px); transition:opacity .9s var(--ease), transform .9s var(--ease);
-    transition-delay:var(--d,0s); }
-  .reveal.in { opacity:1; transform:none; }
-  @media (max-width:920px){
-    .hero { grid-template-columns:1fr; padding-top:56px; gap:44px; }
-    .site-nav { display:none; }
-    .site-head .btn { margin-left:auto; }
-    .telemetry { flex-wrap:wrap; } .telemetry div { border-top:1px solid var(--line); }
-  }
-
-  /* ---- phones: a designed layout, not a squeezed one ---- */
-  @media (max-width:640px){
-    .shell { padding:0 20px; }
-    .sysbar .row { padding:8px 20px; gap:14px; }
-    .sysbar .right { display:none; }
-    .site-head .row { height:56px; padding:0 20px; gap:16px; }
-    .brand { font-size:17px; }
-    section { padding:72px 0; }
-    .sec-head { padding-bottom:14px; }
-    .sec-sub { font-size:14px; margin-top:18px; }
-
-    .hero { padding:44px 0 64px; gap:40px; }
-    .hero-glow { width:380px; height:380px; right:-30%; top:-4%; }
-    .hero p.sub { font-size:15px; margin:22px 0 28px; }
-    .kicker { margin-bottom:20px; }
-    .ctas { flex-direction:column; align-items:stretch; }
-    .ctas .btn { width:100%; padding:15px 24px; }
-
-    .telemetry { display:grid; grid-template-columns:1fr 1fr; width:100%; margin-top:36px; }
-    .telemetry div { border:none; border-bottom:1px solid var(--line); padding:13px 16px; }
-    .telemetry div:nth-child(odd) { border-right:1px solid var(--line); }
-    .telemetry div:nth-child(n+3) { border-bottom:none; }
-
-    .evidence { padding:14px; }
-    .ev-meta { left:24px; } .ev-time { right:24px; }
-    .mock-body { grid-template-columns:1fr; }
-    .mock-side { min-height:78px; }
-
-    .cap-row { grid-template-columns:32px 1fr; gap:6px 14px; padding:22px 4px; }
-    .cap-row .no { padding-top:3px; }
-    .cap-row p { grid-column:2; }
-
-    .timeline { margin-top:44px; gap:36px; }
-    .timeline::before { display:block; left:5px; right:auto; top:6px; bottom:6px; width:1px; height:auto; }
-    .t-node { padding:0 0 0 34px; }
-    .t-node::before { top:3px; }
-
-    .spec { margin-top:32px; }
-    .spec-col { padding:24px 20px; }
-    .setups { margin-top:28px; }
-    .setup-c { padding:22px 20px; }
-    .note { padding:14px 16px; font-size:13px; }
-
-    .ledge { margin-top:40px; }
-    .qa button { font-size:14.5px; gap:12px; padding:20px 2px; }
-    .qa .a p { padding:0 2px 20px 28px; }
-
-    .final { padding:96px 0 88px; }
-    footer .frow { flex-direction:column; align-items:flex-start; gap:12px; padding:24px 20px; }
-    footer .frow a { white-space:nowrap; }
-    footer .right { margin-left:0; gap:8px 18px; flex-wrap:wrap; }
-  }
-</style></head>
+    /* ── FLAT fallback: reduced-motion + mobile → clean stacked document ── */
+    html.flat{overflow:auto}
+    html.flat body{overflow:visible;height:auto}
+    html.flat .vf,html.flat .rail,html.flat .cue{display:none}
+    html.flat .deck{position:static;overflow:visible}
+    html.flat .scene{position:relative;inset:auto;opacity:1;min-height:auto;padding:88px 24px}
+    html.flat .rise,html.flat #s3 .panel{opacity:1;transform:none}
+    html.flat .hud{position:static;opacity:1;display:flex;gap:30px;justify-content:center;margin-top:30px}
+    html.flat .hud .h{position:static}
+    html.flat #s1 .scanbar{display:none}
+    html.flat .tile .lock{display:none}
+    html.flat #s3 .wall i{opacity:1;transform:none}
+    @media(max-width:760px){
+      html.flat #s2 .tiles,html.flat #s3 .flow{grid-template-columns:1fr}
+    }
+  </style>
+</head>
 <body>
-<div class="gridbg" aria-hidden="true"></div>
-<div class="grainbg" aria-hidden="true"></div>
+  <svg width="0" height="0" style="position:absolute"><symbol id="v" viewBox="0 0 24 24" fill="none"><path d="M6 10V7.5A1.5 1.5 0 0 1 7.5 6H10M14 6h2.5A1.5 1.5 0 0 1 18 7.5V10M18 14v2.5a1.5 1.5 0 0 1-1.5 1.5H14M10 18H7.5A1.5 1.5 0 0 1 6 16.5V14" stroke="#fff" stroke-width="1.9" stroke-linecap="round"/><circle cx="12" cy="12" r="2.6" fill="#fff"/></symbol></svg>
 
-<div class="sysbar"><div class="row">
-  <span><b>VIGIL</b> v1.0</span>
-  <span class="ok">SYSTEM OPERATIONAL</span>
-  <span class="hidem">MODE: <b>100% ON-PREMISE</b></span>
-  <div class="right">
-    <span class="hidem">LOCAL TIME <b id="sysclock">--:--:--</b></span>
-    <span>UPLINK: NONE REQUIRED</span>
-  </div>
-</div></div>
+  <div class="cursor" id="cursor" aria-hidden="true"></div>
 
-<div class="site-head" id="site-head"><div class="row">
-  <a class="brand" href="/"><svg class="logo-mark" width="21" height="21" viewBox="0 0 24 24" fill="none"><path d="M4 9V6a2 2 0 0 1 2-2h3M15 4h3a2 2 0 0 1 2 2v3M20 15v3a2 2 0 0 1-2 2h-3M9 20H6a2 2 0 0 1-2-2v-3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="12" cy="12" r="3" fill="#3ecf8e"/></svg><b>Vig<span>i</span>l</b></a>
-  <nav class="site-nav">
-    <a href="#capabilities">CAPABILITIES</a><a href="#detection">DETECTION</a>
-    <a href="#deployment">DEPLOYMENT</a><a href="#invigilators">GET THE APP</a><a class="js-dl" href="https://github.com/Param077s/vigil/releases/latest/download/Vigil.dmg">DOWNLOAD</a><a href="#privacy">PRIVACY</a><a href="#faq">FAQ</a>
+  <div class="top"><div class="bar">
+    <a class="brand" href="/"><span class="mk"><svg><use href="#v"/></svg></span>Vigil</a>
+    <span class="sp"></span>
+    <a class="btn ink" id="dlNav" href="https://github.com/Param077s/vigil/releases/latest/download/Vigil.dmg">Download free</a>
+  </div></div>
+
+  <nav class="rail" id="rail" aria-label="Journey chapters">
+    <button data-i="0" aria-label="Focus"><span></span><em>Focus</em></button>
+    <button data-i="1" aria-label="Scan"><span></span><em>Scan</em></button>
+    <button data-i="2" aria-label="Targets"><span></span><em>Targets</em></button>
+    <button data-i="3" aria-label="Exam"><span></span><em>Exam</em></button>
+    <button data-i="4" aria-label="Close"><span></span><em>Close</em></button>
   </nav>
-  <a class="btn btn-grn js-dl" href="https://github.com/Param077s/vigil/releases/latest/download/Vigil.dmg">DOWNLOAD FREE</a>
-</div></div>
 
-<main class="shell">
-  <section class="hero">
-    <div class="hero-glow" aria-hidden="true"></div>
-    <div>
-      <span class="kicker reveal in">ON-PREMISE VISION INTELLIGENCE</span>
-      <h1 class="reveal in" style="--d:.06s">The room<br>is watching.</h1>
-      <p class="sub reveal in" style="--d:.12s">Vigil turns the cameras you already own into unblinking AI
-        observers. A phone appears — it's <b>flagged, photographed and logged in under a second</b>.
-        Runs entirely on one machine. Nothing leaves the building.</p>
-      <div class="ctas reveal in" style="--d:.18s">
-        <a class="btn btn-grn js-dl" href="https://github.com/Param077s/vigil/releases/latest/download/Vigil.dmg">DOWNLOAD VIGIL FREE</a>
-        <a class="btn btn-ghost" href="#deployment">RUN A PILOT</a>
+  <div class="cue" id="cue"><span>Scroll</span><i></i></div>
+
+  <div class="vf" id="vf" aria-hidden="true">
+    <span class="br tl"></span><span class="br tr"></span><span class="br brr"></span><span class="br bl"></span>
+    <span class="dot"></span>
+  </div>
+
+  <div class="deck" id="deck">
+    <!-- SCENE 0 · FOCUS -->
+    <section class="scene" id="s0" data-i="0">
+      <div class="hud">
+        <div class="h a"><b id="mDetect">0.9s</b><span id="mStatus">detect → alert</span></div>
+        <div class="h b"><b>0</b>uploads</div>
+        <div class="h c"><b>On-device</b>always</div>
       </div>
-      <div class="telemetry reveal in" style="--d:.24s">
-        <div class="lat"><b>~0.9s</b>DETECT → ALERT</div>
-        <div><b>0</b>UPLOADS</div>
-        <div><b>∞</b>CAMERAS</div>
-        <div><b>LOCAL</b>EVIDENCE</div>
-      </div>
-    </div>
-    <div class="evidence reveal in" style="--d:.2s"><span class="ck"></span>
-      <span class="ev-meta">LIVE FEED — EXAM HALL B</span>
-      <span class="ev-time"><b id="evclock">--:--:--</b> · CAM 03</span>
-      <div class="mock">
-        <div class="mock-bar"><i></i><i></i><i></i><span>VIGIL — LIVE MONITOR</span><em>● REC</em></div>
-        <div class="mock-body">
-          <div class="mock-grid">
-            <div class="tile"><div class="t-head">ROW 1 · FRONT<b>LIVE</b></div>
-              <div class="t-view"><span class="desk d1"></span><span class="desk d2"></span><div class="bbox"></div><div class="scan"></div></div></div>
-            <div class="tile"><div class="t-head">ROW 3 · LEFT<b>LIVE</b></div>
-              <div class="t-view"><span class="desk d1"></span><span class="desk d2"></span><div class="bbox"></div><div class="scan" style="animation-delay:-1.2s"></div></div></div>
-            <div class="tile"><div class="t-head">ROW 5 · BACK<b>LIVE</b></div>
-              <div class="t-view"><span class="desk d1"></span><span class="desk d2"></span><div class="bbox"></div><div class="scan" style="animation-delay:-2.1s"></div></div></div>
-            <div class="tile"><div class="t-head">CORRIDOR · A<b>LIVE</b></div>
-              <div class="t-view"><span class="desk d1"></span><span class="desk d2"></span><div class="bbox"></div><div class="scan" style="animation-delay:-.6s"></div></div></div>
-          </div>
-          <div class="mock-side"><div class="ms-head">ALERTS</div><div id="ms-list"></div></div>
+      <div class="shell">
+        <div class="eyebrow rise">On-device vision intelligence</div>
+        <h1 class="rise">The room sees clearly.<br>Nothing leaves it.</h1>
+        <p class="lead rise">Vigil turns ordinary cameras into private AI observers — flagging what matters in real time, on one machine. No uploads, no cloud, no footage anyone can watch.</p>
+        <div class="cta rise">
+          <a class="btn ink" id="dlHero" href="https://github.com/Param077s/vigil/releases/latest/download/Vigil.dmg">Download Vigil free</a>
+          <a class="btn glass" href="#s1" data-adv="1">See how it works</a>
         </div>
       </div>
-    </div>
-  </section>
+    </section>
 
-  <section id="capabilities">
-    <div class="sec-head reveal"><span class="sec-no">01 / CAPABILITIES</span></div>
-    <h2 class="reveal" style="--d:.05s">Built like infrastructure.<br>Not an app with a gimmick.</h2>
-    <div class="ledger">
-      <div class="cap-row reveal"><span class="no">01</span><h3>Real-time detection</h3>
-        <p>A fine-tuned neural model scans every frame of every feed — full frame plus zoomed tiles for
-        distant, half-hidden phones. A raised phone is flagged in about a second.</p></div>
-      <div class="cap-row reveal"><span class="no">02</span><h3>Evidence chain</h3>
-        <p>Every detection is stored with the photo, camera, location tag, timestamp, confidence and the
-        reviewer's verdict. A searchable record your institution can stand behind.</p></div>
-      <div class="cap-row reveal"><span class="no">03</span><h3>Any camera</h3>
-        <p>RTSP CCTV, webcams, or any phone's browser via a link — no app to install. Unlimited feeds
-        monitored simultaneously on one machine.</p></div>
-      <div class="cap-row reveal"><span class="no">04</span><h3>Display wall</h3>
-        <p>A fullscreen monitoring wall built for the invigilation desk — with an unmissable on-screen
-        alarm, flash and tone when something is found.</p></div>
-      <div class="cap-row reveal"><span class="no">05</span><h3>On every phone</h3>
-        <p>Invigilators open the live wall on their own phones over the room's Wi‑Fi — an alert the
-        moment a phone is spotted, right in their hand as they walk the aisles.</p></div>
-      <div class="cap-row reveal"><span class="no">06</span><h3>Human in command</h3>
-        <p>Admin and invigilator roles. Every alert requires a human confirm or dismiss — the AI flags,
-        your people decide. Watch targets are configurable beyond phones.</p></div>
-    </div>
-  </section>
-
-  <section id="detection">
-    <div class="sec-head reveal"><span class="sec-no">02 / DETECTION SEQUENCE</span></div>
-    <h2 class="reveal" style="--d:.05s">From glance to evidence<br>in under a second.</h2>
-    <div class="timeline reveal" id="tl">
-      <div class="t-node"><span class="ts">T+0.00s</span><h3>Frame captured</h3>
-        <p>Every camera is sampled continuously — watched or not.</p></div>
-      <div class="t-node"><span class="ts">T+0.40s</span><h3>Neural pass</h3>
-        <p>Full frame and overlapping zoom tiles scanned by the fine-tuned model.</p></div>
-      <div class="t-node alarm"><span class="ts">T+0.90s</span><h3>Alert raised</h3>
-        <p>Photo, location, confidence logged. Dashboard, wall and phones notified.</p></div>
-      <div class="t-node"><span class="ts">HUMAN</span><h3>Confirm or dismiss</h3>
-        <p>An invigilator rules on the alert. The verdict joins the evidence chain.</p></div>
-    </div>
-  </section>
-
-  <section id="deployment">
-    <div class="sec-head reveal"><span class="sec-no">03 / DEPLOYMENT</span></div>
-    <h2 class="reveal" style="--d:.05s">One machine. One hour.<br>No IT project.</h2>
-    <p class="sec-sub reveal" style="--d:.08s">Built for institutions to trial on their own — no vendor
-      on site, no procurement cycle, no integration work. Your exam team can have a real hall under
-      watch before lunch.</p>
-    <div class="spec">
-      <div class="spec-col reveal"><div class="sc-head">SITE REQUIREMENTS</div>
-        <div class="spec-row"><span class="k">R1</span><div><b>One computer</b><span>Any modern Mac or Windows PC in the hall or control room.</span></div></div>
-        <div class="spec-row"><span class="k">R2</span><div><b>Your existing cameras</b><span>RTSP from the NVR, webcams, or spare phones via a link.</span></div></div>
-        <div class="spec-row"><span class="k">R3</span><div><b>No cloud account</b><span>Runs offline. Internet only needed for optional phone alerts.</span></div></div>
-        <div class="spec-row"><span class="k">R4</span><div><b>~30 minutes</b><span>From download to a live wall of feeds.</span></div></div>
+    <!-- SCENE 1 · SCAN -->
+    <section class="scene" id="s1" data-i="1">
+      <div class="scanbar"></div>
+      <div class="shell">
+        <div class="eyebrow rise">The platform</div>
+        <h2 class="rise">One quiet machine,<br>watching for what you can't.</h2>
+        <p class="lead rise" style="margin-top:18px">Vigil runs its models locally and keeps every frame on the device. You get the signal — an alert, a pattern, a report — while the video itself never travels.</p>
       </div>
-      <div class="spec-col reveal" style="--d:.08s"><div class="sc-head">PILOT PROTOCOL — 10 CAMERAS</div>
-        <div class="spec-row"><span class="k">P1</span><div><b>Install</b><span>One download, one double-click, create the admin login.</span></div></div>
-        <div class="spec-row"><span class="k">P2</span><div><b>Connect cameras</b><span>Up to 10 feeds is a comfortable single-machine pilot. Tag each location.</span></div></div>
-        <div class="spec-row"><span class="k">P3</span><div><b>Run a mock exam</b><span>Invigilators confirm or dismiss each alert as it lands.</span></div></div>
-        <div class="spec-row"><span class="k">P4</span><div><b>Review the evidence</b><span>Catches, false alarms per exam, response time — then decide.</span></div></div>
-      </div>
-    </div>
-    <div class="note reveal"><span class="nico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/></svg></span>
-      <span><b>What convinces committees:</b> detections caught vs. missed, false alarms per exam, and whether
-      alerts reached invigilators faster than walking the aisles. Vigil logs all three for you.</span></div>
-  </section>
+    </section>
 
-
-  <section id="get">
-    <div class="sec-head reveal"><span class="sec-no">04 / ACCESS</span></div>
-    <h2 class="reveal" style="--d:.05s">Get Vigil on<br>your computer.</h2>
-    <p class="sec-sub reveal" style="--d:.08s">Free, no account. On Mac it installs like any app — drag it
-      into Applications and open it. The first launch sets up its AI components once (~2&nbsp;GB); every
-      launch after that is instant.</p>
-    <div class="ctas reveal" style="--d:.1s; margin-top:30px; display:flex; gap:12px; flex-wrap:wrap">
-      <a class="btn btn-grn" href="https://github.com/Param077s/vigil/releases/latest/download/Vigil.dmg" download><svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12.152 6.896c-.948 0-2.415-1.078-3.96-1.04-2.04.027-3.91 1.183-4.961 3.014-2.117 3.675-.546 9.103 1.519 12.09 1.013 1.454 2.208 3.09 3.792 3.039 1.52-.065 2.09-.987 3.935-.987 1.831 0 2.35.987 3.96.948 1.637-.026 2.676-1.48 3.676-2.948 1.156-1.688 1.636-3.325 1.662-3.415-.039-.013-3.182-1.221-3.22-4.857-.026-3.04 2.48-4.494 2.597-4.559-1.429-2.09-3.623-2.324-4.39-2.376-2-.156-3.675 1.09-4.61 1.09zm3.378-3.066c.843-1.012 1.4-2.427 1.245-3.83-1.207.052-2.662.805-3.532 1.818-.78.896-1.454 2.338-1.273 3.714 1.338.104 2.715-.688 3.56-1.702z"/></svg> DOWNLOAD FOR MAC</a>
-      <a class="btn btn-ghost" href="https://github.com/Param077s/vigil/releases/latest/download/Vigil-Setup.exe" download><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="14" x="2" y="3" rx="2"/><line x1="8" x2="16" y1="21" y2="21"/><line x1="12" x2="12" y1="17" y2="21"/></svg> DOWNLOAD FOR WINDOWS</a>
-    </div>
-    <div class="setups">
-      <div class="setup-c reveal"><span class="ico"><svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12.152 6.896c-.948 0-2.415-1.078-3.96-1.04-2.04.027-3.91 1.183-4.961 3.014-2.117 3.675-.546 9.103 1.519 12.09 1.013 1.454 2.208 3.09 3.792 3.039 1.52-.065 2.09-.987 3.935-.987 1.831 0 2.35.987 3.96.948 1.637-.026 2.676-1.48 3.676-2.948 1.156-1.688 1.636-3.325 1.662-3.415-.039-.013-3.182-1.221-3.22-4.857-.026-3.04 2.48-4.494 2.597-4.559-1.429-2.09-3.623-2.324-4.39-2.376-2-.156-3.675 1.09-4.61 1.09zm3.378-3.066c.843-1.012 1.4-2.427 1.245-3.83-1.207.052-2.662.805-3.532 1.818-.78.896-1.454 2.338-1.273 3.714 1.338.104 2.715-.688 3.56-1.702z"/></svg></span><h3>Mac — drag &amp; drop</h3>
-        <p>Open <code>Vigil.dmg</code> and drag <b>Vigil</b> into <b>Applications</b>. Double-click to open.
-        First time only: right-click → <b>Open</b> → <b>Open</b>. Your browser opens to Vigil — create the
-        admin account and you're watching.</p></div>
-      <div class="setup-c reveal" style="--d:.08s"><span class="ico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect width="20" height="14" x="2" y="3" rx="2"/><line x1="8" x2="16" y1="21" y2="21"/><line x1="12" x2="12" y1="17" y2="21"/></svg></span><h3>Windows — one‑click</h3>
-        <p>Run <code>Vigil-Setup.exe</code> and follow the prompts — it installs like any app and adds a
-        Start&nbsp;Menu shortcut. If SmartScreen warns, choose <b>More info → Run anyway</b> (the app is
-        just new, not unsafe). No unzipping, no Python.</p></div>
-      <div class="setup-c reveal" style="--d:.16s"><span class="ico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 17 10 11 4 5"/><line x1="12" x2="20" y1="19" y2="19"/></svg></span><h3>Linux</h3>
-        <p>Unzip and run <code>./Vigil-Linux.sh</code> — it sets itself up on the first run and opens the
-        dashboard when ready.</p></div>
-    </div>
-  </section>
-
-  <section id="invigilators">
-    <div class="sec-head reveal"><span class="sec-no">05 / FOR INVIGILATORS</span></div>
-    <h2 class="reveal" style="--d:.05s">The app in your pocket,<br>on exam day.</h2>
-    <p class="sec-sub reveal" style="--d:.08s">If your school already runs Vigil, put the invigilator app on your
-      phone. Get an alert the instant a phone is spotted in your room, and open any camera — on
-      demand. No app store, no configuration; it works over your school's Wi‑Fi.</p>
-    <div class="spec">
-      <div class="spec-col reveal"><div class="sc-head">GET THE APP — 3 STEPS</div>
-        <div class="spec-row"><span class="k">1</span><div><b>Open your school link</b><span>Your Vigil admin sends you a link (or a QR). Enter it on the right, or scan the QR — you and the Vigil must be on the same Wi‑Fi.</span></div></div>
-        <div class="spec-row"><span class="k">2</span><div><b>Add to Home Screen</b><span>iPhone: tap Share, then Add to Home Screen. Android: tap Install. Vigil becomes a real app icon.</span></div></div>
-        <div class="spec-row"><span class="k">3</span><div><b>Sign in &amp; watch</b><span>Log in with the account your admin created — you'll see your cameras and get alerts while Vigil is open.</span></div></div>
+    <!-- SCENE 2 · SPLIT -->
+    <section class="scene" id="s2" data-i="2">
+      <div class="shell">
+        <div class="head">
+          <div class="eyebrow rise">Capabilities</div>
+          <h2 class="rise">What it's watching for.</h2>
+        </div>
+        <div class="tiles">
+          <div class="tile" data-t="0"><span class="lock"></span>
+            <div class="ic"><svg viewBox="0 0 24 24" fill="none"><rect x="7" y="3" width="10" height="18" rx="2" stroke="#fff" stroke-width="1.7"/><circle cx="12" cy="17.5" r="1" fill="#fff"/></svg></div>
+            <h3>Phone detection</h3>
+            <p>Catch a phone the instant it appears on your existing cameras — flagged and logged in under a second.</p>
+          </div>
+          <div class="tile" data-t="1"><span class="lock"></span>
+            <div class="ic"><svg viewBox="0 0 24 24" fill="none"><path d="M4 5.5A1.5 1.5 0 0 1 5.5 4h13A1.5 1.5 0 0 1 20 5.5V15a1.5 1.5 0 0 1-1.5 1.5H13l-4 3.5v-3.5H5.5A1.5 1.5 0 0 1 4 15V5.5Z" stroke="#fff" stroke-width="1.6"/><circle cx="12" cy="10" r="2.4" stroke="#fff" stroke-width="1.6"/></svg></div>
+            <h3>Exam integrity</h3>
+            <p>Monitor exams on each student's own device — privacy-first, video never leaves the laptop.</p>
+          </div>
+          <div class="tile" data-t="2"><span class="lock"></span>
+            <div class="ic"><svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="8" stroke="#fff" stroke-width="1.6"/><path d="M12 8v4l2.5 2" stroke="#fff" stroke-width="1.6" stroke-linecap="round"/></svg></div>
+            <h3>More, in time</h3>
+            <p>The same private, on-device engine — extending to new spaces and signals as we grow.</p>
+            <div class="soon">Coming soon</div>
+          </div>
+        </div>
       </div>
-      <div class="spec-col reveal" style="--d:.08s"><div class="sc-head">OPEN YOUR SCHOOL'S VIGIL</div>
-        <form class="invig-go" id="invigGo">
-          <input id="invigUrl" type="text" inputmode="url" autocomplete="off" spellcheck="false" placeholder="http://192.168.1.50:8000/app/">
-          <button class="btn btn-grn" type="submit">OPEN THE APP &#8594;</button>
-          <p class="igo-hint" id="invigHint">Paste the link from your school's Vigil (Settings → <b>Watch on your phone</b>). You and the Vigil must be on the same Wi‑Fi.</p>
-        </form>
+    </section>
+
+    <!-- SCENE 3 · ZOOM (exam) -->
+    <section class="scene" id="s3" data-i="3">
+      <div class="panel">
+        <div class="eyebrow">Exam integrity</div>
+        <h2>Watch the exam, not the student.</h2>
+        <p class="lead">Each student's laptop runs the model locally and streams only tiny signals — never video. Teachers watch a calm wall that stays quiet until something genuinely needs attention.</p>
+        <div class="wall">
+          <i></i><i></i><i></i><i></i><i></i><i></i>
+          <i></i><i></i><i></i><i></i><i></i><i></i>
+        </div>
+        <div class="flow">
+          <div class="step"><div class="n">01 · Student</div><h4>Joins with a code</h4><p>Camera runs on their device. No video is ever sent or stored.</p></div>
+          <div class="step"><div class="n">02 · Teacher</div><h4>Watches the room</h4><p>Tiles glow only when a real pattern appears.</p></div>
+          <div class="step"><div class="n">03 · After</div><h4>Reviews the report</h4><p>A per-student timeline, exportable to PDF or CSV.</p></div>
+        </div>
+        <div class="doors">
+          <a class="btn ink" id="dlExam" href="https://github.com/Param077s/vigil/releases/latest/download/Vigil.dmg">Download Vigil free</a>
+          <a class="btn glass" href="/privacy.html">Read the privacy model</a>
+        </div>
       </div>
-    </div>
-    <div class="note reveal"><span class="nico"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/></svg></span>
-      <span><b>Why a link and not an app-store download?</b> Vigil runs inside your school and streams only to its own people. Installing from your school's own address is what keeps footage private and your alerts instant.</span></div>
-  </section>
+    </section>
+
+    <!-- SCENE 4 · CLOSE -->
+    <section class="scene" id="s4" data-i="4">
+      <div class="shell">
+        <ul class="checks">
+          <li><span class="ck"><svg viewBox="0 0 24 24" fill="none"><path d="M20 6 9 17l-5-5" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></span>Monitoring complete</li>
+          <li><span class="ck"><svg viewBox="0 0 24 24" fill="none"><path d="M20 6 9 17l-5-5" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></span>Report generated</li>
+          <li><span class="ck"><svg viewBox="0 0 24 24" fill="none"><path d="M20 6 9 17l-5-5" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></span>Video stayed on device</li>
+        </ul>
+        <h2>Nothing leaves the device. <span class="k">That's the whole idea.</span></h2>
+        <div class="foot">
+          <a class="brand" href="/"><span class="mk"><svg><use href="#v"/></svg></span>Vigil</a>
+          <span>·</span><a id="dlFoot" href="https://github.com/Param077s/vigil/releases/latest/download/Vigil.dmg">Download</a><span>·</span><a href="/privacy.html">Privacy</a><span>·</span><a href="/terms.html">Terms</a>
+        </div>
+      </div>
+    </section>
+  </div>
+
   <script>
   (function(){
-    var f = document.getElementById('invigGo'); if (!f) return;
-    f.addEventListener('submit', function(e){
-      e.preventDefault();
-      var el = document.getElementById('invigUrl'), h = document.getElementById('invigHint');
-      var v = (el.value || '').trim(); if (!v) return;
-      var lv = v.toLowerCase();
-      if (lv.indexOf('http://') !== 0 && lv.indexOf('https://') !== 0) v = 'http://' + v;
-      var u; try { u = new URL(v); } catch (_) { h.textContent = "That doesn't look like a link — check with your school's Vigil admin."; return; }
-      window.location.href = u.href;   // hand off to the school's Vigil (sign-in lives there)
+    const root = document.documentElement;
+    const mqReduce = matchMedia("(prefers-reduced-motion:reduce)");
+    const mqSmall  = matchMedia("(max-width:760px)");
+    function wantFlat(){
+      const w = Math.max(window.innerWidth||0, root.clientWidth||0);
+      return mqReduce.matches || (w>0 && w<=760);
+    }
+    const FLAT = wantFlat();
+    [mqReduce, mqSmall].forEach(mq => mq.addEventListener("change", () => { if (wantFlat() !== FLAT) location.reload(); }));
+
+    const clamp = (v,a,b) => Math.max(a, Math.min(b, v));
+    const lerp  = (a,b,t) => a + (b-a)*t;
+    const ease  = t => t<.5 ? 4*t*t*t : 1-Math.pow(-2*t+2,3)/2;   // easeInOutCubic
+    const smooth = x => x*x*(3-2*x);
+
+    if (FLAT) { root.classList.add("flat"); return; }   // stacked document, native scroll
+
+    const scenes = [...document.querySelectorAll(".scene")];
+    const N = scenes.length;
+    const vf   = document.getElementById("vf");
+    const rail = [...document.querySelectorAll("#rail button")];
+    const cue  = document.getElementById("cue");
+
+    // viewfinder timeline over t ∈ [0 .. N-1]  → [t, spread, dotScale, opacity, blur]
+    const VF = [
+      [0.0, 1.02, 0.55, 1, 3],
+      [1.0, 0.92, 0.70, 1, 0],
+      [2.0, 0.95, 0.60, 1, 0],
+      [2.55,1.30, 0.50, 0, 0],   // pushing into the exam — frame opens past the edges & fades
+      [3.0, 1.20, 0.50, 0, 0],   // inside the exam: viewfinder hidden
+      [3.5, 1.00, 0.60, 1, 0],   // returning for the close
+      [4.0, 0.00, 1.15, 1, 0],   // shutter shuts onto the dot
+    ];
+    function sampleVF(t){
+      for (let i=0;i<VF.length-1;i++){ const a=VF[i], b=VF[i+1];
+        if (t<=b[0]){ const k=smooth(clamp((t-a[0])/((b[0]-a[0])||1),0,1));
+          return {sp:lerp(a[1],b[1],k),dot:lerp(a[2],b[2],k),op:lerp(a[3],b[3],k),bl:lerp(a[4],b[4],k)}; } }
+      const l=VF[VF.length-1]; return {sp:l[1],dot:l[2],op:l[3],bl:l[4]};
+    }
+
+    let t = 0, index = 0, animating = false, cooldownUntil = 0;
+
+    function renderT(t){
+      const vw = window.innerWidth, vh = window.innerHeight;
+      scenes.forEach((s,i)=>{
+        const d = t - i;                       // signed distance from centred
+        const pres = clamp(1 - Math.abs(d), 0, 1);
+        const op = smooth(pres);
+        s.style.opacity = op.toFixed(3);
+        s.style.visibility = pres<=0.001 ? "hidden" : "visible";
+        s.style.pointerEvents = pres>0.85 ? "auto" : "none";
+        // a gentle camera move: the leaving scene lifts, the arriving one settles up
+        s.style.transform = "translateY(" + (-d*6).toFixed(2) + "vh)";
+        s.style.setProperty("--enter", op.toFixed(3));
+        if (i===0) s.style.setProperty("--hud", smooth(clamp(pres,0,1)).toFixed(3));
+        if (i===1){ s.style.setProperty("--scanop", (op*0.9).toFixed(3)); }   // line self-oscillates via CSS
+        if (i===2){ s.querySelectorAll(".tile").forEach((tile,ti)=>{
+                      const st=0.42+ti*0.17; tile.style.setProperty("--lock", clamp((pres-st)/0.18,0,1).toFixed(3)); }); }
+        if (i===3){ s.querySelectorAll(".wall i").forEach((cell,ci)=>{
+                      const st=0.35+(ci/12)*0.4; cell.style.setProperty("--wall", clamp((pres-st)/0.2,0,1).toFixed(3)); }); }
+        if (i===4){ s.classList.toggle("show", pres>0.55); }   // ending checkmarks reveal
+      });
+      const v = sampleVF(t);
+      vf.style.setProperty("--fx",(v.sp*vw*0.44).toFixed(1)+"px");
+      vf.style.setProperty("--fy",(v.sp*vh*0.42).toFixed(1)+"px");
+      vf.style.setProperty("--ds", v.dot.toFixed(3));
+      vf.style.setProperty("--vf-op", v.op.toFixed(3));
+      vf.style.setProperty("--vf-bl", v.bl.toFixed(2)+"px");
+      // the focus dot only appears for the closing shutter — hidden the rest of the way
+      vf.style.setProperty("--dot-op", smooth(clamp((t-3.3)/0.7,0,1)).toFixed(3));
+      const near = Math.round(t);
+      rail.forEach((b,i)=>b.classList.toggle("active", i===near));
+      cue.style.setProperty("--cue", (t<0.15 ? 1 : 0));
+    }
+
+    function animateTo(to){
+      to = clamp(Math.round(to), 0, N-1);
+      if (to===index && !animating) return;
+      index = to; animating = true;
+      const from = t, dist = Math.abs(to-from);
+      const dur = 420 + dist*140, t0 = performance.now();   // snappier
+      (function step(now){
+        const k = clamp((now-t0)/dur, 0, 1);
+        t = lerp(from, to, ease(k));
+        renderT(t);
+        if (k<1) requestAnimationFrame(step);
+        else { t = to; renderT(t); cooldownUntil = performance.now()+200; animating = false;
+               vf.classList.remove("lock"); void vf.offsetWidth; vf.classList.add("lock"); }   // lock-on pulse
+      })(t0);
+    }
+    function go(dir){ if (animating || performance.now()<cooldownUntil) return; animateTo(index+dir); }
+
+    // one wheel gesture = one scene; input is locked while moving + a short cooldown after
+    addEventListener("wheel", e=>{ e.preventDefault();
+      if (Math.abs(e.deltaY) < 6) return;
+      go(e.deltaY>0 ? 1 : -1);
+    }, {passive:false});
+
+    addEventListener("keydown", e=>{
+      const k=e.key;
+      if (k==="ArrowDown"||k==="PageDown"||k===" "){ e.preventDefault(); go(1); }
+      else if (k==="ArrowUp"||k==="PageUp"){ e.preventDefault(); go(-1); }
+      else if (k==="Home"){ e.preventDefault(); animateTo(0); }
+      else if (k==="End"){ e.preventDefault(); animateTo(N-1); }
     });
+
+    // touch swipe (tablets in the non-flat range)
+    let ty=null;
+    addEventListener("touchstart", e=>{ ty=e.touches[0].clientY; }, {passive:true});
+    addEventListener("touchend", e=>{ if (ty==null) return; const dy=ty-e.changedTouches[0].clientY;
+      if (Math.abs(dy)>44) go(dy>0?1:-1); ty=null; }, {passive:true});
+
+    rail.forEach(b=> b.addEventListener("click", ()=>{ if(!animating) animateTo(+b.dataset.i); }));
+    // "See how it works" and any [data-adv] link jump the journey to a scene
+    document.querySelectorAll("[data-adv]").forEach(function(a){
+      a.addEventListener("click", function(e){ e.preventDefault(); if(!animating) animateTo(+a.getAttribute("data-adv")); });
+    });
+    addEventListener("resize", ()=>renderT(t));
+
+    // Living detection wall — each tile drifts between clear (green) and flagged
+    // (red) at random, like a monitor making live predictions.
+    var wallCells = [].slice.call(document.querySelectorAll("#s3 .wall i"));
+    setInterval(function(){
+      for (var i=0;i<wallCells.length;i++){
+        if (Math.random() < 0.3){
+          var c = wallCells[i], r = Math.random();
+          c.classList.remove("g","r");
+          if (r < 0.62) c.classList.add("g");
+          else if (r < 0.82) c.classList.add("r");   // ~20% flag, mostly clear
+        }
+      }
+    }, 620);
+
+    // Live-feeling hero metrics — the detect time and status keep ticking.
+    var mDetect = document.getElementById("mDetect"), mStatus = document.getElementById("mStatus");
+    var statuses = ["detect → alert","monitoring…","pattern found","signal sent","clear"];
+    setInterval(function(){
+      if (mDetect) mDetect.textContent = "0." + (83 + Math.floor(Math.random()*12)) + "s";
+      if (mStatus && Math.random() < 0.6) mStatus.textContent = statuses[Math.floor(Math.random()*statuses.length)];
+    }, 1500);
+
+    // Magnetic hover on the primary CTAs — the button drifts toward the cursor.
+    document.querySelectorAll(".cta .btn, .doors .btn").forEach(function(b){
+      b.addEventListener("mousemove", function(e){
+        var r=b.getBoundingClientRect();
+        var dx=(e.clientX-(r.left+r.width/2))/r.width, dy=(e.clientY-(r.top+r.height/2))/r.height;
+        b.style.transform="translate("+(dx*12).toFixed(1)+"px,"+(dy*7).toFixed(1)+"px)";
+      });
+      b.addEventListener("mouseleave", function(){ b.style.transform=""; });
+    });
+
+    // Inverting cursor — a smooth circle that flips the colour of whatever it's over.
+    (function(){
+      if (!matchMedia("(pointer:fine)").matches) return;
+      var cur = document.getElementById("cursor");
+      root.classList.add("cursor-on");
+      var mx=innerWidth/2, my=innerHeight/2, px=mx, py=my, seen=false;
+      addEventListener("mousemove", function(e){ mx=e.clientX; my=e.clientY;
+        if(!seen){ seen=true; px=mx; py=my; cur.style.opacity=1; } }, {passive:true});
+      addEventListener("mouseover", function(e){
+        cur.classList.toggle("big", !!(e.target.closest && e.target.closest("a,button"))); });
+      (function loop(){ px += (mx-px)*0.2; py += (my-py)*0.2;
+        cur.style.transform = "translate("+px.toFixed(1)+"px,"+py.toFixed(1)+"px) translate(-50%,-50%)";
+        requestAnimationFrame(loop); })();
+    })();
+
+    renderT(0);
+    void vf.offsetWidth; vf.classList.add("lock");   // initial lock-on
   })();
   </script>
 
-  <section id="privacy" class="doctrine">
-    <div class="sec-head reveal"><span class="sec-no">06 / PRIVACY DOCTRINE</span></div>
-    <h2 class="reveal" style="--d:.05s">Footage never leaves<br>the building. <em>Ever.</em></h2>
-    <div class="ledge reveal" style="--d:.1s">
-      <div><span class="k">PROCESSING</span><span class="v">ON DEVICE — LOCAL GPU/CPU</span></div>
-      <div><span class="k">STORAGE</span><span class="v">LOCAL DISK ONLY</span></div>
-      <div><span class="k">INTERNET</span><span class="v">NOT REQUIRED</span></div>
-      <div><span class="k">EVIDENCE OWNERSHIP</span><span class="v">YOURS — FULL STOP</span></div>
-    </div>
-  </section>
-
-  <section id="faq">
-    <div class="sec-head reveal"><span class="sec-no">07 / QUESTIONS</span></div>
-    <h2 class="reveal" style="--d:.05s">Quick answers.</h2>
-    <div class="faq">
-      <div class="qa reveal"><button><span class="qno">Q1</span>Does it need an internet connection?<i>+</i></button>
-        <div class="a"><p>No. Detection, the dashboard and the evidence log all run locally — invigilators
-        just open Vigil on their phones over the same Wi‑Fi.</p></div></div>
-      <div class="qa reveal"><button><span class="qno">Q2</span>Is it only for phones?<i>+</i></button>
-        <div class="a"><p>No — phones are the first target. In Settings → "Watch for", pick or type what matters:
-        laptop, bag, book, bottle, person and more. Fully custom targets can be added with training.</p></div></div>
-      <div class="qa reveal"><button><span class="qno">Q3</span>How many cameras can it watch?<i>+</i></button>
-        <div class="a"><p>As many as your computer can decode — every configured camera is monitored all the time,
-        whether or not it's on screen. Ten feeds is a comfortable single-machine pilot.</p></div></div>
-      <div class="qa reveal"><button><span class="qno">Q4</span>Where is the evidence stored?<i>+</i></button>
-        <div class="a"><p>In a local folder and database on the machine running Vigil — photo, time, camera,
-        location, confidence and the reviewer's verdict for every alert.</p></div></div>
-      <div class="qa reveal"><button><span class="qno">Q5</span>What happens at the moment of detection?<i>+</i></button>
-        <div class="a"><p>The dashboard beeps and shows the photo and location; the Display wall flashes an alarm;
-        and any invigilator watching on their phone sees it too — all within about a second.</p></div></div>
-    </div>
-  </section>
-
-  <section class="final">
-    <span class="kicker reveal">DEPLOY VIGIL</span>
-    <h2 class="reveal" style="--d:.05s">Put a vigilant eye<br>on every room.</h2>
-    <p class="sec-sub reveal" style="--d:.1s">Download it onto the computer in the room you want to watch — free, no account, nothing leaves the machine.</p>
-    <div class="ctas reveal" style="--d:.15s">
-      <a class="btn btn-grn js-dl" href="https://github.com/Param077s/vigil/releases/latest/download/Vigil.dmg">DOWNLOAD VIGIL FREE</a>
-      <a class="btn btn-ghost" href="#deployment">READ THE PILOT PROTOCOL</a>
-    </div>
-  </section>
-</main>
-
-<footer><div class="frow">
-  <a class="brand" href="/" style="font-size:14px"><svg class="logo-mark" width="21" height="21" viewBox="0 0 24 24" fill="none"><path d="M4 9V6a2 2 0 0 1 2-2h3M15 4h3a2 2 0 0 1 2 2v3M20 15v3a2 2 0 0 1-2 2h-3M9 20H6a2 2 0 0 1-2-2v-3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="12" cy="12" r="3" fill="#3ecf8e"/></svg><b>Vig<span>i</span>l</b></a>
-  <span>/ ON-PREMISE VISION INTELLIGENCE</span>
-  <div class="right">
-    <a href="#deployment">PILOT</a>
-    <a class="js-dl" href="https://github.com/Param077s/vigil/releases/latest/download/Vigil.dmg">DOWNLOAD</a><a href="privacy.html">PRIVACY POLICY</a><a href="terms.html">TERMS</a>
-  </div>
-</div></footer>
-
-<script>
-  // reveal on scroll
-  const io = new IntersectionObserver(es => es.forEach(e => {
-    if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); }
-  }), { threshold:.12 });
-  document.querySelectorAll('.reveal:not(.in), .timeline').forEach(el => io.observe(el));
-
-  // header hairline on scroll
-  const head = document.getElementById('site-head');
-  addEventListener('scroll', () => head.classList.toggle('scrolled', scrollY > 8), { passive:true });
-
-  // live clocks (system bar + evidence frame)
-  function tick() {
-    const t = new Date().toLocaleTimeString('en-GB');
-    const a = document.getElementById('sysclock'), b = document.getElementById('evclock');
-    if (a) a.textContent = t; if (b) b.textContent = t;
-  }
-  tick(); setInterval(tick, 1000);
-
-  // FAQ accordion
-  document.querySelectorAll('.qa button').forEach(b => b.onclick = () => {
-    const qa = b.parentElement, a = qa.querySelector('.a'), open = qa.classList.contains('open');
-    document.querySelectorAll('.qa.open').forEach(o => { o.classList.remove('open'); o.querySelector('.a').style.maxHeight = 0; });
-    if (!open) { qa.classList.add('open'); a.style.maxHeight = a.scrollHeight + 'px'; }
-  });
-
-  // staged detections on the monitor
-  const tiles = [...document.querySelectorAll('.tile')];
-  const msList = document.getElementById('ms-list');
-  const spots = ['ROW 1 · FRONT','ROW 3 · LEFT','ROW 5 · BACK','CORRIDOR · A'];
-  let ti = 1;
-  function strike() {
-    const i = ti % tiles.length; ti += 2 + (ti % 3);
-    const t = tiles[i];
-    t.classList.add('hit');
-    const card = document.createElement('div');
-    card.className = 'ms-card';
-    card.innerHTML = `<span class="ph"></span><div><b>PHONE · 0.${88 + (i * 3) % 10}</b><span>${spots[i]}</span></div>`;
-    msList.prepend(card);
-    while (msList.children.length > 3) msList.lastChild.remove();
-    setTimeout(() => t.classList.remove('hit'), 2400);
-  }
-  setTimeout(strike, 1400);
-  setInterval(strike, 4200);
-
-  // gentle parallax tilt on the evidence frame
-  if (matchMedia('(pointer:fine)').matches) {
-    const mock = document.querySelector('.mock');
-    let tx = 0, ty = 0, cxr = 0, cyr = 0, tiltOn = false;
-    setTimeout(() => { mock.style.transition = 'none'; tiltOn = true; }, 1400);
-    addEventListener('mousemove', e => {
-      const r = mock.getBoundingClientRect();
-      const inRange = Math.abs(e.clientX - (r.left + r.width/2)) < r.width * 1.1 &&
-                      Math.abs(e.clientY - (r.top + r.height/2)) < r.height * 1.4;
-      tx = inRange ? ((e.clientX - (r.left + r.width/2)) / r.width) * -3 : 0;
-      ty = inRange ? ((e.clientY - (r.top + r.height/2)) / r.height) * 2 : 0;
-    }, { passive: true });
-    (function tilt() {
-      if (tiltOn) {
-        cyr += (tx - cyr) * 0.07; cxr += (ty - cxr) * 0.07;
-        mock.style.transform = `perspective(1300px) rotateY(${(-cyr).toFixed(2)}deg) rotateX(${cxr.toFixed(2)}deg)`;
-      }
-      requestAnimationFrame(tilt);
-    })();
-  }
-</script>
-<style>.soon{pointer-events:none;cursor:default}a.btn.soon{background:rgba(62,207,142,.08);color:var(--grn);border:1px dashed rgba(62,207,142,.4);box-shadow:none}a.btn.soon::before{content:'\25CF';font-size:7px;animation:pulse 1.6s infinite}a.soon:not(.btn){color:var(--grn)}</style><script>(function(){var ua=navigator.userAgent||'';var ios=/iPhone|iPad|iPod/.test(ua)||(navigator.platform==='MacIntel'&&navigator.maxTouchPoints>1);var andr=/Android/i.test(ua);if(ios||andr){var os=ios?'IOS':'ANDROID';var get=document.getElementById('get');if(get){var c=get.querySelectorAll('.ctas a');if(c[1])c[1].style.display='none';var sub=get.querySelector('.sec-sub');if(sub)sub.textContent='Vigil runs on Mac, Windows and Linux today \u2014 the '+(ios?'iOS':'Android')+' app is coming soon. Open this page on your computer to download.';}document.querySelectorAll('.js-dl, #get .ctas a').forEach(function(a){if(a.style.display==='none')return;a.removeAttribute('href');a.removeAttribute('download');a.classList.add('soon');a.textContent=a.closest('.site-head')?'COMING SOON':'COMING SOON FOR '+os;});}else if(/Win/.test(navigator.platform)&&!/Mac/.test(navigator.platform)){document.querySelectorAll('.js-dl').forEach(function(a){a.href='https://github.com/Param077s/vigil/releases/latest/download/Vigil-Setup.exe';});}else if(/Linux/.test(navigator.platform)){document.querySelectorAll('.js-dl').forEach(function(a){a.href='https://github.com/Param077s/vigil/releases/latest/download/Vigil.zip';});}})();</script>
-</body></html>
+  <!-- point every Download button at the right installer for the visitor's OS -->
+  <script>
+  (function(){
+    var base = "https://github.com/Param077s/vigil/releases/latest/download/";
+    var ua = navigator.userAgent || "";
+    var asset = /Windows|Win64|Win32/i.test(ua) ? "Vigil-Setup.exe" : "Vigil.dmg";
+    var url = base + asset;
+    ["dlNav","dlHero","dlExam","dlFoot"].forEach(function(id){
+      var e = document.getElementById(id); if (e) e.href = url;
+    });
+  })();
+  </script>
+</body>
+</html>
