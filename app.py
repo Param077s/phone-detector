@@ -2038,10 +2038,17 @@ def api_exam_sessions(request: Request):
     u, err = _require_staff(request)
     if err:
         return err
+    # Multi-tenant: a teacher sees only the exams they created. (Admins keep the
+    # full-oversight view via the main console.)
     with _db() as c:
-        rows = c.execute(
-            "SELECT id, code, title, status, created_at, ended_at FROM exam_sessions"
-            " ORDER BY id DESC LIMIT 100").fetchall()
+        if u.get("role") == "admin":
+            rows = c.execute(
+                "SELECT id, code, title, status, created_at, ended_at FROM exam_sessions"
+                " ORDER BY id DESC LIMIT 100").fetchall()
+        else:
+            rows = c.execute(
+                "SELECT id, code, title, status, created_at, ended_at FROM exam_sessions"
+                " WHERE created_by = ? ORDER BY id DESC LIMIT 100", (u["username"],)).fetchall()
     return [dict(r) for r in rows]
 
 
