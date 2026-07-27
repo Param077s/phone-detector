@@ -55,6 +55,19 @@
     .ev::before{content:"";position:absolute;left:-27px;top:14px;width:9px;height:9px;border-radius:50%;background:var(--faint);box-shadow:0 0 0 3px #fff}
     .ev.warn::before{background:var(--warn)} .ev.alert::before{background:var(--alert)}
     .ev .time{color:var(--muted);font-variant-numeric:tabular-nums;flex:0 0 78px}
+    .ev .what{flex:1}
+    .band{font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;padding:3px 8px;border-radius:999px;border:1px solid var(--line)}
+    .band.high{color:var(--alert);background:var(--alert-soft);border-color:#f3c9ca}
+    .band.medium{color:var(--warn);background:var(--warn-soft);border-color:#f0dcb6}
+    .band.low{color:var(--muted);background:var(--soft)}
+    .rev{display:inline-flex;gap:4px;margin-left:8px;flex:0 0 auto}
+    .rb{width:24px;height:24px;border-radius:7px;border:1px solid var(--line);background:var(--card);cursor:pointer;font-size:12px;line-height:1;color:var(--muted)}
+    .rb:hover{border-color:var(--ink);color:var(--ink)}
+    .rb.ok.on{background:var(--ok);border-color:var(--ok);color:#fff}
+    .rb.no.on{background:var(--muted);border-color:var(--muted);color:#fff}
+    .ev.dismissed .what,.ev.dismissed .time{text-decoration:line-through;opacity:.5}
+    .ev .cf{font-size:11px;color:var(--ok);font-weight:600;margin-left:6px}
+    @media print{ .rev{display:none !important} }
     .empty{color:var(--muted);text-align:center;padding:40px 0}
     @media print{ body{background:#fff;background-image:none} .bar .btn,.backlink,.toggle{display:none !important}
       .student{box-shadow:none;break-inside:avoid;page-break-inside:avoid;margin-bottom:12px}
@@ -87,6 +100,10 @@
     const examId = new URLSearchParams(location.search).get("e");
     const LABELS = { head_down:"Looked down", look_away:"Looked away", face_absent:"Face not visible", second_face:"Second face detected", phone:"Phone detected", camera_off:"Camera off", monitor_hidden:"Hid / left Vigil", left_exam:"Closed Vigil", virtual_cam:"Virtual camera", calibrated:"Calibrated" };
     const ALERT_KINDS = new Set(["second_face","phone","camera_off","monitor_hidden","left_exam","virtual_cam"]);
+    // integrity weighting → a single risk score per student (dismissed flags count 0)
+    const WEIGHT = { second_face:5, phone:5, virtual_cam:5, left_exam:4, monitor_hidden:3, camera_off:3, face_absent:1.5, look_away:1, head_down:1 };
+    const bandOf = (score) => score>=10 ? "high" : score>=4 ? "medium" : score>0 ? "low" : "clear";
+    let reviewEnabled = false;   // teacher + the v6 review column exists
     const CAP = 8;   // events shown before a timeline collapses the rest
     const fmt = (iso) => { const d = new Date(iso); return d.toLocaleTimeString([], {hour:"2-digit",minute:"2-digit",second:"2-digit"}); };
 
@@ -105,41 +122,44 @@
 
       const info = roster.map(p => {
         const evs = byP.get(p.id) || [];
-        const counts = {}; let alerts = 0;
-        evs.forEach(e => { counts[e.kind] = (counts[e.kind]||0)+1; if (e.severity==="alert"||ALERT_KINDS.has(e.kind)) alerts++; });
-        evs.forEach(e => csvRows.push([p.name, LABELS[e.kind]||e.kind, e.severity, fmt(e.at)]));
-        return { p, evs, counts, alerts, flags: evs.length };
+        const active = evs.filter(e => e.review !== "dismissed");   // dismissed flags don't count
+        const counts = {}; let alerts = 0, score = 0;
+        active.forEach(e => { counts[e.kind] = (counts[e.kind]||0)+1; if (ALERT_KINDS.has(e.kind)) alerts++; score += (WEIGHT[e.kind]||1); });
+        active.forEach(e => csvRows.push([p.name, LABELS[e.kind]||e.kind, e.severity, fmt(e.at), e.review==="confirmed"?"confirmed":""]));
+        return { p, evs, counts, alerts, flags: active.length, score, band: bandOf(score) };
       });
-      const flagged = info.filter(i => i.flags > 0)
-        .sort((a,b) => b.alerts - a.alerts || b.flags - a.flags || a.p.name.localeCompare(b.p.name));
+      const flagged = info.filter(i => i.flags > 0).sort((a,b) => b.score - a.score || a.p.name.localeCompare(b.p.name));
       const clear = info.filter(i => i.flags === 0);
 
       const stat = (cls,n,label) => '<span class="stat '+cls+'"><b>'+n+'</b> '+label+'</span>';
-      const alertStudents = flagged.filter(i=>i.alerts>0).length;
+      const bands = { high:0, medium:0, low:0 };
+      flagged.forEach(i => bands[i.band]++);
       $("summary").style.display = "flex";
       $("summary").innerHTML =
-        stat("", roster.length, roster.length===1?(teacher?"student":"session"):"students") +
-        (alertStudents ? stat("alert", alertStudents, "with alerts") : "") +
-        (flagged.length ? stat("warn", flagged.length, "flagged") : "") +
+        stat("", roster.length, roster.length===1?"student":"students") +
+        (bands.high ? stat("alert", bands.high, "high risk") : "") +
+        (bands.medium ? stat("warn", bands.medium, "medium") : "") +
+        (bands.low ? stat("", bands.low, "low") : "") +
         stat("ok", clear.length, "clear") +
         (flagged.length && clear.length ? '<label class="toggle"><input type="checkbox" id="flagOnly"> Flagged only</label>' : "");
 
+      const evHtml = e => {
+        const dism = e.review === "dismissed", conf = e.review === "confirmed";
+        const rev = (reviewEnabled && e.id)
+          ? '<span class="rev"><button class="rb ok '+(conf?"on":"")+'" data-ev="'+e.id+'" data-act="confirm" title="Confirm">✓</button>'+
+            '<button class="rb no '+(dism?"on":"")+'" data-ev="'+e.id+'" data-act="dismiss" title="Dismiss">✕</button></span>' : "";
+        return '<div class="ev '+esc(e.severity)+(dism?" dismissed":"")+'"><span class="time">'+fmt(e.at)+'</span>'+
+          '<span class="what">'+esc(LABELS[e.kind]||e.kind)+(conf?' <span class="cf">confirmed</span>':'')+'</span>'+rev+'</div>';
+      };
       const card = (i) => {
         const p = i.p, evs = i.evs;
-        const sev = i.alerts>0 ? "alert" : "warn";
-        const chips = Object.entries(i.counts)
-          .sort((a,b)=> b[1]-a[1])
+        const chips = Object.entries(i.counts).sort((a,b)=> b[1]-a[1])
           .map(([k,n]) => '<span class="chip '+(ALERT_KINDS.has(k)?"alert":"warn")+'"><b>'+n+'</b> '+esc(LABELS[k]||k)+'</span>').join("");
-        const evHtml = e => '<div class="ev '+esc(e.severity)+'"><span class="time">'+fmt(e.at)+'</span><span class="what">'+esc(LABELS[e.kind]||e.kind)+'</span></div>';
         let timeline;
-        if (evs.length <= CAP) {
-          timeline = '<div class="tl">'+evs.map(evHtml).join("")+'</div>';
-        } else {
-          const head = evs.slice(0, CAP).map(evHtml).join("");
-          const rest = evs.slice(CAP).map(evHtml).join("");
-          timeline = '<div class="tl">'+head+'<details class="moreev"><summary>Show '+(evs.length-CAP)+' more</summary>'+rest+'</details></div>';
-        }
-        return '<div class="student '+(i.alerts>0?"pri":"pri-w")+'"><h2><span class="sd '+sev+'"></span>'+
+        if (evs.length <= CAP) timeline = '<div class="tl">'+evs.map(evHtml).join("")+'</div>';
+        else { const head = evs.slice(0,CAP).map(evHtml).join(""), rest = evs.slice(CAP).map(evHtml).join("");
+          timeline = '<div class="tl">'+head+'<details class="moreev"><summary>Show '+(evs.length-CAP)+' more</summary>'+rest+'</details></div>'; }
+        return '<div class="student '+(i.band==="high"?"pri":"pri-w")+'"><h2><span class="band '+i.band+'">'+i.band+'</span>'+
           '<span class="n">'+esc(p.name)+'</span><span class="ct">'+i.flags+' flag'+(i.flags===1?"":"s")+'</span></h2>'+
           '<div class="chips">'+chips+'</div>'+timeline+'</div>';
       };
@@ -174,14 +194,19 @@
         '<div class="chips">'+chips+'</div>'+timeline+'</div>';
     }
 
+    async function fetchEvents() {
+      // prefer the reviewable shape (needs the v6 column); fall back so the report works pre-migration
+      let q = await sb.from("events").select("id,participant_id,kind,severity,at,review").eq("exam_id", examId).order("at",{ascending:true});
+      if (q.error) { reviewEnabled = false;
+        q = await sb.from("events").select("participant_id,kind,severity,at").eq("exam_id", examId).order("at",{ascending:true}); }
+      else { reviewEnabled = teacher; }
+      return q.data || [];
+    }
     async function fetchAndDraw() {
       // RLS scopes these; a student view also narrows to their own row (covers an owner who joined)
       let pq = sb.from("participants").select("id,name,status,joined_at").eq("exam_id", examId);
       if (!teacher && user) pq = pq.eq("user_id", user.id);
-      const [{ data:parts }, { data:events }] = await Promise.all([
-        pq,
-        sb.from("events").select("participant_id,kind,severity,at").eq("exam_id", examId).order("at",{ascending:true}),
-      ]);
+      const [{ data:parts }, events] = await Promise.all([ pq, fetchEvents() ]);
       draw(parts, events);
     }
 
@@ -212,11 +237,20 @@
       if (teacher){
         $("csvBtn").style.display=""; $("pdfBtn").style.display="";
         $("csvBtn").onclick = () => {
-          const csv = "Student,Event,Severity,Time\n" + csvRows.map(r => r.map(x => '"'+String(x).replace(/"/g,'""')+'"').join(",")).join("\n");
+          const csv = "Student,Event,Severity,Time,Review\n" + csvRows.map(r => r.map(x => '"'+String(x).replace(/"/g,'""')+'"').join(",")).join("\n");
           const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([csv],{type:"text/csv"}));
           a.download = (exam?exam.title:"exam") + "-report.csv"; a.click();
         };
         $("pdfBtn").onclick = () => window.print();
+        // Confirm / Dismiss a flag (event delegation survives redraws — #out stays put)
+        $("out").addEventListener("click", async (e) => {
+          const b = e.target.closest(".rb"); if (!b) return;
+          const id = b.getAttribute("data-ev"), act = b.getAttribute("data-act");
+          const val = b.classList.contains("on") ? null : (act === "confirm" ? "confirmed" : "dismissed");
+          b.disabled = true;
+          try { await sb.from("events").update({ review: val }).eq("id", id); } catch (_) {}
+          await fetchAndDraw();
+        });
       }
 
       await fetchAndDraw();
