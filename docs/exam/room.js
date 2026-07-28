@@ -68,7 +68,7 @@ async function pushStatus(status, force) {
 // ── Geometry ────────────────────────────────────────────────────────────────
 function metrics(res) {
   const faces = res.faceLandmarks ? res.faceLandmarks.length : 0;
-  if (!faces) return { faces: 0, noseGap: null, gazeX: null, gazeY: null, openness: null };
+  if (!faces) return { faces: 0, noseGap: null, gazeX: null, gazeY: null, openness: null, nx: null, ny: null, iod: null };
   const lm = res.faceLandmarks[0], L = lm[EYE_L], R = lm[EYE_R], N = lm[NOSE_TIP];
   const iod = Math.hypot(L.x - R.x, L.y - R.y) || 1e-6;
   const noseGap = (N.y - (L.y + R.y) / 2) / iod;
@@ -87,7 +87,7 @@ function metrics(res) {
     const lY = (lI.y - lm[LE_TOP].y) / ((lm[LE_BOT].y - lm[LE_TOP].y) || 1e-6);
     gazeY = (rY + lY) / 2;
   }
-  return { faces, noseGap, gazeX, gazeY, openness };
+  return { faces, noseGap, gazeX, gazeY, openness, nx: N.x, ny: N.y, iod };
 }
 const median = (a) => { if (!a.length) return null; const s = [...a].sort((x, y) => x - y); return s[Math.floor(s.length / 2)]; };
 
@@ -231,6 +231,61 @@ function wireTune() {
   $("tReset").onclick = () => { localStorage.removeItem("vg_cfg"); location.reload(); };
 }
 
+// ── Pre-flight check: lighting / face / position, fixed BEFORE the exam ──────
+// Most "looked away" noise in reports is a bad camera setup; this catches it at
+// the door. Auto-advances after everything reads good for a second; a "Continue
+// anyway" link appears after 10s so nobody can ever get stuck here.
+let pfCanvas = null, pfLuma = 128, pfLastLuma = 0;
+function sampleLuma(now) {
+  if (now - pfLastLuma < 350) return;
+  pfLastLuma = now;
+  try {
+    if (!pfCanvas) { pfCanvas = document.createElement("canvas"); pfCanvas.width = 48; pfCanvas.height = 36; }
+    const c = pfCanvas.getContext("2d", { willReadFrequently: true });
+    c.drawImage(state.video, 0, 0, 48, 36);
+    const d = c.getImageData(0, 0, 48, 36).data;
+    let sum = 0, n = 0;
+    for (let i = 0; i < d.length; i += 16) { sum += 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]; n++; }
+    if (n) pfLuma = sum / n;
+  } catch (e) {}
+}
+function pfPaint(id, ok, okMsg, badMsg) {
+  const row = $(id); if (!row) return;
+  row.classList.toggle("ok", ok); row.classList.toggle("bad", !ok);
+  const ic = row.querySelector(".pfic"), msg = row.querySelector(".pft span");
+  if (ic) ic.textContent = ok ? "✓" : "!";
+  if (msg) msg.textContent = ok ? okMsg : badMsg;
+}
+function doPreflight(mx, now) {
+  sampleLuma(now);
+  const faceOk = mx.faces >= 1;
+  pfPaint("pfFace", faceOk, "We can see you", "Sit facing the camera");
+  const lightOk = pfLuma >= 60 && pfLuma <= 235;
+  pfPaint("pfLight", lightOk, "Lighting looks good",
+    pfLuma < 60 ? "Too dark — add light in front of you" : "Strong backlight — face the light instead");
+  let posOk = false, posMsg = "Centre your face in the frame";
+  if (faceOk && mx.nx != null) {
+    const centred = mx.nx > 0.30 && mx.nx < 0.70 && mx.ny > 0.22 && mx.ny < 0.80;
+    const closeEnough = (mx.iod || 0) > 0.045;
+    posOk = centred && closeEnough;
+    if (centred && !closeEnough) posMsg = "Move a little closer to the camera";
+  }
+  pfPaint("pfPos", posOk, "Position looks good", posMsg);
+  if (faceOk && lightOk && posOk) {
+    if (!state.pfGoodSince) state.pfGoodSince = now;
+    if (now - state.pfGoodSince >= 1000) beginCalib();
+  } else state.pfGoodSince = 0;
+}
+function beginCalib() {
+  if (state.mode === "calib") return;
+  const pf = $("pf"); if (pf) pf.classList.add("hidden");
+  const bw = $("calibBarWrap"); if (bw) bw.classList.remove("hidden");
+  $("calibMsg").textContent = "Look at your screen normally and hold still for a few seconds.";
+  state.mode = "calib";
+  state.calibSamples = []; state.calibGX = []; state.calibGY = []; state.calibOpen = [];
+  state.calibRetries = 0; state.calibStart = performance.now();
+}
+
 function doCalib(mx, now) {
   if (mx.faces >= 1 && mx.noseGap != null) {
     state.calibSamples.push(mx.noseGap);
@@ -269,7 +324,7 @@ function loop() {
   let ts = now; if (ts <= state.lastTs) ts = state.lastTs + 1; state.lastTs = ts;
   let res; try { res = state.landmarker.detectForVideo(state.video, ts); } catch { return; }
   const mx = metrics(res);
-  if (state.mode === "calib") doCalib(mx, now); else if (state.mode === "monitor") doMonitor(mx, now);
+  if (state.mode === "preflight") doPreflight(mx, now); else if (state.mode === "calib") doCalib(mx, now); else if (state.mode === "monitor") doMonitor(mx, now);
   // phone / object detection on its own slower cadence (heavier than face landmarks)
   if (state.mode === "monitor" && state.phoneDetector && now - state.lastPhoneDetect >= CFG.PHONE_MS) {
     state.lastPhoneDetect = now;
@@ -399,7 +454,11 @@ async function begin() {
       });
     } catch (e) { state.phoneDetector = null; }
   } catch (e) { return fail("Could not load the monitoring model. Check your connection and reload."); }
-  state.mode = "calib"; state.calibSamples = []; state.calibGX = []; state.calibGY = []; state.calibOpen = []; state.calibRetries = 0; state.calibStart = performance.now(); state.running = true;
+  // pre-flight first: fix light / framing here so it never shows up as flags later
+  state.mode = "preflight"; state.pfGoodSince = 0; state.running = true;
+  const skip = $("pfSkip");
+  if (skip) { skip.onclick = (e) => { e.preventDefault(); beginCalib(); };
+    setTimeout(() => skip.classList.remove("hidden"), 10000); }
   requestAnimationFrame(loop);
 }
 function fail(msg) { state.running = false; $("errMsg").textContent = msg; show("s-error"); }

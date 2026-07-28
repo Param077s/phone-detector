@@ -19,6 +19,16 @@
     .preview{position:relative;border-radius:var(--r-sm);overflow:hidden;background:#0e1116;aspect-ratio:4/3;margin:12px 0;border:1px solid var(--line-strong)}
     .preview video{width:100%;height:100%;object-fit:cover;transform:scaleX(-1)}
     .preview .tag{position:absolute;left:10px;bottom:10px;background:rgba(255,255,255,.92);color:var(--ink);font-size:11.5px;font-weight:600;padding:5px 9px;border-radius:8px}
+    /* pre-flight check — catch bad light / angle BEFORE the exam, not in the report */
+    .pf{margin:12px 0 2px;display:flex;flex-direction:column;gap:8px}
+    .pfrow{display:flex;align-items:center;gap:11px;background:var(--soft);border:1px solid var(--line);border-radius:var(--r-sm);padding:10px 12px;transition:border-color .25s}
+    .pfrow .pfic{width:22px;height:22px;border-radius:50%;display:grid;place-items:center;font-size:12px;font-weight:700;flex:0 0 auto;background:#fff;border:1px solid var(--line-strong);color:var(--faint);transition:all .25s}
+    .pfrow.ok .pfic{background:var(--ok);border-color:var(--ok);color:#fff}
+    .pfrow.bad .pfic{background:var(--warn-soft);border-color:#f0dcb6;color:var(--warn)}
+    .pfrow.bad{border-color:#f0dcb6}
+    .pfrow .pft b{display:block;font-size:13.5px}
+    .pfrow .pft span{font-size:12px;color:var(--muted)}
+    .pfrow.ok .pft span{color:var(--ok)}
     .bar{height:8px;background:var(--soft);border-radius:6px;overflow:hidden;margin-top:14px}
     .bar > i{display:block;height:100%;width:0;background:var(--ink);border-radius:6px;transition:width .1s linear}
     .rows{border-top:1px solid var(--line);margin-top:6px}
@@ -54,12 +64,18 @@
     <div class="card">
       <div class="top brand"><span class="mk"><svg viewBox="0 0 24 24" fill="none"><path d="M6 10V7.5A1.5 1.5 0 0 1 7.5 6H10M14 6h2.5A1.5 1.5 0 0 1 18 7.5V10M18 14v2.5a1.5 1.5 0 0 1-1.5 1.5H14M10 18H7.5A1.5 1.5 0 0 1 6 16.5V14" stroke="#fff" stroke-width="1.8" stroke-linecap="round"/><circle cx="12" cy="12" r="2.6" fill="#fff"/></svg></span><b>Vigil</b><span class="tag">· Exam</span></div>
 
-      <!-- calibrate -->
+      <!-- calibrate (pre-flight check first, then calibration) -->
       <section id="s-calib">
         <h1>Getting ready</h1>
-        <p class="lead" id="calibMsg">Look at your screen normally and hold still for a few seconds.</p>
+        <p class="lead" id="calibMsg">Quick camera check before we start.</p>
         <div class="preview"><video id="calibVid" playsinline muted></video><span class="tag">🔒 On this device only</span></div>
-        <div class="bar"><i id="calibBar"></i></div>
+        <div class="pf" id="pf">
+          <div class="pfrow" id="pfFace"><span class="pfic">·</span><span class="pft"><b>Face in frame</b><span>Checking…</span></span></div>
+          <div class="pfrow" id="pfLight"><span class="pfic">·</span><span class="pft"><b>Lighting</b><span>Checking…</span></span></div>
+          <div class="pfrow" id="pfPos"><span class="pfic">·</span><span class="pft"><b>Position &amp; distance</b><span>Checking…</span></span></div>
+          <a class="back hidden" id="pfSkip" style="justify-content:center;margin:10px 0 0">Continue anyway</a>
+        </div>
+        <div class="bar hidden" id="calibBarWrap"><i id="calibBar"></i></div>
       </section>
 
       <!-- monitor -->

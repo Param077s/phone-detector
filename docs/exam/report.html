@@ -60,6 +60,41 @@
     .band.high{color:var(--alert);background:var(--alert-soft);border-color:#f3c9ca}
     .band.medium{color:var(--warn);background:var(--warn-soft);border-color:#f0dcb6}
     .band.low{color:var(--muted);background:var(--soft)}
+    /* exam strip — when the flags happened, at a glance */
+    .strip{position:relative;height:26px;border-radius:8px;background:var(--soft);border:1px solid var(--line);overflow:hidden;margin:2px 0 4px}
+    .strip .burst{position:absolute;top:0;bottom:0;border-radius:4px;background:rgba(216,58,63,.10)}
+    .strip .tick{position:absolute;top:5px;width:3px;height:16px;border-radius:2px;background:var(--warn);transform:translateX(-50%)}
+    .strip .tick.alert{background:var(--alert)}
+    .strip .tick.dim{opacity:.22}
+    .saxis{display:flex;justify-content:space-between;font-size:11px;color:var(--faint);margin-bottom:8px;font-variant-numeric:tabular-nums}
+    .story{font-size:13px;color:var(--ink-2);margin:0 0 12px;line-height:1.5}
+    .story b{color:var(--ink);font-weight:600}
+    /* episodes — consecutive same-kind flags merged into one row, one decision */
+    .eprow{display:flex;align-items:center;gap:12px;padding:9px 6px;border-top:1px solid var(--line);font-size:13.5px;border-radius:8px}
+    .eprow .when{flex:0 0 148px;color:var(--ink);font-weight:600;font-variant-numeric:tabular-nums;font-size:12.5px}
+    .eprow .what{flex:1;color:var(--ink-2)} .eprow .what em{font-style:normal;color:var(--muted)}
+    .eprow .cnt{font-size:11.5px;font-weight:700;color:var(--warn);background:var(--warn-soft);border:1px solid #f0dcb6;border-radius:999px;padding:2px 8px;white-space:nowrap}
+    .eprow .cnt.alert{color:var(--alert);background:var(--alert-soft);border-color:#f3c9ca}
+    .eprow.dismissed .when,.eprow.dismissed .what{text-decoration:line-through;opacity:.5}
+    .eprow .cf{font-size:11px;color:var(--ok);font-weight:600;margin-left:6px}
+    .eprow.cur{outline:2px solid var(--ink);outline-offset:-1px;background:#faf9f7}
+    /* review inbox — progress + keyboard triage */
+    .inbox{position:sticky;top:10px;z-index:5;display:flex;align-items:center;gap:12px;background:var(--card);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow-sm);padding:11px 16px;margin:0 0 16px}
+    .inbox .ibar{flex:1;height:6px;border-radius:4px;background:var(--soft);overflow:hidden;min-width:60px}
+    .inbox .ibar i{display:block;height:100%;background:var(--ink);border-radius:4px;transition:width .25s}
+    .inbox .itxt{font-size:12.5px;color:var(--muted);font-weight:600;white-space:nowrap;font-variant-numeric:tabular-nums}
+    .inbox .keys{display:flex;gap:5px;align-items:center;font-size:11.5px;color:var(--faint);white-space:nowrap}
+    .inbox kbd{font-size:10.5px;border:1px solid var(--line);border-bottom-width:2px;border-radius:5px;padding:1px 6px;color:var(--muted);background:#fff;font-weight:700;font-family:inherit}
+    @media(max-width:640px){.inbox .keys{display:none}}
+    /* print-only sign-off block for the verdict PDF */
+    .signoff{display:none}
+    @media print{
+      .inbox{display:none !important}
+      .signoff{display:block;margin-top:30px;padding-top:14px;border-top:1px solid var(--line);font-size:12.5px;color:var(--ink-2);break-inside:avoid}
+      .signoff b{color:var(--ink)}
+      .signoff .lines{display:flex;gap:30px;margin-top:26px}
+      .signoff .lines span{flex:1;border-top:1px solid var(--ink);padding-top:5px;font-size:11px;color:var(--muted)}
+    }
     .rev{display:inline-flex;gap:4px;margin-left:8px;flex:0 0 auto}
     .rb{width:24px;height:24px;border-radius:7px;border:1px solid var(--line);background:var(--card);cursor:pointer;font-size:12px;line-height:1;color:var(--muted)}
     .rb:hover{border-color:var(--ink);color:var(--ink)}
@@ -104,10 +139,88 @@
     const WEIGHT = { second_face:5, phone:5, virtual_cam:5, left_exam:4, monitor_hidden:3, camera_off:3, face_absent:1.5, look_away:1, head_down:1 };
     const bandOf = (score) => score>=10 ? "high" : score>=4 ? "medium" : score>0 ? "low" : "clear";
     let reviewEnabled = false;   // teacher + the v6 review column exists
-    const CAP = 8;   // events shown before a timeline collapses the rest
+    const CAP = 8;   // episodes shown before a card collapses the rest
+    const EP_GAP = 90_000;   // same-kind flags within 90s merge into one episode
     const fmt = (iso) => { const d = new Date(iso); return d.toLocaleTimeString([], {hour:"2-digit",minute:"2-digit",second:"2-digit"}); };
+    const fmtHM = (iso) => { const d = new Date(iso); return d.toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"}); };
+    const durTxt = (ms) => { const s = Math.max(1, Math.round(ms/1000)); if (s < 60) return s + " s"; const m = Math.floor(s/60); return m + " min" + (s%60 ? " " + (s%60) + " s" : ""); };
+
+    // consecutive same-kind flags collapse into episodes — one row, one decision
+    function episodesOf(evs) {
+      const eps = [];
+      for (const e of evs) {
+        const t = new Date(e.at).getTime();
+        const last = eps[eps.length-1];
+        if (last && last.kind === e.kind && t - last.endT <= EP_GAP) { last.events.push(e); last.endT = t; last.end = e.at; }
+        else eps.push({ kind:e.kind, start:e.at, end:e.at, startT:t, endT:t, events:[e] });
+      }
+      for (const ep of eps) {
+        ep.count = ep.events.length;
+        ep.ids = ep.events.map(e => e.id).filter(Boolean);
+        ep.alert = ALERT_KINDS.has(ep.kind);
+        ep.review = ep.events.every(e => e.review === "dismissed") ? "dismissed"
+                  : ep.events.every(e => e.review === "confirmed") ? "confirmed" : null;
+      }
+      return eps;
+    }
+    // shared time window so every student's strip lines up (min 10 minutes wide)
+    function windowOf(events) {
+      const ts = (events||[]).map(e => new Date(e.at).getTime());
+      if (!ts.length) return null;
+      const lo = Math.min(...ts), hi = Math.max(...ts), mid = (lo+hi)/2;
+      const half = Math.max(hi-lo, 10*60*1000) / 2 * 1.06;
+      return { min: mid-half, max: mid+half };
+    }
+    const pct = (t, w) => (((t - w.min) / (w.max - w.min)) * 100).toFixed(2);
+    function stripHtml(evs, eps, w) {
+      if (!w || !evs.length) return "";
+      const bursts = eps.filter(ep => ep.count >= 3)
+        .map(ep => '<span class="burst" style="left:'+pct(ep.startT,w)+'%;width:'+Math.max(1.2,(ep.endT-ep.startT)/(w.max-w.min)*100).toFixed(2)+'%"></span>').join("");
+      const ticks = evs.map(e => '<span class="tick'+(ALERT_KINDS.has(e.kind)?" alert":"")+(e.review==="dismissed"?" dim":"")+'" style="left:'+pct(new Date(e.at).getTime(),w)+'%"></span>').join("");
+      return '<div class="strip">'+bursts+ticks+'</div>'+
+        '<div class="saxis"><span>'+fmtHM(new Date(w.min).toISOString())+'</span><span>'+fmtHM(new Date((w.min+w.max)/2).toISOString())+'</span><span>'+fmtHM(new Date(w.max).toISOString())+'</span></div>';
+    }
+    // one auto-written sentence per student — the report reads itself
+    function narrative(eps) {
+      if (!eps.length) return "";
+      const byKind = {};
+      eps.forEach(ep => { const b = byKind[ep.kind] = byKind[ep.kind] || { flags:0, eps:0 }; b.flags += ep.count; b.eps++; });
+      const [topKind, top] = Object.entries(byKind).sort((a,b) => b[1].flags - a[1].flags)[0];
+      const label = (LABELS[topKind]||topKind).toLowerCase();
+      const others = Object.keys(byKind).length - 1;
+      const big = eps.filter(e => e.kind === topKind).sort((a,b) => b.count - a.count)[0];
+      let s = '<b>'+top.flags+'&times; '+esc(label)+'</b> in '+top.eps+' episode'+(top.eps===1?"":"s");
+      if (others > 0) s += ' (+'+others+' other kind'+(others===1?"":"s")+')';
+      s += (big && big.count > 1)
+        ? ' — heaviest <b>'+big.count+'&times; over '+durTxt(big.endT-big.startT)+'</b> starting '+fmtHM(big.start)+'.'
+        : ' — isolated moments, no clustering.';
+      return '<div class="story">'+s+'</div>';
+    }
 
     let exam = null, teacher = false, csvRows = [], user = null;
+
+    // ── review cursor (keyboard triage) ──────────────────────────────────────
+    let curKey = null;
+    const cursorRows = () => [...document.querySelectorAll(".eprow[data-key]")];
+    function setCur(rows, i) {
+      rows.forEach(r => r.classList.remove("cur"));
+      if (i < 0 || !rows[i]) { curKey = null; return; }
+      rows[i].classList.add("cur"); curKey = rows[i].getAttribute("data-key");
+      rows[i].scrollIntoView({ block: "nearest", behavior: "smooth" });
+    }
+    function renderCursor() {
+      const rows = cursorRows(); if (!rows.length) return;
+      if (curKey == null) return;   // nothing highlighted until the teacher starts navigating
+      let i = rows.findIndex(r => r.getAttribute("data-key") === curKey);
+      if (i < 0) i = 0;
+      rows.forEach(r => r.classList.remove("cur"));
+      rows[i].classList.add("cur");
+    }
+    async function applyReview(ids, val, btn) {
+      if (btn) btn.disabled = true;
+      try { await sb.from("events").update({ review: val }).in("id", ids); } catch (_) {}
+      await fetchAndDraw();
+    }
 
     // build the whole report body from a fresh (parts, events) pull — re-run live
     function draw(parts, events) {
@@ -120,13 +233,15 @@
 
       if (!teacher) { drawStudent(roster, byP); return; }   // personal "Your activity" view
 
+      const win = windowOf(events);   // one shared clock so every strip lines up
       const info = roster.map(p => {
         const evs = byP.get(p.id) || [];
         const active = evs.filter(e => e.review !== "dismissed");   // dismissed flags don't count
         const counts = {}; let alerts = 0, score = 0;
         active.forEach(e => { counts[e.kind] = (counts[e.kind]||0)+1; if (ALERT_KINDS.has(e.kind)) alerts++; score += (WEIGHT[e.kind]||1); });
-        active.forEach(e => csvRows.push([p.name, LABELS[e.kind]||e.kind, e.severity, fmt(e.at), e.review==="confirmed"?"confirmed":""]));
-        return { p, evs, counts, alerts, flags: active.length, score, band: bandOf(score) };
+        const eps = episodesOf(evs);
+        eps.forEach(ep => csvRows.push([p.name, LABELS[ep.kind]||ep.kind, ep.count, fmt(ep.start), fmt(ep.end), ep.review||""]));
+        return { p, evs, eps, counts, alerts, flags: active.length, score, band: bandOf(score) };
       });
       const flagged = info.filter(i => i.flags > 0).sort((a,b) => b.score - a.score || a.p.name.localeCompare(b.p.name));
       const clear = info.filter(i => i.flags === 0);
@@ -143,28 +258,42 @@
         stat("ok", clear.length, "clear") +
         (flagged.length && clear.length ? '<label class="toggle"><input type="checkbox" id="flagOnly"> Flagged only</label>' : "");
 
-      const evHtml = e => {
-        const dism = e.review === "dismissed", conf = e.review === "confirmed";
-        const rev = (reviewEnabled && e.id)
-          ? '<span class="rev"><button class="rb ok '+(conf?"on":"")+'" data-ev="'+e.id+'" data-act="confirm" title="Confirm">✓</button>'+
-            '<button class="rb no '+(dism?"on":"")+'" data-ev="'+e.id+'" data-act="dismiss" title="Dismiss">✕</button></span>' : "";
-        return '<div class="ev '+esc(e.severity)+(dism?" dismissed":"")+'"><span class="time">'+fmt(e.at)+'</span>'+
-          '<span class="what">'+esc(LABELS[e.kind]||e.kind)+(conf?' <span class="cf">confirmed</span>':'')+'</span>'+rev+'</div>';
+      const epHtml = ep => {
+        const dism = ep.review === "dismissed", conf = ep.review === "confirmed";
+        const when = ep.count === 1 ? fmt(ep.start) : fmt(ep.start)+"&ndash;"+fmt(ep.end);
+        const rev = (reviewEnabled && ep.ids.length)
+          ? '<span class="rev"><button class="rb ok '+(conf?"on":"")+'" data-ids="'+ep.ids.join(",")+'" data-act="confirm" title="Confirm episode">✓</button>'+
+            '<button class="rb no '+(dism?"on":"")+'" data-ids="'+ep.ids.join(",")+'" data-act="dismiss" title="Dismiss episode">✕</button></span>' : "";
+        return '<div class="eprow'+(dism?" dismissed":"")+'" data-key="'+esc(String(ep.ids[0]||ep.startT))+'">'+
+          '<span class="when">'+when+'</span>'+
+          '<span class="what">'+esc(LABELS[ep.kind]||ep.kind)+
+          (ep.count>1 ? ' <em>&middot; over '+durTxt(ep.endT-ep.startT)+'</em>' : '')+
+          (conf ? ' <span class="cf">confirmed</span>' : '')+'</span>'+
+          (ep.count>1 ? '<span class="cnt'+(ep.alert?" alert":"")+'">'+ep.count+'&times;</span>' : '')+
+          rev+'</div>';
       };
       const card = (i) => {
-        const p = i.p, evs = i.evs;
-        const chips = Object.entries(i.counts).sort((a,b)=> b[1]-a[1])
-          .map(([k,n]) => '<span class="chip '+(ALERT_KINDS.has(k)?"alert":"warn")+'"><b>'+n+'</b> '+esc(LABELS[k]||k)+'</span>').join("");
-        let timeline;
-        if (evs.length <= CAP) timeline = '<div class="tl">'+evs.map(evHtml).join("")+'</div>';
-        else { const head = evs.slice(0,CAP).map(evHtml).join(""), rest = evs.slice(CAP).map(evHtml).join("");
-          timeline = '<div class="tl">'+head+'<details class="moreev"><summary>Show '+(evs.length-CAP)+' more</summary>'+rest+'</details></div>'; }
+        const p = i.p, eps = i.eps;
+        let list;
+        if (eps.length <= CAP) list = eps.map(epHtml).join("");
+        else { const head = eps.slice(0,CAP).map(epHtml).join(""), rest = eps.slice(CAP).map(epHtml).join("");
+          list = head+'<details class="moreev"><summary>Show '+(eps.length-CAP)+' more</summary>'+rest+'</details>'; }
         return '<div class="student '+(i.band==="high"?"pri":"pri-w")+'"><h2><span class="band '+i.band+'">'+i.band+'</span>'+
-          '<span class="n">'+esc(p.name)+'</span><span class="ct">'+i.flags+' flag'+(i.flags===1?"":"s")+'</span></h2>'+
-          '<div class="chips">'+chips+'</div>'+timeline+'</div>';
+          '<span class="n">'+esc(p.name)+'</span><span class="ct">'+i.flags+' flag'+(i.flags===1?"":"s")+' &middot; '+eps.length+' episode'+(eps.length===1?"":"s")+'</span></h2>'+
+          stripHtml(i.evs, eps, win)+narrative(eps)+'<div class="eps">'+list+'</div></div>';
       };
 
-      let html = "";
+      // review inbox — progress across every flagged student's episodes
+      let inbox = "";
+      if (reviewEnabled && flagged.length) {
+        const allEps = flagged.flatMap(i => i.eps);
+        const done = allEps.filter(e => e.review).length;
+        inbox = '<div class="inbox"><span class="itxt">'+done+' of '+allEps.length+' reviewed</span>'+
+          '<span class="ibar"><i style="width:'+(allEps.length ? Math.round(done/allEps.length*100) : 0)+'%"></i></span>'+
+          '<span class="keys"><kbd>&uarr;</kbd><kbd>&darr;</kbd> move &nbsp;<kbd>C</kbd> confirm &nbsp;<kbd>X</kbd> dismiss</span></div>';
+      }
+
+      let html = inbox;
       if (flagged.length) html += '<div class="sec-h">Needs review</div>' + flagged.map(card).join("");
       if (clear.length) {
         const names = clear.map(i => '<span>'+esc(i.p.name)+'</span>').join("");
@@ -172,26 +301,40 @@
           clear.length+' student'+(clear.length===1?"":"s")+' clear — no flags<span class="cv">tap to '+(clear.length<=6?"hide":"view")+'</span></summary>'+
           '<div class="names">'+names+'</div></details>';
       }
+      // print-only sign-off — turns "Save as PDF" into a verdict document
+      html += '<div class="signoff"><b>Review sign-off</b>'+
+        '<div>Flags are on-device detections intended as aids to human judgement. Episodes above were reviewed in Vigil; dismissed items are struck through and excluded from risk bands.</div>'+
+        '<div class="lines"><span>Reviewed by</span><span>Signature</span><span>Date</span></div></div>';
       $("out").innerHTML = html;
+      renderCursor();
       const flagOnly = $("flagOnly");
       if (flagOnly) flagOnly.onchange = () => { const cb=document.querySelector(".clearbox"); if(cb) cb.classList.toggle("hide", flagOnly.checked); };
     }
 
-    // a student's own "Your activity" — just their card + full timeline, no teacher framing
+    // a student's own "Your activity" — the SAME episodes the teacher sees, nothing hidden
     function drawStudent(roster, byP) {
       $("summary").style.display = "none";
       const me = roster[0];
       const evs = byP.get(me.id) || [];
+      const eps = episodesOf(evs);
+      const win = windowOf(evs);
       const counts = {}; evs.forEach(e => counts[e.kind] = (counts[e.kind]||0)+1);
       const chips = evs.length
         ? Object.entries(counts).sort((a,b)=> b[1]-a[1])
             .map(([k,n]) => '<span class="chip '+(ALERT_KINDS.has(k)?"alert":"warn")+'"><b>'+n+'</b> '+esc(LABELS[k]||k)+'</span>').join("")
         : '<span class="chip ok">No flags — you were clear throughout</span>';
-      const evHtml = e => '<div class="ev '+esc(e.severity)+'"><span class="time">'+fmt(e.at)+'</span><span class="what">'+esc(LABELS[e.kind]||e.kind)+'</span></div>';
-      const timeline = evs.length ? '<div class="tl">'+evs.map(evHtml).join("")+'</div>' : "";
+      const epHtml = ep => {
+        const when = ep.count === 1 ? fmt(ep.start) : fmt(ep.start)+"&ndash;"+fmt(ep.end);
+        return '<div class="eprow'+(ep.review==="dismissed"?" dismissed":"")+'"><span class="when">'+when+'</span>'+
+          '<span class="what">'+esc(LABELS[ep.kind]||ep.kind)+
+          (ep.count>1 ? ' <em>&middot; over '+durTxt(ep.endT-ep.startT)+'</em>' : '')+
+          (ep.review==="confirmed" ? ' <span class="cf">confirmed</span>' : '')+'</span>'+
+          (ep.count>1 ? '<span class="cnt'+(ep.alert?" alert":"")+'">'+ep.count+'&times;</span>' : '')+'</div>';
+      };
       $("out").innerHTML = '<div class="student"><h2><span class="n">'+esc(me.name)+'</span>'+
-        '<span class="ct">'+evs.length+' flag'+(evs.length===1?"":"s")+'</span></h2>'+
-        '<div class="chips">'+chips+'</div>'+timeline+'</div>';
+        '<span class="ct">'+evs.length+' flag'+(evs.length===1?"":"s")+(eps.length?' &middot; '+eps.length+' episode'+(eps.length===1?"":"s"):'')+'</span></h2>'+
+        '<div class="chips">'+chips+'</div>'+stripHtml(evs, eps, win)+(eps.length?narrative(eps):'')+
+        (eps.length ? '<div class="eps">'+eps.map(epHtml).join("")+'</div>' : '')+'</div>';
     }
 
     async function fetchEvents() {
@@ -237,19 +380,33 @@
       if (teacher){
         $("csvBtn").style.display=""; $("pdfBtn").style.display="";
         $("csvBtn").onclick = () => {
-          const csv = "Student,Event,Severity,Time,Review\n" + csvRows.map(r => r.map(x => '"'+String(x).replace(/"/g,'""')+'"').join(",")).join("\n");
+          const csv = "Student,Event,Count,Start,End,Review\n" + csvRows.map(r => r.map(x => '"'+String(x).replace(/"/g,'""')+'"').join(",")).join("\n");
           const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([csv],{type:"text/csv"}));
           a.download = (exam?exam.title:"exam") + "-report.csv"; a.click();
         };
         $("pdfBtn").onclick = () => window.print();
-        // Confirm / Dismiss a flag (event delegation survives redraws — #out stays put)
+        // Confirm / Dismiss a whole EPISODE (delegation survives redraws — #out stays put)
         $("out").addEventListener("click", async (e) => {
           const b = e.target.closest(".rb"); if (!b) return;
-          const id = b.getAttribute("data-ev"), act = b.getAttribute("data-act");
-          const val = b.classList.contains("on") ? null : (act === "confirm" ? "confirmed" : "dismissed");
-          b.disabled = true;
-          try { await sb.from("events").update({ review: val }).eq("id", id); } catch (_) {}
-          await fetchAndDraw();
+          const row = b.closest(".eprow"); if (row) curKey = row.getAttribute("data-key");
+          const val = b.classList.contains("on") ? null : (b.getAttribute("data-act") === "confirm" ? "confirmed" : "dismissed");
+          await applyReview(b.getAttribute("data-ids").split(","), val, b);
+        });
+        // keyboard triage: arrows move, C confirms, X dismisses the highlighted episode
+        document.addEventListener("keydown", async (e) => {
+          if (e.metaKey || e.ctrlKey || e.altKey) return;
+          const rows = cursorRows(); if (!rows.length) return;
+          const k = e.key.toLowerCase();
+          let i = rows.findIndex(r => r.classList.contains("cur"));
+          if (k === "arrowdown" || k === "j") { e.preventDefault(); setCur(rows, Math.min(rows.length-1, i+1)); }
+          else if (k === "arrowup" || k === "k") { e.preventDefault(); setCur(rows, Math.max(0, i-1)); }
+          else if ((k === "c" || k === "x") && i >= 0) {
+            e.preventDefault();
+            const btn = rows[i].querySelector(k === "c" ? ".rb.ok" : ".rb.no"); if (!btn) return;
+            const val = btn.classList.contains("on") ? null : (k === "c" ? "confirmed" : "dismissed");
+            const next = rows[i+1]; curKey = next ? next.getAttribute("data-key") : rows[i].getAttribute("data-key");
+            await applyReview(btn.getAttribute("data-ids").split(","), val, btn);
+          }
         });
       }
 
