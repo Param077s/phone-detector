@@ -29,5 +29,7 @@ create policy notes_exam_owner_all on public.exam_notes
   with check (exists (
     select 1 from public.exams e where e.id = exam_notes.exam_id and e.owner = auth.uid()));
 
--- live report updates while the exam is open
-alter publication supabase_realtime add table public.exam_notes;
+-- live report updates while the exam is open (guarded — safe to re-run)
+do $$ begin
+  alter publication supabase_realtime add table public.exam_notes;
+exception when duplicate_object then null; end $$;

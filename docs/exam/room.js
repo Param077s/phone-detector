@@ -444,13 +444,18 @@ function startMonitoring(now) {
   }, CFG.HEARTBEAT_MS);
   const track = state.stream.getVideoTracks()[0];
   if (track) track.addEventListener("ended", () => { $("monTag").textContent = "🔴 Camera stopped"; if (!sig.cam.off) { emit("camera_off", "alert"); sig.cam.off = true; } });
-  state.closeTimer = setInterval(checkClosed, 12000);   // stop monitoring once the teacher ends the exam
+  state.closeTimer = setInterval(checkClosed, 4000);   // stop monitoring once the teacher ends the exam
+  // catch it immediately when the student comes back to the tab
+  document.addEventListener("visibilitychange", () => { if (!document.hidden) checkClosed(); });
 }
 
 async function checkClosed() {
   try {
-    const { data } = await sb.from("exams").select("status").eq("id", examId).maybeSingle();
-    if (data && data.status === "closed") endExam();
+    const { data, error } = await sb.from("exams").select("status").eq("id", examId).maybeSingle();
+    if (error) return;                         // transient failure — never end the exam on a network blip
+    // a student can only READ open exams (RLS), so the row vanishing IS the close
+    // signal; an owner sitting in their own room reads it back as status:'closed'
+    if (!data || data.status === "closed") endExam();
   } catch (e) {}
 }
 

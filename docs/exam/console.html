@@ -93,7 +93,13 @@
       localStorage.setItem("vg_role", "teacher");   // returning here lands on the console, not the picker
       $("who").innerHTML = "Signed in as <b>" + esc(user.email) + "</b>";
       refresh();
-      setInterval(refresh, 5000);
+      setInterval(refresh, 5000);   // fallback cadence; realtime below makes it instant
+      // realtime: status flips, new joins and setting changes land without waiting for the poll
+      let rt; const debRefresh = () => { clearTimeout(rt); rt = setTimeout(refresh, 300); };
+      sb.channel("console-"+me.id)
+        .on("postgres_changes", { event:"*", schema:"public", table:"exams", filter:"owner=eq."+me.id }, debRefresh)
+        .on("postgres_changes", { event:"*", schema:"public", table:"participants" }, debRefresh)
+        .subscribe();
     })();
 
     $("signout").onclick = async () => { await sb.auth.signOut(); location.href = "/exam/"; };

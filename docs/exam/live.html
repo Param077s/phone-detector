@@ -178,6 +178,15 @@
       const { data:exam } = await sb.from("exams").select("title,code,status,owner").eq("id", examId).maybeSingle();
       // this page is the teacher's — only the exam's owner may watch its room
       if (!exam || exam.owner !== user.id) { location.replace("/exam/console.html"); return; }
+      // status can flip mid-session (teacher closes/reopens from the console) —
+      // applyStatus adapts this page in place, no reload
+      function applyStatus(status){
+        CLOSED = status === "closed";
+        const lv = document.querySelector(".live"); if (lv) lv.style.display = CLOSED ? "none" : "";
+        $("feed").style.display = CLOSED ? "none" : "";
+        $("title").textContent = (CLOSED ? "Who was in · " : "") + exam.title;
+        render();
+      }
       CLOSED = exam.status === "closed";
       if (CLOSED) { const lv = document.querySelector(".live"); if (lv) lv.style.display = "none"; $("feed").style.display = "none"; }
       $("title").textContent = (CLOSED ? "Who was in · " : "") + exam.title; $("code").textContent = exam.code; document.title = "Vigil · " + exam.title;
@@ -196,6 +205,8 @@
           })
         .on("postgres_changes", { event:"INSERT", schema:"public", table:"events", filter:"exam_id=eq."+examId },
           (payload) => { const ev = payload.new; if (!CLOSED && ALERT_KINDS.has(ev.kind)) pushFeed(ev); })
+        .on("postgres_changes", { event:"UPDATE", schema:"public", table:"exams", filter:"id=eq."+examId },
+          (payload) => { if (payload.new && payload.new.status) applyStatus(payload.new.status); })
         .subscribe();
 
       setInterval(render, 5000);   // re-evaluate presence freshness

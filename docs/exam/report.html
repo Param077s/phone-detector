@@ -447,6 +447,9 @@
         sb.channel("report-"+examId)
           .on("postgres_changes", { event:"*", schema:"public", table:"events", filter:"exam_id=eq."+examId }, deb)
           .on("postgres_changes", { event:"*", schema:"public", table:"participants", filter:"exam_id=eq."+examId }, deb)
+          .on("postgres_changes", { event:"UPDATE", schema:"public", table:"exams", filter:"id=eq."+examId },
+            (p) => { if (p.new && p.new.status){ $("livePill").style.display = p.new.status === "open" ? "" : "none";
+              if (exam){ exam.status = p.new.status; $("sub").textContent = exam.title + " · code " + exam.code + " · " + exam.status; } } })
           .subscribe();
         if (notesEnabled)
           sb.channel("notes-"+examId)
