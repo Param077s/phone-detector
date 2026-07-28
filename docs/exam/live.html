@@ -42,6 +42,13 @@
     .fi .fn{font-weight:600;font-size:13.5px;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
     .fi .fk{font-size:12.5px;color:var(--alert);font-weight:600} .fi .ft{font-size:11px;color:var(--faint);font-variant-numeric:tabular-nums}
     .feed-empty{padding:14px 16px 18px;color:var(--faint);font-size:12.5px}
+    /* invigilator note box — the human record, beside the machine's */
+    .notebox{display:flex;gap:8px;padding:4px 14px 12px}
+    .notebox input{flex:1;min-width:0;padding:9px 11px;border:1px solid var(--line-strong);border-radius:10px;
+      font:13px var(--font);color:var(--ink);background:#fff;outline:none;transition:border-color .15s}
+    .notebox input:focus{border-color:var(--ink)}
+    .fi.note{cursor:default} .fi.note:hover{background:none}
+    .fi.note .fdot{background:var(--ink)} .fi.note .fk{color:var(--muted)}
     /* drill-down modal */
     .modal{position:fixed;inset:0;z-index:100;display:none;place-items:center;padding:20px;background:rgba(243,242,239,.6);backdrop-filter:blur(12px)}
     .modal.open{display:grid}
@@ -69,6 +76,10 @@
     <div id="main"><div id="out"><div class="empty"><div class="big">Waiting for students…</div>Share the code — names appear here the moment they join.</div></div></div>
     <aside class="feed" id="feed">
       <div class="feed-h">Live alerts</div>
+      <div class="notebox hidden" id="noteBox">
+        <input id="noteInp" maxlength="300" placeholder="Note the room — &ldquo;phone buzz, back left&rdquo;" aria-label="Add invigilator note">
+        <button class="btn ink sm" id="noteBtn" type="button">Note</button>
+      </div>
       <div class="feed-list" id="feedList"><div class="feed-empty">Serious flags — phones, second faces, hiding Vigil — appear here the instant they happen.</div></div>
     </aside>
   </div>
@@ -149,6 +160,16 @@
       el.insertBefore(item, el.firstChild);
       while (el.children.length > 40) el.removeChild(el.lastChild);
     }
+    function pushNote(n){
+      const el = $("feedList");
+      if (el.querySelector(".feed-empty")) el.innerHTML = "";
+      const item = document.createElement("div");
+      item.className = "fi note";
+      item.innerHTML = '<span class="fdot"></span><span class="fn" title="'+esc(n.text)+'">'+esc(n.text)+'</span>'+
+        '<span class="fk">Note</span><span class="ft">'+hhmmss(n.at)+'</span>';
+      el.insertBefore(item, el.firstChild);
+      while (el.children.length > 40) el.removeChild(el.lastChild);
+    }
 
     (async () => {
       const { data:{ user } } = await sb.auth.getUser();
@@ -178,6 +199,25 @@
         .subscribe();
 
       setInterval(render, 5000);   // re-evaluate presence freshness
+
+      // invigilator notes — timestamped observations that land in the report
+      // beside the AI flags (needs migration v7; the box stays hidden until then)
+      if (!CLOSED){
+        const nq = await sb.from("exam_notes").select("id,at,text").eq("exam_id", examId).order("at",{ascending:false}).limit(6);
+        if (!nq.error){
+          $("noteBox").classList.remove("hidden");
+          (nq.data||[]).reverse().forEach(pushNote);
+          const add = async () => {
+            const t = $("noteInp").value.trim(); if (!t) return;
+            $("noteInp").value = "";
+            const { data, error } = await sb.from("exam_notes").insert({ exam_id: examId, text: t }).select("id,at,text").maybeSingle();
+            if (!error && data) pushNote(data);
+            else if (error) { $("noteInp").value = t; }   // keep the text if the write failed
+          };
+          $("noteBtn").onclick = add;
+          $("noteInp").addEventListener("keydown", e => { if (e.key === "Enter") add(); });
+        }
+      }
     })();
   </script>
 </body>

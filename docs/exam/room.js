@@ -286,7 +286,30 @@ function beginCalib() {
   state.calibRetries = 0; state.calibStart = performance.now();
 }
 
+// grade how trustworthy this calibration is — a noisy report can then be
+// explained by a weak setup instead of blamed on the student
+function calibGrade() {
+  const spread = (a) => { if (a.length < 8) return 0; const s = [...a].sort((x,y)=>x-y);
+    return s[Math.floor(s.length*0.9)] - s[Math.floor(s.length*0.1)]; };
+  const reasons = [];
+  if (pfLuma < 60) reasons.push("low light");
+  else if (pfLuma > 235) reasons.push("strong backlight");
+  const expected = CFG.CALIB_MS / CFG.DETECT_MS;
+  if (state.calibSamples.length < expected * 0.6) reasons.push("face intermittently visible");
+  if (spread(state.calibGX) > 0.10 || spread(state.calibGY) > 0.14) reasons.push("eyes moving during setup");
+  const grade = reasons.length === 0 ? "solid" : reasons.length === 1 ? "fair" : "weak";
+  return { grade, reasons, luma: Math.round(pfLuma), frames: state.calibSamples.length };
+}
+async function recordCalib(q) {
+  // direct insert (NOT emit) — a quality record must never push a warn status
+  try {
+    await sb.from("events").insert({ exam_id: examId, participant_id: part.id,
+      kind: "calibrated", severity: "info", meta: q });
+  } catch (e) {}
+}
+
 function doCalib(mx, now) {
+  sampleLuma(now);   // keep the lighting reading fresh for the quality grade
   if (mx.faces >= 1 && mx.noseGap != null) {
     state.calibSamples.push(mx.noseGap);
     if (mx.gazeX != null) state.calibGX.push(mx.gazeX);
@@ -310,6 +333,17 @@ function doCalib(mx, now) {
         state.calibStart = now; state.calibSamples = []; state.calibGX = []; state.calibGY = []; state.calibOpen = [];
         return;
       }
+    }
+    const q = calibGrade();
+    recordCalib(q);
+    const note = document.querySelector(".keepnote");
+    if (note) {
+      const s = document.createElement("div");
+      s.style.marginTop = "6px";
+      s.innerHTML = q.grade === "solid"
+        ? 'Camera setup: <b>solid</b>.'
+        : 'Camera setup: <b>' + q.grade + '</b> (' + q.reasons.join(", ") + ') — flags may be noisier than usual.';
+      note.appendChild(s);
     }
     startMonitoring(now);
   }

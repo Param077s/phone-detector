@@ -60,6 +60,10 @@
     .band.high{color:var(--alert);background:var(--alert-soft);border-color:#f3c9ca}
     .band.medium{color:var(--warn);background:var(--warn-soft);border-color:#f0dcb6}
     .band.low{color:var(--muted);background:var(--soft)}
+    /* calibration-quality badge — context for how trustworthy the flags are */
+    .setup{font-size:10.5px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;padding:3px 8px;border-radius:999px;border:1px solid var(--line);flex:0 0 auto}
+    .setup.s-ok{color:var(--ok);background:var(--ok-soft);border-color:#c3e6d5}
+    .setup.s-warn{color:var(--warn);background:var(--warn-soft);border-color:#f0dcb6}
     /* exam strip — when the flags happened, at a glance */
     .strip{position:relative;height:26px;border-radius:8px;background:var(--soft);border:1px solid var(--line);overflow:hidden;margin:2px 0 4px}
     .strip .burst{position:absolute;top:0;bottom:0;border-radius:4px;background:rgba(216,58,63,.10)}
@@ -198,6 +202,13 @@
     }
 
     let exam = null, teacher = false, csvRows = [], user = null;
+    let notes = [], notesEnabled = false;   // invigilator notes (needs migration v7; darkens gracefully)
+    async function fetchNotes() {
+      if (!teacher) return [];
+      const q = await sb.from("exam_notes").select("at,text").eq("exam_id", examId).order("at",{ascending:true});
+      notesEnabled = !q.error;
+      return q.error ? [] : (q.data || []);
+    }
 
     // ── review cursor (keyboard triage) ──────────────────────────────────────
     let curKey = null;
@@ -235,13 +246,16 @@
 
       const win = windowOf(events);   // one shared clock so every strip lines up
       const info = roster.map(p => {
-        const evs = byP.get(p.id) || [];
+        const all = byP.get(p.id) || [];
+        // calibration-quality records ride the events table but are context, not flags
+        const calib = all.filter(e => e.kind === "calibrated").map(e => e.meta || {}).pop() || null;
+        const evs = all.filter(e => e.kind !== "calibrated");
         const active = evs.filter(e => e.review !== "dismissed");   // dismissed flags don't count
         const counts = {}; let alerts = 0, score = 0;
         active.forEach(e => { counts[e.kind] = (counts[e.kind]||0)+1; if (ALERT_KINDS.has(e.kind)) alerts++; score += (WEIGHT[e.kind]||1); });
         const eps = episodesOf(evs);
         eps.forEach(ep => csvRows.push([p.name, LABELS[ep.kind]||ep.kind, ep.count, fmt(ep.start), fmt(ep.end), ep.review||""]));
-        return { p, evs, eps, counts, alerts, flags: active.length, score, band: bandOf(score) };
+        return { p, evs, eps, calib, counts, alerts, flags: active.length, score, band: bandOf(score) };
       });
       const flagged = info.filter(i => i.flags > 0).sort((a,b) => b.score - a.score || a.p.name.localeCompare(b.p.name));
       const clear = info.filter(i => i.flags === 0);
@@ -278,8 +292,10 @@
         if (eps.length <= CAP) list = eps.map(epHtml).join("");
         else { const head = eps.slice(0,CAP).map(epHtml).join(""), rest = eps.slice(CAP).map(epHtml).join("");
           list = head+'<details class="moreev"><summary>Show '+(eps.length-CAP)+' more</summary>'+rest+'</details>'; }
+        const setup = i.calib && i.calib.grade
+          ? '<span class="setup '+(i.calib.grade==="solid"?"s-ok":"s-warn")+'" title="'+esc((i.calib.reasons||[]).join(", "))+'">setup '+esc(i.calib.grade)+'</span>' : '';
         return '<div class="student '+(i.band==="high"?"pri":"pri-w")+'"><h2><span class="band '+i.band+'">'+i.band+'</span>'+
-          '<span class="n">'+esc(p.name)+'</span><span class="ct">'+i.flags+' flag'+(i.flags===1?"":"s")+' &middot; '+eps.length+' episode'+(eps.length===1?"":"s")+'</span></h2>'+
+          '<span class="n">'+esc(p.name)+'</span>'+setup+'<span class="ct">'+i.flags+' flag'+(i.flags===1?"":"s")+' &middot; '+eps.length+' episode'+(eps.length===1?"":"s")+'</span></h2>'+
           stripHtml(i.evs, eps, win)+narrative(eps)+'<div class="eps">'+list+'</div></div>';
       };
 
@@ -293,7 +309,15 @@
           '<span class="keys"><kbd>&uarr;</kbd><kbd>&darr;</kbd> move &nbsp;<kbd>C</kbd> confirm &nbsp;<kbd>X</kbd> dismiss</span></div>';
       }
 
-      let html = inbox;
+      // invigilator notes — the human half of the record, beside the machine's
+      let notesHtml = "";
+      if (notes.length) {
+        notesHtml = '<div class="student"><h2><span class="n">Invigilator notes</span><span class="ct">'+notes.length+'</span></h2><div class="eps">'+
+          notes.map(n => '<div class="eprow"><span class="when">'+fmt(n.at)+'</span><span class="what">'+esc(n.text)+'</span></div>').join("")+'</div></div>';
+        notes.forEach(n => csvRows.push(["— invigilator note", n.text, "", fmt(n.at), "", ""]));
+      }
+
+      let html = inbox + notesHtml;
       if (flagged.length) html += '<div class="sec-h">Needs review</div>' + flagged.map(card).join("");
       if (clear.length) {
         const names = clear.map(i => '<span>'+esc(i.p.name)+'</span>').join("");
@@ -315,9 +339,11 @@
     function drawStudent(roster, byP) {
       $("summary").style.display = "none";
       const me = roster[0];
-      const evs = byP.get(me.id) || [];
+      const all = byP.get(me.id) || [];
+      const calib = all.filter(e => e.kind === "calibrated").map(e => e.meta || {}).pop() || null;
+      const evs = all.filter(e => e.kind !== "calibrated");
       const eps = episodesOf(evs);
-      const win = windowOf(evs);
+      const win = windowOf(all);
       const counts = {}; evs.forEach(e => counts[e.kind] = (counts[e.kind]||0)+1);
       const chips = evs.length
         ? Object.entries(counts).sort((a,b)=> b[1]-a[1])
@@ -331,7 +357,9 @@
           (ep.review==="confirmed" ? ' <span class="cf">confirmed</span>' : '')+'</span>'+
           (ep.count>1 ? '<span class="cnt'+(ep.alert?" alert":"")+'">'+ep.count+'&times;</span>' : '')+'</div>';
       };
-      $("out").innerHTML = '<div class="student"><h2><span class="n">'+esc(me.name)+'</span>'+
+      const setup = calib && calib.grade
+        ? '<span class="setup '+(calib.grade==="solid"?"s-ok":"s-warn")+'" title="'+esc((calib.reasons||[]).join(", "))+'">setup '+esc(calib.grade)+'</span>' : '';
+      $("out").innerHTML = '<div class="student"><h2><span class="n">'+esc(me.name)+'</span>'+setup+
         '<span class="ct">'+evs.length+' flag'+(evs.length===1?"":"s")+(eps.length?' &middot; '+eps.length+' episode'+(eps.length===1?"":"s"):'')+'</span></h2>'+
         '<div class="chips">'+chips+'</div>'+stripHtml(evs, eps, win)+(eps.length?narrative(eps):'')+
         (eps.length ? '<div class="eps">'+eps.map(epHtml).join("")+'</div>' : '')+'</div>';
@@ -339,9 +367,9 @@
 
     async function fetchEvents() {
       // prefer the reviewable shape (needs the v6 column); fall back so the report works pre-migration
-      let q = await sb.from("events").select("id,participant_id,kind,severity,at,review").eq("exam_id", examId).order("at",{ascending:true});
+      let q = await sb.from("events").select("id,participant_id,kind,severity,at,review,meta").eq("exam_id", examId).order("at",{ascending:true});
       if (q.error) { reviewEnabled = false;
-        q = await sb.from("events").select("participant_id,kind,severity,at").eq("exam_id", examId).order("at",{ascending:true}); }
+        q = await sb.from("events").select("participant_id,kind,severity,at,meta").eq("exam_id", examId).order("at",{ascending:true}); }
       else { reviewEnabled = teacher; }
       return q.data || [];
     }
@@ -349,7 +377,8 @@
       // RLS scopes these; a student view also narrows to their own row (covers an owner who joined)
       let pq = sb.from("participants").select("id,name,status,joined_at").eq("exam_id", examId);
       if (!teacher && user) pq = pq.eq("user_id", user.id);
-      const [{ data:parts }, events] = await Promise.all([ pq, fetchEvents() ]);
+      const [{ data:parts }, events, ns] = await Promise.all([ pq, fetchEvents(), fetchNotes() ]);
+      notes = ns;
       draw(parts, events);
     }
 
@@ -419,6 +448,10 @@
           .on("postgres_changes", { event:"*", schema:"public", table:"events", filter:"exam_id=eq."+examId }, deb)
           .on("postgres_changes", { event:"*", schema:"public", table:"participants", filter:"exam_id=eq."+examId }, deb)
           .subscribe();
+        if (notesEnabled)
+          sb.channel("notes-"+examId)
+            .on("postgres_changes", { event:"*", schema:"public", table:"exam_notes", filter:"exam_id=eq."+examId }, deb)
+            .subscribe();
         const poll = setInterval(async () => {
           const { data } = await sb.from("exams").select("status").eq("id", examId).maybeSingle();
           if (data && data.status !== "open"){ $("livePill").style.display = "none"; clearInterval(poll); }
