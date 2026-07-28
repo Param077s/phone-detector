@@ -84,6 +84,43 @@
     html.modal-open,html.modal-open *{cursor:auto !important}
     html.modal-open input{cursor:text !important}
     html.modal-open .btn,html.modal-open button,html.modal-open a,html.modal-open .joinX{cursor:pointer !important}
+    .joinCard .eyebrow{display:block;margin-bottom:4px}
+    /* role picker inside the join popup */
+    .jRoles{display:flex;flex-direction:column;gap:10px;margin-top:18px}
+    .jRole{display:flex;align-items:center;gap:13px;width:100%;text-align:left;cursor:pointer;
+      background:#fff;border:1px solid var(--line);border-radius:14px;padding:15px;
+      transition:border-color .16s,transform .16s var(--spring),box-shadow .2s}
+    .jRole:hover{border-color:var(--ink);transform:translateY(-1px);box-shadow:var(--shadow-sm)}
+    .jIc{width:40px;height:40px;border-radius:11px;background:var(--ink);display:grid;place-items:center;flex:0 0 auto}
+    .jIc svg{width:21px;height:21px}
+    .jT{display:flex;flex-direction:column;font-family:var(--display);font-weight:600;font-size:15.5px;color:var(--ink)}
+    .jT em{font-style:normal;font-family:var(--font);font-weight:400;color:var(--muted);font-size:12.5px;margin-top:2px}
+    .jArw{margin-left:auto;color:var(--faint);font-size:18px;line-height:1;transition:transform .2s var(--spring),color .2s}
+    .jRole:hover .jArw{transform:translateX(3px);color:var(--ink)}
+    .jBack{display:inline-flex;align-items:center;gap:5px;background:none;border:0;color:var(--muted);
+      font:600 13px var(--font);cursor:pointer;margin-bottom:12px;padding:0}
+    .jBack:hover{color:var(--ink)}
+    #jCodeInput{text-transform:uppercase;letter-spacing:4px;text-align:center;font-weight:600;font-size:19px}
+
+    /* Privacy / Terms — same theme, shown in a scrollable popup instead of a separate page */
+    .legalModal{position:fixed;inset:0;z-index:100001;display:none;place-items:center;padding:20px;
+      background:rgba(243,242,239,.55);backdrop-filter:blur(16px) saturate(1.2);-webkit-backdrop-filter:blur(16px) saturate(1.2)}
+    .legalModal.open{display:grid}
+    .legalCard{position:relative;width:min(680px,100%);max-height:86vh;overflow:auto;text-align:left;
+      background:rgba(255,255,255,.86);border:1px solid var(--line);border-radius:24px;padding:40px 40px 34px;
+      box-shadow:var(--shadow);backdrop-filter:blur(30px) saturate(1.3);-webkit-backdrop-filter:blur(30px) saturate(1.3);
+      animation:joinIn .4s var(--spring)}
+    .legalCard .eyebrow{font-family:var(--display);font-size:12px;font-weight:600;letter-spacing:.16em;text-transform:uppercase;color:var(--muted)}
+    .legalCard .title{font-family:var(--display);font-size:clamp(26px,3.4vw,34px);letter-spacing:-.03em;margin:8px 0 4px;line-height:1.05}
+    .legalCard .upd{font-size:12px;color:var(--faint);letter-spacing:.04em}
+    .legalCard h3{font-family:var(--display);font-size:16px;letter-spacing:-.01em;margin:26px 0 7px;color:var(--ink)}
+    .legalCard p,.legalCard li{font-size:14px;line-height:1.7;color:var(--ink-2)}
+    .legalCard ul{padding-left:20px;margin:6px 0;display:flex;flex-direction:column;gap:5px}
+    .legalCard b{color:var(--ink);font-weight:600}
+    .legalX{position:absolute;top:16px;right:16px;width:32px;height:32px;border-radius:50%;border:1px solid var(--line);
+      background:var(--glass);cursor:pointer;font-size:15px;line-height:1;color:var(--muted);display:grid;place-items:center;backdrop-filter:blur(8px)}
+    .legalX:hover{border-color:var(--ink);color:var(--ink)}
+    @media(max-width:560px){.legalCard{padding:34px 22px 26px}}
 
     /* top bar */
     .top{position:fixed;top:14px;left:0;right:0;z-index:50;display:flex;justify-content:center;pointer-events:none}
@@ -225,7 +262,7 @@
   <div class="top"><div class="bar">
     <a class="brand" href="/"><span class="mk"><svg><use href="#v"/></svg></span>Vigil</a>
     <span class="sp"></span>
-    <a class="btn glass ghosthide" href="/exam/">Join an exam</a>
+    <button class="btn glass ghosthide" type="button" data-join>Join an exam</button>
     <a class="btn ink" id="dlNav" href="https://github.com/Param077s/vigil/releases/latest/download/Vigil.dmg">Download free</a>
   </div></div>
 
@@ -254,7 +291,7 @@
         <p class="lead rise">Vigil turns ordinary cameras into private AI observers — flagging what matters in real time, on one machine. No uploads, no cloud, no footage anyone can watch.</p>
         <div class="cta rise">
           <a class="btn ink" id="dlHero" href="https://github.com/Param077s/vigil/releases/latest/download/Vigil.dmg">Download Vigil free</a>
-          <a class="btn glass" href="#s1" data-adv="1">See how it works</a>
+          <button class="btn glass" type="button" data-join>Join an exam</button>
         </div>
       </div>
     </section>
@@ -313,8 +350,8 @@
           <div class="step"><div class="n">03 · After</div><h4>Reviews the report</h4><p>A per-student timeline, exportable to PDF or CSV.</p></div>
         </div>
         <div class="doors">
-          <a class="btn ink" id="dlExam" href="https://github.com/Param077s/vigil/releases/latest/download/Vigil.dmg">Download Vigil free</a>
-          <a class="btn glass" href="/privacy.html">Read the privacy model</a>
+          <button class="btn ink" type="button" data-join>Join an exam</button>
+          <a class="btn glass" href="/privacy.html" data-legal="privacy">How it stays private</a>
         </div>
       </div>
     </section>
@@ -330,10 +367,97 @@
         <h2>Nothing leaves the device. <span class="k">That's the whole idea.</span></h2>
         <div class="foot">
           <a class="brand" href="/"><span class="mk"><svg><use href="#v"/></svg></span>Vigil</a>
-          <span>·</span><a id="dlFoot" href="https://github.com/Param077s/vigil/releases/latest/download/Vigil.dmg">Download</a><span>·</span><a href="/privacy.html">Privacy</a><span>·</span><a href="/terms.html">Terms</a>
+          <span>·</span><a id="dlFoot" href="https://github.com/Param077s/vigil/releases/latest/download/Vigil.dmg">Download</a><span>·</span><a href="/privacy.html" data-legal="privacy">Privacy</a><span>·</span><a href="/terms.html" data-legal="terms">Terms</a>
         </div>
       </div>
     </section>
+  </div>
+
+  <!-- Join an exam — pick a role, then route into the exam app -->
+  <div class="joinModal" id="joinModal" aria-hidden="true" role="dialog" aria-modal="true" aria-label="Join an exam">
+    <div class="joinCard">
+      <button class="joinX" type="button" data-join-close aria-label="Close">✕</button>
+      <div id="jRole">
+        <span class="eyebrow">Vigil · Exams</span>
+        <h3>Who's joining?</h3>
+        <p>Students join with a code. Teachers run the room.</p>
+        <div class="jRoles">
+          <button class="jRole" type="button" data-role="student">
+            <span class="jIc"><svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="8" r="3.4" stroke="#fff" stroke-width="1.7"/><path d="M5.5 19a6.5 6.5 0 0 1 13 0" stroke="#fff" stroke-width="1.7" stroke-linecap="round"/></svg></span>
+            <span class="jT">I'm a student<em>Join an exam with your code</em></span>
+            <span class="jArw">→</span>
+          </button>
+          <button class="jRole" type="button" data-role="teacher">
+            <span class="jIc"><svg viewBox="0 0 24 24" fill="none"><rect x="3.5" y="5" width="17" height="12" rx="2" stroke="#fff" stroke-width="1.7"/><path d="M8 20h8" stroke="#fff" stroke-width="1.7" stroke-linecap="round"/></svg></span>
+            <span class="jT">I'm a teacher<em>Create rooms &amp; watch presence</em></span>
+            <span class="jArw">→</span>
+          </button>
+        </div>
+      </div>
+      <div id="jCode" hidden>
+        <button class="jBack" type="button" data-join-back><svg width="15" height="15" viewBox="0 0 24 24" fill="none"><path d="M15 18l-6-6 6-6" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>Back</button>
+        <h3>Join your exam</h3>
+        <p>Enter the code from your invigilator. You'll sign in — or continue as a guest — on the next step.</p>
+        <input id="jCodeInput" maxlength="6" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="ABC123" aria-label="Exam code">
+        <div class="joinErr" id="jErr"></div>
+        <button class="btn ink" id="jGo" type="button">Continue</button>
+        <div class="joinHint">Already signed in? Your results save to you — no account needed just to join.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Privacy / Terms — same theme, shown in a popup instead of navigating away -->
+  <div class="legalModal" id="legalModal" aria-hidden="true" role="dialog" aria-modal="true" aria-label="Legal">
+    <div class="legalCard">
+      <button class="legalX" type="button" data-legal-close aria-label="Close">✕</button>
+
+      <div class="ldoc" data-doc="privacy">
+        <span class="eyebrow">Privacy Policy</span>
+        <h2 class="title">Privacy, by architecture.</h2>
+        <p class="upd">Last updated — 12 July 2026</p>
+        <h3>The short version</h3>
+        <p>Vigil is software you download and run on <b>your own computer</b>. We do not operate servers that receive your camera feeds, photos, or evidence. We cannot see your footage — by design, not by promise.</p>
+        <h3>What the Vigil app processes</h3>
+        <ul>
+          <li><b>Camera feeds</b> are analyzed on the machine running Vigil. Frames stay in memory; nothing is streamed to us.</li>
+          <li><b>Evidence photos and logs</b> (detections, timestamps, reviewer decisions) are stored in a local folder and database on that same machine. Deleting them is up to you.</li>
+          <li><b>Accounts</b> (admin / invigilator logins) exist only inside your installation.</li>
+        </ul>
+        <h3>What leaves your machine</h3>
+        <ul>
+          <li><b>Nothing, by default.</b> Vigil runs fully offline after the one-time component download.</li>
+          <li><b>Downloads &amp; updates</b> are fetched from GitHub when you request them.</li>
+        </ul>
+        <h3>The exam feature</h3>
+        <p>Exam monitoring runs in each student's own browser. Only tiny presence signals — never video or audio — are shared with the invigilator. Recordings never leave the student's device.</p>
+        <h3>This website</h3>
+        <p>This site sets no cookies and runs no analytics or trackers. It serves downloads from GitHub; that service may see standard request data (like your IP address) under its own policy.</p>
+        <h3>Your responsibilities as an operator</h3>
+        <p>You are the data controller for footage and evidence captured by your installation. Follow your local laws on CCTV use, signage and consent, and your institution's policies.</p>
+      </div>
+
+      <div class="ldoc" data-doc="terms" hidden>
+        <span class="eyebrow">Terms of Use</span>
+        <h2 class="title">Plain terms.</h2>
+        <p class="upd">Last updated — 12 July 2026</p>
+        <h3>What Vigil is</h3>
+        <p>Vigil is on-premise software that analyzes camera feeds you control and flags configured objects (such as phones) for <b>human review</b>. It is a detection aid — not a judge. Alerts are suggestions; decisions and their consequences belong to the people operating it.</p>
+        <h3>License</h3>
+        <p>Vigil is provided free of charge for use at your own site. You may install and use it on machines you control. You may not resell it, misrepresent its origin, or remove attribution.</p>
+        <h3>Acceptable use</h3>
+        <ul>
+          <li>Use Vigil only where you have the <b>legal right to operate cameras</b>, with any required signage or consent.</li>
+          <li>Give affected people a route to contest AI-assisted findings; keep a human in the loop for every enforcement decision.</li>
+          <li>Do not use Vigil to harass, unlawfully surveil, or discriminate.</li>
+        </ul>
+        <h3>No warranty</h3>
+        <p>Vigil is provided <b>"as is", without warranty of any kind</b>. Detection accuracy varies with cameras, lighting, distance and configuration. False positives and missed detections will occur. You are responsible for validating the system in your environment before relying on it.</p>
+        <h3>Limitation of liability</h3>
+        <p>To the maximum extent permitted by law, the makers of Vigil are not liable for any indirect, incidental or consequential damages — including decisions made from alerts, lost data, or misuse of the software.</p>
+        <h3>Changes</h3>
+        <p>We may update these terms and the software. Material changes will be reflected here with a new "last updated" date.</p>
+      </div>
+    </div>
   </div>
 
   <script>
@@ -491,6 +615,66 @@
     ["dlNav","dlHero","dlExam","dlFoot"].forEach(function(id){
       var e = document.getElementById(id); if (e) e.href = url;
     });
+  })();
+  </script>
+
+  <!-- "Join an exam" popup: pick a role, then route into the exam app -->
+  <script>
+  (function(){
+    var modal = document.getElementById("joinModal"); if (!modal) return;
+    var root = document.documentElement;
+    var roleStep = document.getElementById("jRole"), codeStep = document.getElementById("jCode");
+    var codeInput = document.getElementById("jCodeInput"), jErr = document.getElementById("jErr");
+    var lastFocus = null;
+    function showRole(){ roleStep.hidden = false; codeStep.hidden = true; jErr.textContent = ""; }
+    function showCode(){ roleStep.hidden = true; codeStep.hidden = false; jErr.textContent = "";
+      setTimeout(function(){ codeInput.focus(); }, 60); }
+    function open(){ lastFocus = document.activeElement; showRole(); codeInput.value = "";
+      modal.classList.add("open"); modal.setAttribute("aria-hidden","false"); root.classList.add("modal-open"); }
+    function close(){ modal.classList.remove("open"); modal.setAttribute("aria-hidden","true");
+      root.classList.remove("modal-open"); if (lastFocus && lastFocus.focus) lastFocus.focus(); }
+    document.querySelectorAll("[data-join]").forEach(function(b){
+      b.addEventListener("click", function(e){ e.preventDefault(); open(); }); });
+    document.querySelectorAll("[data-join-close]").forEach(function(b){ b.addEventListener("click", close); });
+    document.querySelectorAll("[data-join-back]").forEach(function(b){ b.addEventListener("click", showRole); });
+    modal.addEventListener("click", function(e){ if (e.target === modal) close(); });
+    addEventListener("keydown", function(e){ if (e.key === "Escape" && modal.classList.contains("open")) close(); });
+    document.querySelectorAll("[data-role]").forEach(function(b){
+      b.addEventListener("click", function(){
+        if (b.getAttribute("data-role") === "teacher") { location.href = "/exam/?role=teacher"; return; }
+        showCode();
+      });
+    });
+    function goStudent(){
+      var code = (codeInput.value || "").trim().toUpperCase();
+      if (!code) { jErr.textContent = "Enter your exam code."; codeInput.focus(); return; }
+      if (!/^[A-Z0-9]{4,6}$/.test(code)) { jErr.textContent = "That code looks off — 4–6 letters or numbers."; return; }
+      location.href = "/exam/?role=student&code=" + encodeURIComponent(code);
+    }
+    document.getElementById("jGo").addEventListener("click", goStudent);
+    codeInput.addEventListener("keydown", function(e){ if (e.key === "Enter") goStudent(); });
+  })();
+  </script>
+
+  <!-- Privacy / Terms popup: show the doc in-theme instead of navigating away -->
+  <script>
+  (function(){
+    var modal = document.getElementById("legalModal"); if (!modal) return;
+    var root = document.documentElement, card = modal.querySelector(".legalCard");
+    var docs = modal.querySelectorAll(".ldoc"), lastFocus = null;
+    function open(which){
+      lastFocus = document.activeElement;
+      docs.forEach(function(d){ d.hidden = d.getAttribute("data-doc") !== which; });
+      modal.classList.add("open"); modal.setAttribute("aria-hidden","false"); root.classList.add("modal-open");
+      if (card) card.scrollTop = 0;
+    }
+    function close(){ modal.classList.remove("open"); modal.setAttribute("aria-hidden","true");
+      root.classList.remove("modal-open"); if (lastFocus && lastFocus.focus) lastFocus.focus(); }
+    document.querySelectorAll("[data-legal]").forEach(function(a){
+      a.addEventListener("click", function(e){ e.preventDefault(); open(a.getAttribute("data-legal")); }); });
+    modal.querySelector("[data-legal-close]").addEventListener("click", close);
+    modal.addEventListener("click", function(e){ if (e.target === modal) close(); });
+    addEventListener("keydown", function(e){ if (e.key === "Escape" && modal.classList.contains("open")) close(); });
   })();
   </script>
 

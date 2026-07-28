@@ -113,6 +113,8 @@
 
     // a shared join link (?code=ABC123 or #ABC123) prefills the code + opens the student step
     const urlCode = (new URLSearchParams(location.search).get("code") || location.hash.replace(/^#/, "")).toUpperCase();
+    // the landing-page popup deep-links a chosen role (?role=student|teacher)
+    const urlRole = (new URLSearchParams(location.search).get("role") || "").toLowerCase();
 
     // reflect the current session on the student step: signed-in → Join + prefilled name;
     // signed-out → Continue with Google (+ guest link). Role is decided per action, never
@@ -140,6 +142,12 @@
     (async () => {
       const { data:{ user } } = await sb.auth.getUser();
       if (/^[A-Z0-9]{4,6}$/.test(urlCode)) { $("code").value = urlCode; await openStudent(); return; }
+      // an explicit role from the landing-page popup wins over the remembered one
+      if (urlRole === "student") { await openStudent(); return; }
+      if (urlRole === "teacher") {
+        if (isTeacherAcct(user)) { localStorage.setItem("vg_role","teacher"); location.replace("/exam/console.html"); return; }
+        show("s-teacher"); return;
+      }
       const role = localStorage.getItem("vg_role");
       if (role === "teacher" && isTeacherAcct(user)) { location.replace("/exam/console.html"); return; }
       if (role === "student") { await openStudent(); return; }
