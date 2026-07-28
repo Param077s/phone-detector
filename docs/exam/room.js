@@ -145,10 +145,13 @@ function paintStatus(mx, now) {
   else if (mx.faces >= 2) { cls = "alert"; label = "More than one face"; }
   else if (sig.head.fired) { cls = "warn"; label = "Looking down"; }
   else if (sig.away.fired) { cls = "warn"; label = "Looking away"; }
-  $("rState").className = "v " + cls; $("rState").textContent = label;
   $("mDot").className = "dot " + cls;
-  const secs = Math.floor((now - state.startedAt) / 1000);
-  $("mSub").textContent = `Monitored · ${String(Math.floor(secs/60)).padStart(2,"0")}:${String(secs%60).padStart(2,"0")}`;
+  // one status line: who you are + how long you've been in, and the live state
+  const secs = Math.max(0, Math.floor((Date.now() - state.joinedAtMs) / 1000));
+  const clock = `${String(Math.floor(secs/60)).padStart(2,"0")}:${String(secs%60).padStart(2,"0")}`;
+  $("mTitle").textContent = label;
+  $("mTitle").className = "t " + cls;
+  $("mSub").textContent = (part && part.name ? part.name + " · " : "") + clock;
   pushStatus(cls, false);   // keep the teacher's tile in sync (throttled)
   lastMx = mx;
   if (debugOn) updateReadout();
@@ -336,15 +339,9 @@ function doCalib(mx, now) {
     }
     const q = calibGrade();
     recordCalib(q);
-    const note = document.querySelector(".keepnote");
-    if (note) {
-      const s = document.createElement("div");
-      s.style.marginTop = "6px";
-      s.innerHTML = q.grade === "solid"
-        ? 'Camera setup: <b>solid</b>.'
-        : 'Camera setup: <b>' + q.grade + '</b> (' + q.reasons.join(", ") + ') — flags may be noisier than usual.';
-      note.appendChild(s);
-    }
+    // only speak up when the setup is actually a problem — a good setup says nothing
+    const sn = $("setupNote");
+    if (sn && q.grade !== "solid") sn.innerHTML = ' Your camera setup is <b>' + q.grade + '</b> (' + q.reasons[0] + ').';
     startMonitoring(now);
   }
 }
@@ -412,6 +409,11 @@ function onPageHide() { if (state.mode === "monitor") beaconEvent("left_exam", "
 function setupIntegrity() {
   document.addEventListener("visibilitychange", onVisibility);
   window.addEventListener("pagehide", onPageHide);
+  // reloading or closing mid-exam is recorded — make the student confirm first
+  window.addEventListener("beforeunload", (e) => {
+    if (state.mode !== "monitor" || state.leaving) return;
+    e.preventDefault(); e.returnValue = "";
+  });
   const wx = $("warnX"); if (wx) wx.onclick = () => $("warnBanner").classList.add("hidden");
 }
 let warnTimer = 0;
@@ -423,10 +425,13 @@ function showWarn(msg) {
 async function cacheToken() { try { const { data } = await sb.auth.getSession(); if (data.session) state.token = data.session.access_token; } catch (e) {} }
 
 function startMonitoring(now) {
-  state.mode = "monitor"; state.startedAt = now;
+  state.mode = "monitor";
+  // elapsed time comes from the SERVER's joined_at, so a refresh (or a second
+  // tab) never restarts the clock — the student sees one continuous session
+  const joined = part && part.joined_at ? new Date(part.joined_at).getTime() : Date.now();
+  state.joinedAtMs = joined;
   $("monVid").srcObject = state.stream; $("monVid").play().catch(() => {});
-  $("mTitle").textContent = state.title;
-  show("s-monitor");
+  show("s-monitor");   // mTitle/mSub are owned by paintStatus (live state + name · clock)
   pushStatus("ok", true);
   cacheToken();
   if (state.suspiciousCam) emit("virtual_cam", "alert");
@@ -514,11 +519,13 @@ function fail(msg) { state.running = false; $("errMsg").textContent = msg; show(
   const isOwner = !!exam && exam.owner === u.id;
   if (isOwner && pendingCfg && typeof pendingCfg === "object") Object.assign(CFG, pendingCfg);
   debugOn = isOwner && DEBUG_REQUESTED;
-  const { data: p } = await sb.from("participants").select("id,name").eq("exam_id", examId).eq("user_id", u.id).maybeSingle();
+  const { data: p } = await sb.from("participants").select("id,name,joined_at").eq("exam_id", examId).eq("user_id", u.id).maybeSingle();
   if (!p) { location.replace("/exam/"); return; }
-  part = p; $("yourName") && ($("yourName").textContent = p.name);
+  part = p;
   try { localStorage.setItem("vg_role", "student"); } catch (e) {}   // in the room = acting as a student
   const al = $("activityLink"); if (al) al.href = "/exam/report.html?e=" + examId + "&as=student";
+  const ll = $("leaveLink"); if (ll) ll.onclick = () => { state.leaving = true; };   // deliberate exit — no confirm prompt
+  const et = $("examTag"); if (et && state.title) et.textContent = "· " + state.title;
   const ea = $("endedActivity"); if (ea) ea.href = "/exam/report.html?e=" + examId + "&as=student";
   // if the teacher already closed the exam before this student opened the room
   const already = exam && exam.status === "closed";

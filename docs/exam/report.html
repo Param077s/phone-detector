@@ -75,10 +75,10 @@
     .story b{color:var(--ink);font-weight:600}
     /* episodes — consecutive same-kind flags merged into one row, one decision */
     .eprow{display:flex;align-items:center;gap:12px;padding:9px 6px;border-top:1px solid var(--line);font-size:13.5px;border-radius:8px}
-    .eprow .when{flex:0 0 148px;color:var(--ink);font-weight:600;font-variant-numeric:tabular-nums;font-size:12.5px}
-    .eprow .what{flex:1;color:var(--ink-2)} .eprow .what em{font-style:normal;color:var(--muted)}
-    .eprow .cnt{font-size:11.5px;font-weight:700;color:var(--warn);background:var(--warn-soft);border:1px solid #f0dcb6;border-radius:999px;padding:2px 8px;white-space:nowrap}
-    .eprow .cnt.alert{color:var(--alert);background:var(--alert-soft);border-color:#f3c9ca}
+    .eprow .when{flex:0 0 74px;color:var(--muted);font-weight:600;font-variant-numeric:tabular-nums;font-size:12.5px;white-space:nowrap}
+    .eprow .what{flex:1;color:var(--ink);font-weight:500}
+    .eprow .cnt{font-size:11.5px;font-weight:600;color:var(--muted);white-space:nowrap;font-variant-numeric:tabular-nums}
+    .eprow .cnt.alert{color:var(--alert)}
     .eprow.dismissed .when,.eprow.dismissed .what{text-decoration:line-through;opacity:.5}
     .eprow .cf{font-size:11px;color:var(--ok);font-weight:600;margin-left:6px}
     .eprow.cur{outline:2px solid var(--ink);outline-offset:-1px;background:#faf9f7}
@@ -145,7 +145,10 @@
     let reviewEnabled = false;   // teacher + the v6 review column exists
     const CAP = 8;   // episodes shown before a card collapses the rest
     const EP_GAP = 90_000;   // same-kind flags within 90s merge into one episode
-    const fmt = (iso) => { const d = new Date(iso); return d.toLocaleTimeString([], {hour:"2-digit",minute:"2-digit",second:"2-digit"}); };
+    // compact clock — no AM/PM on every row (it wrapped onto two lines); the
+    // meridiem lives once in the strip's axis and in "Generated …" above
+    const fmt = (iso) => { const d = new Date(iso);
+      return String(d.getHours()%12||12).padStart(2,"0")+":"+String(d.getMinutes()).padStart(2,"0")+":"+String(d.getSeconds()).padStart(2,"0"); };
     const fmtHM = (iso) => { const d = new Date(iso); return d.toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"}); };
     const durTxt = (ms) => { const s = Math.max(1, Math.round(ms/1000)); if (s < 60) return s + " s"; const m = Math.floor(s/60); return m + " min" + (s%60 ? " " + (s%60) + " s" : ""); };
 
@@ -191,13 +194,11 @@
       eps.forEach(ep => { const b = byKind[ep.kind] = byKind[ep.kind] || { flags:0, eps:0 }; b.flags += ep.count; b.eps++; });
       const [topKind, top] = Object.entries(byKind).sort((a,b) => b[1].flags - a[1].flags)[0];
       const label = (LABELS[topKind]||topKind).toLowerCase();
-      const others = Object.keys(byKind).length - 1;
       const big = eps.filter(e => e.kind === topKind).sort((a,b) => b.count - a.count)[0];
-      let s = '<b>'+top.flags+'&times; '+esc(label)+'</b> in '+top.eps+' episode'+(top.eps===1?"":"s");
-      if (others > 0) s += ' (+'+others+' other kind'+(others===1?"":"s")+')';
-      s += (big && big.count > 1)
-        ? ' — heaviest <b>'+big.count+'&times; over '+durTxt(big.endT-big.startT)+'</b> starting '+fmtHM(big.start)+'.'
-        : ' — isolated moments, no clustering.';
+      // plain English — a sentence a teacher can read once and act on
+      let s = 'Mostly <b>'+esc(label)+'</b> — '+top.flags+' time'+(top.flags===1?"":"s")+'.';
+      if (big && big.count > 1) s += ' The worst run was around <b>'+fmtHM(big.start)+'</b>.';
+      else s += ' Spread out, with no single bad stretch.';
       return '<div class="story">'+s+'</div>';
     }
 
@@ -272,18 +273,17 @@
         stat("ok", clear.length, "clear") +
         (flagged.length && clear.length ? '<label class="toggle"><input type="checkbox" id="flagOnly"> Flagged only</label>' : "");
 
+      // one clean line per episode: when · what · how much · decide
       const epHtml = ep => {
         const dism = ep.review === "dismissed", conf = ep.review === "confirmed";
-        const when = ep.count === 1 ? fmt(ep.start) : fmt(ep.start)+"&ndash;"+fmt(ep.end);
         const rev = (reviewEnabled && ep.ids.length)
-          ? '<span class="rev"><button class="rb ok '+(conf?"on":"")+'" data-ids="'+ep.ids.join(",")+'" data-act="confirm" title="Confirm episode">✓</button>'+
-            '<button class="rb no '+(dism?"on":"")+'" data-ids="'+ep.ids.join(",")+'" data-act="dismiss" title="Dismiss episode">✕</button></span>' : "";
+          ? '<span class="rev"><button class="rb ok '+(conf?"on":"")+'" data-ids="'+ep.ids.join(",")+'" data-act="confirm" title="Confirm">✓</button>'+
+            '<button class="rb no '+(dism?"on":"")+'" data-ids="'+ep.ids.join(",")+'" data-act="dismiss" title="Dismiss">✕</button></span>' : "";
         return '<div class="eprow'+(dism?" dismissed":"")+'" data-key="'+esc(String(ep.ids[0]||ep.startT))+'">'+
-          '<span class="when">'+when+'</span>'+
+          '<span class="when">'+fmt(ep.start)+'</span>'+
           '<span class="what">'+esc(LABELS[ep.kind]||ep.kind)+
-          (ep.count>1 ? ' <em>&middot; over '+durTxt(ep.endT-ep.startT)+'</em>' : '')+
           (conf ? ' <span class="cf">confirmed</span>' : '')+'</span>'+
-          (ep.count>1 ? '<span class="cnt'+(ep.alert?" alert":"")+'">'+ep.count+'&times;</span>' : '')+
+          (ep.count>1 ? '<span class="cnt'+(ep.alert?" alert":"")+'">'+ep.count+'&times; &middot; '+durTxt(ep.endT-ep.startT)+'</span>' : '')+
           rev+'</div>';
       };
       const card = (i) => {
@@ -292,10 +292,11 @@
         if (eps.length <= CAP) list = eps.map(epHtml).join("");
         else { const head = eps.slice(0,CAP).map(epHtml).join(""), rest = eps.slice(CAP).map(epHtml).join("");
           list = head+'<details class="moreev"><summary>Show '+(eps.length-CAP)+' more</summary>'+rest+'</details>'; }
-        const setup = i.calib && i.calib.grade
-          ? '<span class="setup '+(i.calib.grade==="solid"?"s-ok":"s-warn")+'" title="'+esc((i.calib.reasons||[]).join(", "))+'">setup '+esc(i.calib.grade)+'</span>' : '';
+        // the setup badge only appears when it's a caveat worth knowing
+        const setup = i.calib && i.calib.grade && i.calib.grade !== "solid"
+          ? '<span class="setup s-warn" title="'+esc((i.calib.reasons||[]).join(", "))+'">setup '+esc(i.calib.grade)+'</span>' : '';
         return '<div class="student '+(i.band==="high"?"pri":"pri-w")+'"><h2><span class="band '+i.band+'">'+i.band+'</span>'+
-          '<span class="n">'+esc(p.name)+'</span>'+setup+'<span class="ct">'+i.flags+' flag'+(i.flags===1?"":"s")+' &middot; '+eps.length+' episode'+(eps.length===1?"":"s")+'</span></h2>'+
+          '<span class="n">'+esc(p.name)+'</span>'+setup+'<span class="ct">'+i.flags+' flag'+(i.flags===1?"":"s")+'</span></h2>'+
           stripHtml(i.evs, eps, win)+narrative(eps)+'<div class="eps">'+list+'</div></div>';
       };
 
@@ -357,10 +358,10 @@
           (ep.review==="confirmed" ? ' <span class="cf">confirmed</span>' : '')+'</span>'+
           (ep.count>1 ? '<span class="cnt'+(ep.alert?" alert":"")+'">'+ep.count+'&times;</span>' : '')+'</div>';
       };
-      const setup = calib && calib.grade
-        ? '<span class="setup '+(calib.grade==="solid"?"s-ok":"s-warn")+'" title="'+esc((calib.reasons||[]).join(", "))+'">setup '+esc(calib.grade)+'</span>' : '';
+      const setup = calib && calib.grade && calib.grade !== "solid"
+        ? '<span class="setup s-warn" title="'+esc((calib.reasons||[]).join(", "))+'">setup '+esc(calib.grade)+'</span>' : '';
       $("out").innerHTML = '<div class="student"><h2><span class="n">'+esc(me.name)+'</span>'+setup+
-        '<span class="ct">'+evs.length+' flag'+(evs.length===1?"":"s")+(eps.length?' &middot; '+eps.length+' episode'+(eps.length===1?"":"s"):'')+'</span></h2>'+
+        '<span class="ct">'+evs.length+' flag'+(evs.length===1?"":"s")+'</span></h2>'+
         '<div class="chips">'+chips+'</div>'+stripHtml(evs, eps, win)+(eps.length?narrative(eps):'')+
         (eps.length ? '<div class="eps">'+eps.map(epHtml).join("")+'</div>' : '')+'</div>';
     }
