@@ -88,6 +88,18 @@ const WORDS = ["No", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eig
   "Twenty-eight", "Twenty-nine", "Thirty"];
 export const word = n => (n >= 0 && n < WORDS.length ? WORDS[n] : String(n));
 
+// ── presence ────────────────────────────────────────────────────────────────
+// The heartbeat is every 6 s and runs on a Worker clock, so it no longer misses
+// beats when the student's tab is in the background. That means this window can be
+// tight: 15 s is two and a half beats of slack, and a student who closes the tab
+// also fires an explicit offline beacon, so leaving shows up almost at once.
+export const PRESENCE_MS = 15000;
+export function isOnline(p) {
+  if (!p) return false;
+  if (p.status === "offline") return false;   // they told us they were going
+  return (Date.now() - t(p.last_seen)) < PRESENCE_MS;
+}
+
 // ── episodes: one student's consecutive same-kind flags ─────────────────────
 export const EP_GAP = 90_000;
 export function episodesOf(evs) {

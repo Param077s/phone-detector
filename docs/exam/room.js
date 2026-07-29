@@ -80,7 +80,7 @@ async function emit(kind, severity, meta) {
 async function pushStatus(status, force) {
   const now = performance.now();
   if (!force && status === state.lastStatus && now - state.lastStatusAt < 4000) return;
-  if (now - state.lastStatusAt < CFG.STATUS_MIN_MS && status === state.lastStatus) return;
+  if (!force && now - state.lastStatusAt < CFG.STATUS_MIN_MS && status === state.lastStatus) return;
   state.lastStatus = status; state.lastStatusAt = now;
   try {
     await sb.from("participants").update({ status, last_seen: new Date().toISOString() })
@@ -306,7 +306,6 @@ function doPreflight(mx, now) {
 function beginCalib() {
   if (state.mode === "calib") return;
   const pf = $("pf"); if (pf) pf.classList.add("hidden");
-  const bw = $("calibBarWrap"); if (bw) bw.classList.remove("hidden");
   $("calibMsg").textContent = "Look at your screen normally and hold still for a few seconds.";
   state.mode = "calib";
   state.calibSamples = []; state.calibGX = []; state.calibGY = []; state.calibOpen = [];
@@ -343,7 +342,6 @@ function doCalib(mx, now) {
     if (mx.gazeY != null) state.calibGY.push(mx.gazeY);
     if (mx.openness != null) state.calibOpen.push(mx.openness);
   }
-  $("calibBar").style.width = Math.min(100, ((now - state.calibStart) / CFG.CALIB_MS) * 100) + "%";
   if (now - state.calibStart >= CFG.CALIB_MS) {
     if (state.calibSamples.length < 5) { $("calibMsg").textContent = "Make sure your face is centred and well lit…"; state.calibStart = now; state.calibSamples = []; state.calibGX = []; state.calibGY = []; state.calibOpen = []; return; }
     state.baseline = median(state.calibSamples);
@@ -432,8 +430,26 @@ function beaconEvent(kind, severity) {   // best-effort write that survives the 
 // Only a genuine unload. `persisted` means the page went into the back/forward
 // cache and is still alive — that is not leaving, and recording it as "closed" was
 // one of the ways a student got accused of something they hadn't done.
+// Closing the tab used to be invisible until the teacher's freshness window ran
+// out. Now we say so on the way out — one keepalive PATCH that marks us offline and
+// backdates last_seen, so the room turns grey within a poll instead of a timeout.
+// (If this was a back/forward-cache suspend and the page returns, the next
+// heartbeat puts them straight back online.)
+function beaconOffline() {
+  if (!part || !state.token) return;
+  try {
+    fetch(SUPABASE_URL + "/rest/v1/participants?id=eq." + encodeURIComponent(part.id), {
+      method: "PATCH", keepalive: true,
+      headers: { "Content-Type": "application/json", apikey: SUPABASE_ANON,
+                 Authorization: "Bearer " + state.token, Prefer: "return=minimal" },
+      body: JSON.stringify({ status: "offline", last_seen: new Date(Date.now() - 600000).toISOString() }),
+    });
+  } catch (e) {}
+}
 function onPageHide(e) {
-  if (state.mode !== "monitor" || state.leaving) return;
+  if (state.mode !== "monitor") return;
+  beaconOffline();
+  if (state.leaving) return;
   if (e && e.persisted) return;
   beaconEvent("left_exam", "alert");
 }

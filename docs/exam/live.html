@@ -100,7 +100,7 @@
 
   <script type="module">
     import { sb } from "/exam/sb.js";
-    import { esc, label, clock, ago, readExam, roomHeadline, ALERT_KINDS, t } from "/exam/exam-core.js";
+    import { esc, label, clock, ago, readExam, roomHeadline, ALERT_KINDS, t, isOnline } from "/exam/exam-core.js";
     const $ = id => document.getElementById(id);
     const examId = new URLSearchParams(location.search).get("e");
 
@@ -110,11 +110,7 @@
     let CLOSED = false, exam = null, read = null, notesOn = false;
     const tiles = new Map();            // participant id -> tile element (kept, never rebuilt)
 
-    // A student's heartbeat is every 6 s, but a browser that has throttled their
-    // tab can stretch that. 40 s means a tile only says "offline" when they really
-    // are gone, instead of every time their machine got busy.
-    const PRESENCE_MS = 40000;
-    const fresh = row => CLOSED || (Date.now() - t(row.last_seen)) < PRESENCE_MS;
+    const fresh = row => CLOSED || isOnline(row);
 
     function addEvent(e) {
       if (e.id && seenEv.has(e.id)) return false;
@@ -387,8 +383,8 @@
 
       // Ask every 4 s regardless of the socket: this is what makes a student appear
       // the moment they join and disappear when they go, with no reload.
-      setInterval(refresh, 4000);
-      setInterval(() => { renderHead(); render(); }, 5000);   // presence freshness + the eyebrow clock
+      setInterval(refresh, 2000);
+      setInterval(() => { renderHead(); render(); }, 1000);   // presence freshness + the eyebrow clock
       // coming back to this tab should never show a stale room
       document.addEventListener("visibilitychange", () => { if (!document.hidden) refresh(); });
     })();

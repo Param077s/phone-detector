@@ -62,7 +62,12 @@
     .pick button.clear{color:var(--faint)}
 
     /* the room, coloured by risk — green clear, amber flagged, red serious */
-    .room{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:9px;margin:30px 0 0}
+    .presence{font-size:13.5px;color:var(--muted);margin:28px 0 10px}
+    .room{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:9px;margin:0}
+    .rtile .rn .pd{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--faint);
+      margin-right:7px;vertical-align:.08em;transition:background .4s}
+    .rtile .rn .pd.up{background:var(--ok)}
+    .rtile.gone{opacity:.5}
     .rtile{background:var(--card);border:1.5px solid transparent;border-radius:10px;padding:14px 12px;
       text-align:left;font:inherit;width:100%;cursor:pointer;
       transition:transform .18s var(--spring),border-color .25s}
@@ -160,6 +165,7 @@
 
     <!-- screen: the room, read afterwards. print: hidden, the document takes over -->
     <div class="screenonly">
+      <div class="presence" id="presence"></div>
       <div class="room" id="room"></div>
       <div class="roomline hidden" id="roomline"><span id="roomtxt"></span><button class="see" id="roomsee" type="button">See it</button></div>
     </div>
@@ -175,7 +181,7 @@
 
   <script type="module">
     import { sb } from "/exam/sb.js";
-    import { esc, label, clock, clockRange, dateLong, word, readExam, spanTxt, roomHeadline } from "/exam/exam-core.js";
+    import { esc, label, clock, clockRange, dateLong, word, readExam, spanTxt, roomHeadline, isOnline, ago } from "/exam/exam-core.js";
     const $ = id => document.getElementById(id);
     const examId = new URLSearchParams(location.search).get("e");
 
@@ -220,11 +226,23 @@
     // it grows into that student's record. The document above is what Download
     // prints; on screen this is what a teacher actually works through.
     function drawRoom() {
-      const rows = read.students.slice().sort((a, b) => b.score - a.score || a.p.name.localeCompare(b.p.name));
-      $("room").innerHTML = rows.map(s =>
-        '<button type="button" class="rtile ' + s.band + (s.serious ? " serious" : "") + '" data-id="' + esc(s.p.id) + '">' +
-        '<span class="rn">' + esc(s.p.name) + '</span>' +
-        '<span class="rs">' + (s.score === 0 ? "clear" : esc(s.phrase || "flagged")) + '</span></button>').join("");
+      const live = exam && exam.status === "open";
+      // Online first while the exam runs — the teacher is watching this page during
+      // it, and someone who has dropped out matters more than someone's flag count.
+      const rows = read.students.slice().sort((a, b) =>
+        (live ? (isOnline(b.p) ? 1 : 0) - (isOnline(a.p) ? 1 : 0) : 0) ||
+        b.score - a.score || a.p.name.localeCompare(b.p.name));
+      const on = rows.filter(x => isOnline(x.p)).length, off = rows.length - on;
+      $("presence").textContent = live
+        ? on + " online" + (off ? " · " + off + " offline" : "") + " · " + rows.length + " joined"
+        : rows.length + (rows.length === 1 ? " student joined" : " students joined");
+      $("room").innerHTML = rows.map(s => {
+        const up = isOnline(s.p);
+        return '<button type="button" class="rtile ' + s.band + (s.serious ? " serious" : "") +
+        (live && !up ? " gone" : "") + '" data-id="' + esc(s.p.id) + '">' +
+        '<span class="rn">' + (live ? '<i class="pd' + (up ? " up" : "") + '"></i>' : "") + esc(s.p.name) + '</span>' +
+        '<span class="rs">' + (s.score === 0 ? "clear" : esc(s.phrase || "flagged")) + '</span></button>';
+      }).join("");
       const m = read.moments.length ? read.moments[read.moments.length - 1] : null;
       $("roomline").classList.toggle("hidden", !m);
       if (m) {
@@ -319,6 +337,10 @@
       openPid = pid; openMom = null;
       morphOpen(sourceEl);
     }
+    function presenceLine(s) {
+      if (!exam || exam.status !== "open") return "";
+      return isOnline(s.p) ? "Online · " : "Offline since " + ago(s.p.last_seen) + " · ";
+    }
     function studentHtml(pid) {
       const s = read.students.find(x => x.p.id === pid); if (!s) return false;
       const mine = read.findings.filter(f => !f.room && f.student && f.student.p.id === pid);
@@ -329,7 +351,7 @@
       $("popIn").innerHTML =
         '<div class="ptop"><span class="dot ' + (s.band === "quiet" ? "" : s.band) + '"></span>' +
         '<h2 id="popName">' + esc(s.p.name) + '</h2></div>' +
-        '<p class="pstat">' + (s.score === 0 ? "Finished clear" :
+        '<p class="pstat">' + presenceLine(s) + (s.score === 0 ? "Finished clear" :
           s.live.length + " flag" + (s.live.length === 1 ? "" : "s") + " · " + esc(s.phrase)) + '</p>' +
         // the verdicts that belong to this student, decidable right here
         (mine.length ? '<div class="lab">Findings</div>' + mine.map(f =>
@@ -409,7 +431,7 @@
     // ── data ────────────────────────────────────────────────────────────────
     async function load() {
       const [pq, eq] = await Promise.all([
-        sb.from("participants").select("id,name,status,joined_at").eq("exam_id", examId),
+        sb.from("participants").select("id,name,status,joined_at,last_seen").eq("exam_id", examId),
         sb.from("events").select("id,participant_id,kind,severity,at,meta,review").eq("exam_id", examId).order("at", { ascending: true }),
       ]);
       canReview = !eq.error;
@@ -437,10 +459,12 @@
       $("fullLink").href = "/exam/report.html?e=" + examId;
       $("dl").onclick = () => window.print();
       await load();
+      // 2 s while an exam is running: this page is what the teacher watches during
+      // it, so presence has to be as current as the live room's
       setInterval(async () => {
         await load();
         if ($("popWrap").classList.contains("on")) reopen();
-      }, 5000);
+      }, 2000);
       addEventListener("visibilitychange", async () => {
         if (document.hidden) return;
         await load();
