@@ -220,11 +220,21 @@
       drawRoom();
     }
 
+    // the document only needs rebuilding when the findings themselves change
+    let docSig = null;
+    function drawIfChanged() {
+      const sig = read.findings.map(x => x.n + ":" + x.ids.length + ":" + (x.review || "-")).join("|") +
+        "#" + read.clear.length + "#" + read.roster.length;
+      if (sig === docSig) { drawRoom(); return; }
+      docSig = sig; draw();
+    }
+
     // ── the room, read afterwards ───────────────────────────────────────────
     // Same tiles as the live room, but now they carry risk rather than presence:
     // green finished clear, amber was flagged, red flagged seriously. Press one and
     // it grows into that student's record. The document above is what Download
     // prints; on screen this is what a teacher actually works through.
+    const rtiles = new Map();   // participant id -> tile element, kept across redraws
     function drawRoom() {
       const live = exam && exam.status === "open";
       // Online first while the exam runs — the teacher is watching this page during
@@ -233,16 +243,42 @@
         (live ? (isOnline(b.p) ? 1 : 0) - (isOnline(a.p) ? 1 : 0) : 0) ||
         b.score - a.score || a.p.name.localeCompare(b.p.name));
       const on = rows.filter(x => isOnline(x.p)).length, off = rows.length - on;
-      $("presence").textContent = live
+      const ptxt = live
         ? on + " online" + (off ? " · " + off + " offline" : "") + " · " + rows.length + " joined"
         : rows.length + (rows.length === 1 ? " student joined" : " students joined");
-      $("room").innerHTML = rows.map(s => {
-        const up = isOnline(s.p);
-        return '<button type="button" class="rtile ' + s.band + (s.serious ? " serious" : "") +
-        (live && !up ? " gone" : "") + '" data-id="' + esc(s.p.id) + '">' +
-        '<span class="rn">' + (live ? '<i class="pd' + (up ? " up" : "") + '"></i>' : "") + esc(s.p.name) + '</span>' +
-        '<span class="rs">' + (s.score === 0 ? "clear" : esc(s.phrase || "flagged")) + '</span></button>';
-      }).join("");
+      if ($("presence").textContent !== ptxt) $("presence").textContent = ptxt;
+
+      // Reconcile — never rebuild. This page redraws every 2 s, and replacing the
+      // grid's innerHTML each time destroyed thirty tiles, killed any hover, and
+      // flickered the whole room. Same mistake the live room already learned.
+      const room = $("room");
+      for (const st of rows) {
+        const up = isOnline(st.p);
+        let el = rtiles.get(st.p.id);
+        if (!el) {
+          el = document.createElement("button");
+          el.type = "button"; el.className = "rtile"; el.dataset.id = st.p.id;
+          el.innerHTML = '<span class="rn"><i class="pd"></i><span class="nm"></span></span><span class="rs"></span>';
+          rtiles.set(st.p.id, el); room.appendChild(el);
+        }
+        el.classList.toggle("quiet", st.band === "quiet");
+        el.classList.toggle("warn", st.band === "warn");
+        el.classList.toggle("alert", st.band === "alert");
+        el.classList.toggle("serious", !!st.serious);
+        el.classList.toggle("gone", live && !up);
+        const dot = el.querySelector(".pd");
+        dot.style.display = live ? "" : "none";
+        dot.classList.toggle("up", up);
+        const nm = el.querySelector(".nm"); if (nm.textContent !== st.p.name) nm.textContent = st.p.name;
+        const rs = el.querySelector(".rs");
+        const txt = st.score === 0 ? "clear" : (st.phrase || "flagged");
+        if (rs.textContent !== txt) rs.textContent = txt;
+      }
+      for (const [id, el] of rtiles) if (!rows.some(r => r.p.id === id)) { el.remove(); rtiles.delete(id); }
+      let want = room.firstChild;
+      for (const st of rows) { const el = rtiles.get(st.p.id); if (!el) continue;
+        if (el !== want) room.insertBefore(el, want); else want = el.nextSibling; }
+
       const m = read.moments.length ? read.moments[read.moments.length - 1] : null;
       $("roomline").classList.toggle("hidden", !m);
       if (m) {
@@ -422,30 +458,49 @@
           : "That verdict could not be saved.";
         return;
       }
-      await load();
+      await load(true);
       if ($("popWrap").classList.contains("on")) reopen();
     });
     addEventListener("keydown", e => { if (e.key !== "Escape") return; if ($("pick").classList.contains("on")) closePick(); else morphClose(); });
     addEventListener("resize", closePick);
 
     // ── data ────────────────────────────────────────────────────────────────
-    async function load() {
-      const [pq, eq] = await Promise.all([
-        sb.from("participants").select("id,name,status,joined_at,last_seen").eq("exam_id", examId),
-        sb.from("events").select("id,participant_id,kind,severity,at,meta,review").eq("exam_id", examId).order("at", { ascending: true }),
-      ]);
-      canReview = !eq.error;
-      const events = eq.error
-        ? ((await sb.from("events").select("participant_id,kind,severity,at,meta").eq("exam_id", examId).order("at", { ascending: true })).data || [])
-        : (eq.data || []);
-      read = readExam(pq.data || [], events);
-      // the real monitoring window, not the first-to-last-flag axis
-      const from = exam.created_at ? new Date(exam.created_at).getTime() : read.startT;
-      const to = exam.closed_at ? new Date(exam.closed_at).getTime() : (read.endT || Date.now());
-      $("title").textContent = exam.title;
-      $("context").textContent = [exam.code, dateLong(from), clockRange(from, to),
-        read.roster.length + " student" + (read.roster.length === 1 ? "" : "s")].join(" · ");
-      draw();
+    // Events are append-only, so after the first read we only ask for what is new.
+    // Refetching every event in the exam every 2 s was fine for one student and
+    // thousands of rows for a full class. A verdict set in ANOTHER tab is an UPDATE
+    // rather than an insert, so a full read still happens every 30 s to catch those
+    // (and immediately after this tab writes one).
+    let evs = [], seenIds = new Set(), lastAt = null, fullAt = 0, loading = false;
+    async function load(force) {
+      if (loading) return; loading = true;
+      try {
+        const full = force || !lastAt || (Date.now() - fullAt > 30000);
+        let eq = sb.from("events").select("id,participant_id,kind,severity,at,meta,review").eq("exam_id", examId);
+        if (!full) eq = eq.gt("at", lastAt);
+        const [pq, er] = await Promise.all([
+          sb.from("participants").select("id,name,status,joined_at,last_seen").eq("exam_id", examId),
+          eq.order("at", { ascending: true }),
+        ]);
+        if (er.error && full) {
+          // pre-v6: no review column. Fall back once, and stay on full reads.
+          const fb = await sb.from("events").select("participant_id,kind,severity,at,meta")
+            .eq("exam_id", examId).order("at", { ascending: true });
+          canReview = false; evs = fb.data || []; seenIds = new Set(); fullAt = Date.now();
+        } else if (!er.error) {
+          canReview = true;
+          if (full) { evs = er.data || []; seenIds = new Set(evs.map(e => e.id)); fullAt = Date.now(); }
+          else for (const e of (er.data || [])) if (!seenIds.has(e.id)) { seenIds.add(e.id); evs.push(e); }
+        }
+        if (evs.length && evs[evs.length - 1].at) lastAt = evs[evs.length - 1].at;
+
+        read = readExam(pq.data || [], evs);
+        const from = exam.created_at ? new Date(exam.created_at).getTime() : read.startT;
+        const to = exam.closed_at ? new Date(exam.closed_at).getTime() : (read.endT || Date.now());
+        $("title").textContent = exam.title;
+        $("context").textContent = [exam.code, dateLong(from), clockRange(from, to),
+          read.roster.length + " student" + (read.roster.length === 1 ? "" : "s")].join(" · ");
+        drawIfChanged();
+      } finally { loading = false; }
     }
 
     (async () => {
