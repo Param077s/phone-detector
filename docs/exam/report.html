@@ -124,7 +124,7 @@
       <span class="sp"></span>
       <a class="backlink" id="histLink" href="/exam/history.html" style="display:none;margin-right:4px">All exams</a>
       <button class="btn ghost sm" id="csvBtn" style="display:none">Export CSV</button>
-      <button class="btn ghost sm" id="pdfBtn" style="display:none">Save as PDF</button>
+      <a class="btn ghost sm" id="pdfBtn" style="display:none">Findings</a>
     </div>
     <h1 id="title">Exam report</h1>
     <p class="sub" id="sub"></p>
@@ -414,7 +414,9 @@
           const a = document.createElement("a"); a.href = URL.createObjectURL(new Blob([csv],{type:"text/csv"}));
           a.download = (exam?exam.title:"exam") + "-report.csv"; a.click();
         };
-        $("pdfBtn").onclick = () => window.print();
+        // the one-page findings document is what gets signed and filed; this page
+        // stays as the full underlying record (and still prints, via the browser)
+        $("pdfBtn").href = "/exam/findings.html?e=" + examId;
         // Confirm / Dismiss a whole EPISODE (delegation survives redraws — #out stays put)
         $("out").addEventListener("click", async (e) => {
           const b = e.target.closest(".rb"); if (!b) return;

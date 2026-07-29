@@ -1,0 +1,258 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Vigil · Exam integrity report</title>
+  <link rel="icon" href="/favicon.svg">
+  <meta name="theme-color" content="#f3f2ef">
+  <link rel="stylesheet" href="/exam/style.css">
+  <style>
+    /* ── the document ─────────────────────────────────────────────────────
+       Read once, decide, sign, file. Its unit is the MOMENT, not the student:
+       a room-wide moment sits beside a phone as an equal. Every finding is two
+       lines — a headline and one grey line of context — and per-episode timings
+       live on an appendix page most readers will never turn to. */
+    :root{ --voice:ui-serif,Georgia,"Times New Roman",serif }
+    body{background:var(--bg)}
+    .sheet{max-width:720px;margin:0 auto;padding:34px 26px 70px}
+
+    .tools{display:flex;align-items:center;gap:10px;margin-bottom:30px}
+    .tools .sp{flex:1}
+    .backlink{color:var(--muted);display:inline-flex;align-items:center}
+    .backlink svg{width:17px;height:17px} .backlink:hover{color:var(--ink)}
+
+    /* letterhead */
+    .letter{display:flex;align-items:center;gap:10px;padding-bottom:12px;border-bottom:1px solid var(--ink)}
+    .letter .mk{width:26px;height:26px;border-radius:7px;display:grid;place-items:center;background:var(--ink);flex:0 0 auto}
+    .letter .mk svg{width:15px;height:15px}
+    .letter b{font-family:var(--display);font-size:15px;font-weight:700}
+    .letter .sp{flex:1}
+    .letter .kind{font-size:10.5px;font-weight:600;letter-spacing:.16em;text-transform:uppercase;color:var(--muted)}
+
+    h1{font-size:27px;font-weight:500;letter-spacing:-.02em;margin:30px 0 6px}
+    .context{font-size:13.5px;color:var(--muted)}
+    .stand{font-family:var(--voice);font-size:19px;line-height:1.5;margin:30px 0 34px}
+    .stand .rest{color:var(--muted)}
+
+    /* findings — exactly two lines each */
+    .finding{margin-bottom:32px;break-inside:avoid;page-break-inside:avoid}
+    .fl1{display:flex;align-items:baseline;gap:12px}
+    .fl1 .n{font-size:13px;color:var(--faint);font-variant-numeric:tabular-nums;flex:0 0 auto}
+    .fl1 .h{font-size:17px;font-weight:500;flex:1;letter-spacing:-.01em}
+    .fl2{font-size:14px;color:var(--muted);margin:5px 0 0 30px}
+
+    .chip{flex:0 0 auto;font-size:11.5px;font-weight:600;padding:3px 10px;border-radius:999px;
+      border:1px solid var(--line);background:var(--soft);color:var(--muted);cursor:pointer;
+      font-family:var(--font);transition:border-color .16s,color .16s}
+    .chip.upheld{background:var(--alert-soft);border-color:#f3c9ca;color:var(--alert)}
+    .chip.aside{background:var(--soft);border-color:var(--line);color:var(--muted)}
+    .chip.discuss{background:var(--warn-soft);border-color:#f0dcb6;color:var(--warn)}
+    .chip.none{background:none;border-style:dashed;border-color:var(--line-strong);color:var(--faint)}
+    .chip:hover{border-color:var(--ink);color:var(--ink)}
+    .chip[disabled]{cursor:default;pointer-events:none}
+
+    /* verdict picker — screen only; the document itself never shows controls */
+    .pick{position:fixed;z-index:50;background:var(--card);border:1px solid var(--line);border-radius:12px;
+      box-shadow:var(--shadow);padding:5px;display:none;min-width:132px}
+    .pick.on{display:block}
+    .pick button{display:block;width:100%;text-align:left;background:none;border:0;border-radius:8px;
+      padding:8px 10px;font:500 13.5px var(--font);color:var(--ink);cursor:pointer}
+    .pick button:hover{background:var(--soft)}
+    .pick button.clear{color:var(--faint)}
+
+    .none-yet{font-family:var(--voice);font-size:19px;color:var(--muted);margin:30px 0 34px}
+    .clearlist{font-size:13.5px;color:var(--muted);margin:38px 0 0;line-height:1.6}
+    .clearlist .lab{font-size:10.5px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:var(--faint);display:block;margin-bottom:5px;font-family:var(--font)}
+
+    .privacy{font-family:var(--voice);font-size:13.5px;color:var(--muted);margin:44px 0 0;padding-bottom:16px;border-bottom:1px solid var(--line)}
+    .sign{display:flex;gap:26px;margin-top:52px}
+    .sign span{flex:1;border-top:1px solid var(--ink);padding-top:6px;
+      font-size:11px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:var(--muted)}
+
+    /* appendix — the detail, deliberately on its own page */
+    .appendix{margin-top:64px;padding-top:22px;border-top:1px solid var(--line)}
+    .appendix h2{font-size:11px;font-weight:600;letter-spacing:.16em;text-transform:uppercase;color:var(--muted);margin:0 0 18px}
+    .apx{margin-bottom:20px;break-inside:avoid}
+    .apx .t{font-size:13.5px;font-weight:500;margin-bottom:4px}
+    .apx .t .n{color:var(--faint);font-variant-numeric:tabular-nums;margin-right:8px;font-weight:400}
+    .apx .e{font-size:13px;color:var(--muted);display:flex;gap:12px;padding:2px 0 2px 30px}
+    .apx .e .w{min-width:118px;font-variant-numeric:tabular-nums}
+    .msg{font-size:13px;color:var(--warn);margin-top:8px}
+    .loading{color:var(--muted);padding:40px 0}
+
+    @media print{
+      @page{ margin:16mm }
+      body{background:#fff;background-image:none}
+      body::before{display:none}
+      .sheet{max-width:none;padding:0}
+      .tools,.pick,.msg{display:none !important}
+      .chip{cursor:default}
+      .chip.none{display:none}   /* no chip is the honest mark for "not reviewed" */
+      .appendix{page-break-before:always;margin-top:0;border-top:0;padding-top:0}
+      *{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+    }
+  </style>
+</head>
+<body>
+  <div class="sheet">
+    <div class="tools">
+      <a class="backlink" id="back" href="/exam/console.html" aria-label="Back"><svg viewBox="0 0 24 24" fill="none"><path d="M15 18l-6-6 6-6" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg></a>
+      <span class="sp"></span>
+      <a class="btn ghost sm" id="fullLink" href="#">Full record</a>
+      <button class="btn ink sm" id="dl" type="button">Download</button>
+    </div>
+
+    <div class="letter">
+      <span class="mk"><svg viewBox="0 0 24 24" fill="none"><path d="M6 10V7.5A1.5 1.5 0 0 1 7.5 6H10M14 6h2.5A1.5 1.5 0 0 1 18 7.5V10M18 14v2.5a1.5 1.5 0 0 1-1.5 1.5H14M10 18H7.5A1.5 1.5 0 0 1 6 16.5V14" stroke="#fff" stroke-width="1.8" stroke-linecap="round"/><circle cx="12" cy="12" r="2.6" fill="#fff"/></svg></span>
+      <b>Vigil</b><span class="sp"></span><span class="kind">Exam integrity report</span>
+    </div>
+
+    <h1 id="title">Exam</h1>
+    <div class="context" id="context"></div>
+    <div id="body"><div class="loading">Reading the exam…</div></div>
+  </div>
+
+  <div class="pick" id="pick" role="menu"></div>
+
+  <script type="module">
+    import { sb } from "/exam/sb.js";
+    import { esc, label, clock, clockRange, dateLong, word, readExam, spanTxt } from "/exam/exam-core.js";
+    const $ = id => document.getElementById(id);
+    const examId = new URLSearchParams(location.search).get("e");
+
+    const VERDICT = { confirmed: ["Upheld", "upheld"], dismissed: ["Set aside", "aside"], discuss: ["To discuss", "discuss"] };
+    let exam = null, read = null, canReview = false;
+
+    // ── the page ────────────────────────────────────────────────────────────
+    function draw() {
+      const f = read.findings, clear = read.clear;
+      const stand = f.length
+        ? '<span>' + word(f.length) + (f.length === 1 ? " finding." : " findings.") + '</span> ' +
+          '<span class="rest">' + word(clear.length) + ' student' + (clear.length === 1 ? "" : "s") + ' finished clear.</span>'
+        : "";
+
+      const findingHtml = x =>
+        '<div class="finding">' +
+          '<div class="fl1"><span class="n">' + x.n + '</span><span class="h">' + esc(x.headline) + '</span>' + chipHtml(x) + '</div>' +
+          '<div class="fl2">' + esc(x.who) + ' · ' + clock(x.startT) + ' · ' + x.count + ' flag' + (x.count === 1 ? "" : "s") +
+            ' · ' + esc(x.quality) + '</div>' +
+        '</div>';
+
+      const body = f.length
+        ? '<div class="stand">' + stand + '</div>' + f.map(findingHtml).join("")
+        : '<div class="none-yet">Nothing was flagged. ' +
+          '<span class="rest">' + word(read.roster.length) + ' student' + (read.roster.length === 1 ? "" : "s") + ' finished clear.</span></div>';
+
+      const clearList = (f.length && clear.length)
+        ? '<div class="clearlist"><span class="lab">Finished clear</span>' +
+          clear.map(s => esc(s.p.name)).join(", ") + '</div>' : "";
+
+      $("body").innerHTML = body + clearList +
+        '<p class="privacy">No video, audio or images left any student’s device. Every finding above is an on-device ' +
+        'detection, offered as an aid to human judgement and not as a conclusion.</p>' +
+        '<div class="sign"><span>Reviewed by</span><span>Signature</span><span>Date</span></div>' +
+        appendixHtml(f) + '<div class="msg" id="msg"></div>';
+    }
+
+    function chipHtml(x) {
+      const v = VERDICT[x.review];
+      const cls = v ? v[1] : "none";
+      const txt = v ? v[0] : "Review";
+      return '<button class="chip ' + cls + '" data-ids="' + x.ids.join(",") + '"' +
+        (canReview && x.ids.length ? "" : " disabled") + '>' + txt + '</button>';
+    }
+
+    // per-episode timings live here, on their own page — most readers never turn to it
+    function appendixHtml(f) {
+      if (!f.length) return "";
+      const rows = x => {
+        const evs = x.events;
+        const runs = [];
+        for (const e of evs) {
+          const t = new Date(e.at).getTime(), last = runs[runs.length - 1];
+          if (last && t - last.end <= 90_000) { last.end = t; last.n++; } else runs.push({ start: t, end: t, n: 1 });
+        }
+        return runs.map(r => '<div class="e"><span class="w">' + clock(r.start) +
+          (r.n > 1 ? "–" + clock(r.end) : "") + '</span><span>' + esc(label(x.kind)) +
+          (r.n > 1 ? " · " + r.n + "× over " + spanTxt(r.start, r.end) : "") + '</span></div>').join("");
+      };
+      return '<div class="appendix"><h2>Appendix · every flagged moment</h2>' +
+        f.map(x => '<div class="apx"><div class="t"><span class="n">' + x.n + '</span>' +
+          esc(x.headline) + ' — ' + esc(x.who) + '</div>' + rows(x) + '</div>').join("") + '</div>';
+    }
+
+    // ── verdicts: one press sets every event behind the finding ─────────────
+    let pickFor = null;
+    function openPick(chip) {
+      pickFor = chip;
+      const cur = chip.classList.contains("upheld") ? "confirmed"
+        : chip.classList.contains("aside") ? "dismissed"
+        : chip.classList.contains("discuss") ? "discuss" : null;
+      $("pick").innerHTML = Object.entries(VERDICT)
+        .map(([k, v]) => '<button data-v="' + k + '">' + v[0] + (k === cur ? " ·" : "") + '</button>').join("") +
+        (cur ? '<button class="clear" data-v="">Not reviewed</button>' : "");
+      const r = chip.getBoundingClientRect();
+      $("pick").classList.add("on");
+      const h = $("pick").offsetHeight;
+      $("pick").style.top = Math.max(8, Math.min(innerHeight - h - 8, r.bottom + 6)) + "px";
+      $("pick").style.left = Math.max(8, Math.min(innerWidth - 144, r.left)) + "px";
+    }
+    const closePick = () => { $("pick").classList.remove("on"); pickFor = null; };
+
+    document.addEventListener("click", async e => {
+      const chip = e.target.closest(".chip");
+      if (chip) { e.stopPropagation(); (pickFor === chip ? closePick : () => openPick(chip))(); return; }
+      const opt = e.target.closest(".pick button");
+      if (!opt) { closePick(); return; }
+      const ids = pickFor.getAttribute("data-ids").split(",").filter(Boolean);
+      const val = opt.getAttribute("data-v") || null;
+      closePick();
+      const { error } = await sb.from("events").update({ review: val }).in("id", ids);
+      if (error) {
+        // 'discuss' needs migration v9; the other two have worked since v6
+        $("msg").textContent = val === "discuss"
+          ? "“To discuss” needs the latest database update (schema v9)."
+          : "That verdict could not be saved.";
+        return;
+      }
+      await load();
+    });
+    addEventListener("keydown", e => { if (e.key === "Escape") closePick(); });
+    addEventListener("resize", closePick);
+
+    // ── data ────────────────────────────────────────────────────────────────
+    async function load() {
+      const [pq, eq] = await Promise.all([
+        sb.from("participants").select("id,name,status,joined_at").eq("exam_id", examId),
+        sb.from("events").select("id,participant_id,kind,severity,at,meta,review").eq("exam_id", examId).order("at", { ascending: true }),
+      ]);
+      canReview = !eq.error;
+      const events = eq.error
+        ? ((await sb.from("events").select("participant_id,kind,severity,at,meta").eq("exam_id", examId).order("at", { ascending: true })).data || [])
+        : (eq.data || []);
+      read = readExam(pq.data || [], events);
+      // the real monitoring window, not the first-to-last-flag axis
+      const from = exam.created_at ? new Date(exam.created_at).getTime() : read.startT;
+      const to = exam.closed_at ? new Date(exam.closed_at).getTime() : (read.endT || Date.now());
+      $("title").textContent = exam.title;
+      $("context").textContent = [exam.code, dateLong(from), clockRange(from, to),
+        read.roster.length + " student" + (read.roster.length === 1 ? "" : "s")].join(" · ");
+      draw();
+    }
+
+    (async () => {
+      const { data: { user } } = await sb.auth.getUser();
+      if (!user || !examId) { location.replace("/exam/"); return; }
+      const { data: e } = await sb.from("exams").select("title,code,status,owner,created_at,closed_at").eq("id", examId).maybeSingle();
+      // the findings document is the teacher's record — a student reads their own activity instead
+      if (!e || e.owner !== user.id) { location.replace("/exam/report.html?e=" + examId + "&as=student"); return; }
+      exam = e;
+      document.title = "Vigil · " + e.title;
+      $("fullLink").href = "/exam/report.html?e=" + examId;
+      $("dl").onclick = () => window.print();
+      await load();
+    })();
+  </script>
+</body>
+</html>

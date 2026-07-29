@@ -48,9 +48,9 @@ const state = {
 const capt = { normal: null, away: null };   // captured peaks used to auto-suggest the eye radius
 
 // ── Supabase writes (events + presence) ──────────────────────────────────────
-async function emit(kind, severity) {
+async function emit(kind, severity, meta) {
   try {
-    await sb.from("events").insert({ exam_id: examId, participant_id: part.id, kind, severity });
+    await sb.from("events").insert({ exam_id: examId, participant_id: part.id, kind, severity, meta: meta || null });
   } catch (e) {}
   pushStatus(severity === "alert" ? "alert" : "warn", true);
 }
@@ -97,7 +97,7 @@ const sig = {
   second: { since: null, lastFired: 0 },
   away: { since: null, fired: false },
   cam: { off: false },   // one camera_off event per off-episode, not one per heartbeat
-  phone: { since: null, lastFired: 0 },
+  phone: { since: null, lastFired: 0, best: 0 },   // best = highest detector score this episode
 };
 
 function doMonitor(mx, now) {
@@ -366,15 +366,21 @@ function loop() {
 function detectPhone(now) {
   let ts = now; if (ts <= state.lastTsPhone) ts = state.lastTsPhone + 1; state.lastTsPhone = ts;
   let res; try { res = state.phoneDetector.detectForVideo(state.video, ts); } catch { return; }
-  let seen = false;
+  let seen = false, best = 0;
   for (const d of (res.detections || [])) {
     const c = d.categories && d.categories[0];
-    if (c && /phone/i.test(c.categoryName || "") && c.score >= CFG.PHONE_SCORE) { seen = true; break; }
+    if (c && /phone/i.test(c.categoryName || "") && c.score >= CFG.PHONE_SCORE) {
+      seen = true; if (c.score > best) best = c.score;
+    }
   }
   if (seen) {
-    if (!sig.phone.since) sig.phone.since = now;
+    if (!sig.phone.since) { sig.phone.since = now; sig.phone.best = 0; }
+    if (best > sig.phone.best) sig.phone.best = best;
     if (now - sig.phone.since > CFG.PHONE_HOLD_MS && now - sig.phone.lastFired > CFG.PHONE_COOLDOWN_MS) {
-      emit("phone", "alert"); sig.phone.lastFired = now;
+      // the detector's own confidence, kept — it is the ONLY real one we have,
+      // and a report used in a hearing must never show a number we invented
+      emit("phone", "alert", { score: Math.round(sig.phone.best * 100) / 100 });
+      sig.phone.lastFired = now; sig.phone.best = 0;
       showWarn && showWarn("A phone was detected in view — that was recorded.");
     }
   } else { sig.phone.since = null; }

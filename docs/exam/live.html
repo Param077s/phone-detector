@@ -8,227 +8,344 @@
   <meta name="theme-color" content="#f3f2ef">
   <link rel="stylesheet" href="/exam/style.css">
   <style>
-    .bar{position:sticky;top:0;z-index:10;display:flex;align-items:center;gap:14px;padding:14px 22px;
-      background:rgba(255,255,255,.7);backdrop-filter:blur(12px);border-bottom:1px solid var(--line)}
-    .bar .code{color:var(--muted);font:600 13px ui-monospace,Menlo,monospace;letter-spacing:2px}
+    /* ── the room ─────────────────────────────────────────────────────────
+       Most of an exam is quiet, and the screen should look it. A quiet tile
+       is a faint name and nothing else; colour appears only where a teacher
+       would actually want to look. */
+    .bar{display:flex;align-items:center;gap:14px;padding:16px 22px 0;max-width:1000px;margin:0 auto}
     .bar .sp{flex:1}
-    .live{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);font-weight:600}
-    .live i{width:8px;height:8px;border-radius:50%;background:var(--ink);animation:pulse 1.6s infinite}
-    @keyframes pulse{0%,100%{opacity:1}50%{opacity:.25}}
-    .wrap{max-width:1200px;margin:0 auto;padding:22px;display:flex;gap:18px;align-items:flex-start}
-    #main{flex:1;min-width:0}
-    .counts{display:flex;gap:8px}
-    .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:14px}
-    .tile{background:var(--card);border:1px solid var(--line);border-left:4px solid var(--faint);border-radius:var(--r-sm);
-      padding:15px;box-shadow:var(--shadow-sm);cursor:pointer;transition:box-shadow .3s,border-color .3s,transform .3s var(--spring);animation:pop .4s var(--spring) both}
-    .tile:hover{box-shadow:var(--shadow);transform:translateY(-1px)}
-    @keyframes pop{from{opacity:0;transform:scale(.9)}}
-    .tile.ok{border-left-color:var(--ok)} .tile.warn{border-left-color:var(--warn);background:linear-gradient(180deg,var(--warn-soft),#fff 60%)}
-    .tile.alert{border-left-color:var(--alert);background:linear-gradient(180deg,var(--alert-soft),#fff 60%)}
-    .tile.offline{opacity:.55}
-    .tile .top{display:flex;align-items:center;gap:9px;margin-bottom:6px}
-    .name{font-weight:600;font-size:14.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-    .status{font-size:13px;color:var(--muted)} .tile.warn .status{color:var(--warn)} .tile.alert .status{color:var(--alert)}
-    .empty{text-align:center;color:var(--muted);padding:70px 20px} .empty .big{font-size:18px;color:var(--ink);margin-bottom:6px;font-weight:600}
-    .backlink{color:var(--ink);font-size:13.5px;font-weight:600;display:inline-flex;align-items:center;gap:5px}
-    .backlink svg{width:15px;height:15px}
-    /* live alerts feed */
-    .feed{flex:0 0 290px;width:290px;position:sticky;top:76px;background:var(--card);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow-sm);overflow:hidden}
-    .feed-h{font-size:12px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--faint);padding:14px 16px 8px}
-    .feed-list{max-height:70vh;overflow-y:auto}
-    .fi{display:flex;gap:10px;align-items:baseline;padding:9px 16px;border-top:1px solid var(--line);cursor:pointer;animation:pop .3s var(--spring) both}
-    .fi:hover{background:var(--soft)}
-    .fi .fdot{width:8px;height:8px;border-radius:50%;background:var(--alert);flex:0 0 8px;position:relative;top:4px}
-    .fi .fn{font-weight:600;font-size:13.5px;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-    .fi .fk{font-size:12.5px;color:var(--alert);font-weight:600} .fi .ft{font-size:11px;color:var(--faint);font-variant-numeric:tabular-nums}
-    .feed-empty{padding:14px 16px 18px;color:var(--faint);font-size:12.5px}
-    /* invigilator note box — the human record, beside the machine's */
-    .notebox{display:flex;gap:8px;padding:4px 14px 12px}
-    .notebox input{flex:1;min-width:0;padding:9px 11px;border:1px solid var(--line-strong);border-radius:10px;
-      font:13px var(--font);color:var(--ink);background:#fff;outline:none;transition:border-color .15s}
-    .notebox input:focus{border-color:var(--ink)}
-    .fi.note{cursor:default} .fi.note:hover{background:none}
-    .fi.note .fdot{background:var(--ink)} .fi.note .fk{color:var(--muted)}
-    /* drill-down modal */
-    .modal{position:fixed;inset:0;z-index:100;display:none;place-items:center;padding:20px;background:rgba(243,242,239,.6);backdrop-filter:blur(12px)}
-    .modal.open{display:grid}
-    .modalCard{position:relative;width:min(460px,100%);max-height:80vh;overflow-y:auto;background:var(--card);border:1px solid var(--line);border-radius:20px;padding:24px;box-shadow:var(--shadow)}
-    .modalCard h3{font-size:18px;margin:0 0 3px} .modalCard .msub{color:var(--muted);font-size:13px;margin-bottom:14px}
-    .modalX{position:absolute;top:14px;right:14px;width:28px;height:28px;border-radius:50%;border:1px solid var(--line);background:var(--glass);cursor:pointer;color:var(--muted)}
-    .tl{position:relative;margin-left:4px;padding-left:18px;border-left:2px solid var(--line)}
-    .mev{position:relative;padding:7px 0;font-size:13.5px;display:flex;gap:12px}
-    .mev::before{content:"";position:absolute;left:-24px;top:13px;width:8px;height:8px;border-radius:50%;background:var(--faint);box-shadow:0 0 0 3px var(--card)}
-    .mev.warn::before{background:var(--warn)} .mev.alert::before{background:var(--alert)}
-    .mev .mt{color:var(--muted);font-variant-numeric:tabular-nums;flex:0 0 74px}
-    @media(max-width:860px){ .wrap{flex-direction:column} .feed{width:auto;flex:auto;position:static} .feed-list{max-height:none} }
+    .bar .code{color:var(--faint);font:600 12px ui-monospace,Menlo,monospace;letter-spacing:2px}
+    .backlink{color:var(--muted);display:inline-flex;align-items:center}
+    .backlink svg{width:17px;height:17px}
+    .backlink:hover{color:var(--ink)}
+    .quiet-btn{background:none;border:0;padding:0;font:500 13px var(--font);color:var(--faint);cursor:pointer;transition:color .18s}
+    .quiet-btn:hover{color:var(--ink)}
+
+    .wrap{max-width:1000px;margin:0 auto;padding:0 22px 60px}
+    .eyebrow{font-size:11px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:var(--faint);margin:26px 0 10px}
+    .head{display:flex;align-items:baseline;gap:12px;margin:0 0 20px;flex-wrap:wrap}
+    .head h1{font-size:24px;font-weight:500;letter-spacing:-.02em;margin:0}
+    .head .count{font-size:14px;color:var(--muted)}
+
+    .room{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:9px}
+    .tile{position:relative;background:var(--card);border:1.5px solid transparent;border-radius:10px;
+      padding:14px 12px;cursor:pointer;text-align:left;font:inherit;width:100%;
+      transition:transform .18s var(--spring),border-color .6s ease,box-shadow .18s,opacity .6s ease}
+    .tile:hover{transform:translateY(-2px)}
+    .tile:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
+    .tile .nm{font-size:14px;color:var(--faint);font-weight:400;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+      transition:color .6s ease,font-weight .6s ease}
+    .tile .ph{font-size:12.5px;margin-top:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+      opacity:0;max-height:0;transition:opacity .6s ease,max-height .6s ease}
+    .tile.flag .nm{color:var(--ink);font-weight:500}
+    .tile.flag .ph{opacity:1;max-height:20px}
+    .tile.warn{border-color:var(--warn)} .tile.warn .ph{color:#854f0b}
+    .tile.alert{border-color:var(--alert)} .tile.alert .ph{color:#a32d2d}
+    .tile.off{opacity:.45} .tile.off .ph{opacity:1;max-height:20px;color:var(--faint)}
+    .tile.new{animation:fadein .6s ease both}
+    @keyframes fadein{from{opacity:0}}
+
+    .roomline{display:flex;align-items:baseline;gap:10px;margin-top:26px;font-size:13.5px;color:var(--muted)}
+    .roomline .see{background:none;border:0;padding:0;font:600 13.5px var(--font);color:var(--ink);cursor:pointer;
+      border-bottom:1px solid var(--line-strong)}
+    .roomline .see:hover{border-color:var(--ink)}
+    .empty{color:var(--muted);padding:60px 4px} .empty b{display:block;font-size:17px;color:var(--ink);font-weight:500;margin-bottom:5px}
+
+    /* ── the tile becomes the popup ────────────────────────────────────── */
+    .scrim{position:fixed;inset:0;z-index:100;background:rgba(243,242,239,.72);opacity:0;
+      transition:opacity .28s ease;pointer-events:none;display:none}
+    .scrim.on{opacity:1;pointer-events:auto}
+    .popWrap{position:fixed;inset:0;z-index:101;display:none;place-items:center;padding:22px;pointer-events:none}
+    .popWrap.on{display:grid}
+    .pop{width:min(400px,100%);background:var(--card);border-radius:16px;padding:22px 22px 16px;
+      box-shadow:var(--shadow);transform-origin:0 0;pointer-events:auto;will-change:transform}
+    .popIn{transition:opacity .2s ease}
+    .pop .ptop{display:flex;align-items:center;gap:10px}
+    .pop .ptop .dot{width:9px;height:9px;border-radius:50%;background:var(--faint)}
+    .pop h2{font-size:21px;font-weight:500;letter-spacing:-.02em;margin:0}
+    .pop .pstat{font-size:13.5px;color:var(--muted);margin:5px 0 0}
+    .pop .lab{font-size:10.5px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:var(--faint);margin:22px 0 8px}
+    .pop .row{display:flex;gap:12px;font-size:13.5px;padding:4px 0}
+    .pop .row .t{color:var(--faint);min-width:44px;font-variant-numeric:tabular-nums}
+    .pop .row .w{color:var(--ink-2)}
+    .pop .row.alert .w{color:#a32d2d}
+    .pop .who{font-size:13.5px;color:var(--ink-2);line-height:1.6;margin:0}
+    .pop .caveat{font-size:12.5px;color:var(--warn);margin-top:14px}
+    .pop .noteRow{margin-top:20px;border-top:1px solid var(--line);padding-top:12px}
+    .pop .noteRow input{width:100%;border:0;outline:none;background:none;font:14px var(--font);color:var(--ink);padding:2px 0}
+    .pop .noteRow input::placeholder{color:var(--faint)}
+    .pop .noted{font-size:12.5px;color:var(--muted);margin-top:6px}
+    @media(max-width:860px){ .room{grid-template-columns:repeat(3,minmax(0,1fr))} }
+    @media(max-width:560px){ .room{grid-template-columns:repeat(2,minmax(0,1fr))} }
+    @media(prefers-reduced-motion:reduce){ .pop,.popIn,.tile,.tile .nm,.tile .ph{transition-duration:.01ms !important} }
   </style>
 </head>
 <body>
   <div class="bar">
-    <a class="backlink" href="/exam/console.html"><svg viewBox="0 0 24 24" fill="none"><path d="M15 18l-6-6 6-6" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg></a>
-    <span class="brand"><b id="title" style="font-size:15px">Live exam</b></span>
+    <a class="backlink" href="/exam/console.html" aria-label="Back to console"><svg viewBox="0 0 24 24" fill="none"><path d="M15 18l-6-6 6-6" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg></a>
     <span class="code" id="code"></span>
-    <span class="live"><i></i> Live</span>
-    <div class="sp"></div>
-    <div class="counts"><span class="pill" id="cJoined">0 joined</span><span class="pill ok" id="cPresent">0 present</span><span class="pill alert" id="cFlag" style="display:none">0 flagged</span></div>
-  </div>
-  <div class="wrap">
-    <div id="main"><div id="out"><div class="empty"><div class="big">Waiting for students…</div>Share the code — names appear here the moment they join.</div></div></div>
-    <aside class="feed" id="feed">
-      <div class="feed-h">Live alerts</div>
-      <div class="notebox hidden" id="noteBox">
-        <input id="noteInp" maxlength="300" placeholder="Note the room — &ldquo;phone buzz, back left&rdquo;" aria-label="Add invigilator note">
-        <button class="btn ink sm" id="noteBtn" type="button">Note</button>
-      </div>
-      <div class="feed-list" id="feedList"><div class="feed-empty">Serious flags — phones, second faces, hiding Vigil — appear here the instant they happen.</div></div>
-    </aside>
+    <span class="sp"></span>
+    <button class="quiet-btn hidden" id="roomNote" type="button">Note the room</button>
   </div>
 
-  <div class="modal" id="modal" aria-hidden="true">
-    <div class="modalCard">
-      <button class="modalX" id="modalX" aria-label="Close">✕</button>
-      <h3 id="mName">Student</h3>
-      <div class="msub" id="mSub"></div>
-      <div id="mBody"></div>
-    </div>
+  <div class="wrap">
+    <div class="eyebrow" id="eyebrow">Live</div>
+    <div class="head"><h1 id="h1">Your room</h1><span class="count" id="count"></span></div>
+    <div id="out"><div class="empty"><b>Waiting for students…</b>Share the code — names appear here the moment they join.</div></div>
+    <div class="roomline hidden" id="roomline"><span id="roomtxt"></span><button class="see" id="roomsee" type="button">See it</button></div>
+  </div>
+
+  <div class="scrim" id="scrim"></div>
+  <div class="popWrap" id="popWrap" aria-hidden="true">
+    <div class="pop" id="pop" role="dialog" aria-modal="true" aria-labelledby="popName"><div class="popIn" id="popIn"></div></div>
   </div>
 
   <script type="module">
-    import { sb, esc } from "/exam/sb.js";
+    import { sb } from "/exam/sb.js";
+    import { esc, label, clock, ago, readExam, roomHeadline, ALERT_KINDS, t } from "/exam/exam-core.js";
     const $ = id => document.getElementById(id);
     const examId = new URLSearchParams(location.search).get("e");
-    const state = new Map();   // participant id -> row
-    let CLOSED = false;        // a closed exam = static roster of who was in it
-    const LABELS = { head_down:"Looked down", look_away:"Looked away", face_absent:"Face not visible", second_face:"Second face detected", phone:"Phone detected", camera_off:"Camera off", monitor_hidden:"Hid / left Vigil", left_exam:"Closed Vigil", virtual_cam:"Virtual camera" };
-    const ALERT_KINDS = new Set(["second_face","phone","camera_off","monitor_hidden","left_exam","virtual_cam"]);
-    const hhmmss = iso => new Date(iso).toLocaleTimeString([], {hour:"2-digit",minute:"2-digit",second:"2-digit"});
 
-    function fresh(row){ if (CLOSED) return true; return (Date.now() - new Date(row.last_seen).getTime()) < 15000; }
-    function tileClass(row){ if(!fresh(row)) return "offline"; return row.status || "ok"; }
-    function statusLabel(row){
-      if(!fresh(row)) return "Offline";
-      if (CLOSED) return {ok:"No flags",warn:"Was flagged",alert:"Flagged"}[row.status] || "No flags";
-      return {ok:"Present",warn:"Looking away",alert:"Needs attention"}[row.status] || "Present";
+    const parts = new Map();            // participant id -> row
+    const events = [];                  // every flag in this exam, oldest first
+    const seenEv = new Set();           // ids already held, so realtime can't double-count
+    let CLOSED = false, exam = null, read = null, notesOn = false;
+    const tiles = new Map();            // participant id -> tile element (kept, never rebuilt)
+
+    const fresh = row => CLOSED || (Date.now() - t(row.last_seen)) < 15000;
+
+    function addEvent(e) {
+      if (e.id && seenEv.has(e.id)) return false;
+      if (e.id) seenEv.add(e.id);
+      events.push(e);
+      events.sort((a, b) => t(a.at) - t(b.at));
+      return true;
     }
 
-    function render(){
-      const rows = [...state.values()].sort((a,b)=> new Date(a.joined_at)-new Date(b.joined_at));
-      const present = rows.filter(fresh).length;
-      const flagged = rows.filter(r=>fresh(r) && (r.status==="warn"||r.status==="alert")).length;
-      $("cJoined").textContent = rows.length + (CLOSED ? " were in this exam" : " joined");
-      $("cPresent").style.display = CLOSED ? "none" : "";
-      $("cPresent").textContent = present + " present";
-      const cf = $("cFlag"); cf.style.display = flagged ? "" : "none"; cf.textContent = flagged + " flagged";
-      if (!rows.length){ $("out").innerHTML = CLOSED
-        ? '<div class="empty"><div class="big">No one joined this exam.</div></div>'
-        : '<div class="empty"><div class="big">Waiting for students…</div>Share the code — names appear here the moment they join.</div>'; return; }
-      $("out").innerHTML = '<div class="grid">' + rows.map(r => {
-        const c = tileClass(r);
-        return '<div class="tile '+c+'" data-id="'+esc(r.id)+'"><div class="top"><span class="dot '+(c==="offline"?"":c)+'"></span><span class="name">'+esc(r.name)+'</span></div>'+
-          '<div class="status">'+statusLabel(r)+'</div></div>';
-      }).join("") + '</div>';
+    // ── the room ────────────────────────────────────────────────────────────
+    function render() {
+      read = readExam([...parts.values()], events);
+      const rows = read.students;
+      if (!rows.length) {
+        $("out").innerHTML = CLOSED
+          ? '<div class="empty"><b>No one joined this exam.</b></div>'
+          : '<div class="empty"><b>Waiting for students…</b>Share the code — names appear here the moment they join.</div>';
+        tiles.clear(); $("count").textContent = ""; return;
+      }
+      let grid = $("out").querySelector(".room");
+      if (!grid) { $("out").innerHTML = '<div class="room"></div>'; grid = $("out").querySelector(".room"); tiles.clear(); }
+
+      let quiet = 0, look = 0;
+      for (const s of rows) {
+        const off = !fresh(s.p);
+        const flagged = s.band !== "quiet";
+        if (flagged) look++; else quiet++;
+        let el = tiles.get(s.p.id);
+        if (!el) {
+          el = document.createElement("button");
+          el.type = "button"; el.className = "tile new"; el.setAttribute("data-id", s.p.id);
+          el.innerHTML = '<div class="nm"></div><div class="ph"></div>';
+          grid.appendChild(el); tiles.set(s.p.id, el);
+        }
+        // classes change on a 600ms colour transition — the room never flashes
+        el.classList.toggle("flag", flagged);
+        el.classList.toggle("warn", s.band === "warn");
+        el.classList.toggle("alert", s.band === "alert");
+        el.classList.toggle("off", off);
+        const nm = el.querySelector(".nm"), ph = el.querySelector(".ph");
+        if (nm.textContent !== s.p.name) nm.textContent = s.p.name;
+        const txt = off && !CLOSED ? "offline" : s.phrase;
+        if (ph.textContent !== txt) ph.textContent = txt;
+        el.setAttribute("aria-label", s.p.name + (txt ? " — " + txt : ""));
+      }
+      for (const [id, el] of tiles) if (!parts.has(id)) { el.remove(); tiles.delete(id); }
+      // keep tile order matching the roster (joined order) as people arrive
+      rows.forEach(s => { const el = tiles.get(s.p.id); if (el) grid.appendChild(el); });
+
+      $("count").textContent = look ? quiet + " quiet · " + look + " worth a look" : quiet + " quiet";
+      renderRoomLine();
     }
 
-    // ── drill-down: click a tile (or a feed item) → that student's timeline ──
-    async function openDrill(pid){
-      const row = state.get(pid);
-      $("mName").textContent = row ? row.name : "Student";
-      $("mSub").textContent = "Loading…"; $("mBody").innerHTML = ""; $("modal").classList.add("open");
-      const { data:evs } = await sb.from("events").select("kind,severity,at").eq("participant_id", pid).order("at",{ascending:false}).limit(60);
-      const list = evs || [];
-      $("mSub").textContent = list.length ? list.length + " flag" + (list.length===1?"":"s") : "No flags recorded";
-      $("mBody").innerHTML = list.length
-        ? '<div class="tl">' + list.map(e => '<div class="mev '+esc(e.severity)+'"><span class="mt">'+hhmmss(e.at)+'</span><span>'+esc(LABELS[e.kind]||e.kind)+'</span></div>').join("") + '</div>'
-        : '<div style="color:var(--muted);font-size:13.5px">This student has a clean record so far.</div>';
+    // one line, only when the room itself did something
+    function renderRoomLine() {
+      const m = read && read.moments.length ? read.moments[read.moments.length - 1] : null;
+      $("roomline").classList.toggle("hidden", !m);
+      if (!m) return;
+      $("roomtxt").textContent = clock(m.startT) + " — " + roomHeadline(m.kind).toLowerCase() + ".";
+      $("roomsee").onclick = () => openMoment(m, $("roomsee"));
     }
-    function closeDrill(){ $("modal").classList.remove("open"); }
-    $("modalX").onclick = closeDrill;
-    $("modal").addEventListener("click", e => { if (e.target === $("modal")) closeDrill(); });
-    addEventListener("keydown", e => { if (e.key === "Escape") closeDrill(); });
-    $("out").addEventListener("click", e => { const t = e.target.closest(".tile"); if (t) openDrill(t.getAttribute("data-id")); });
 
-    // ── live alerts feed (serious flags stream in as they happen) ──
-    function pushFeed(ev){
-      const row = state.get(ev.participant_id);
-      const el = $("feedList");
-      if (el.querySelector(".feed-empty")) el.innerHTML = "";
-      const item = document.createElement("div");
-      item.className = "fi"; item.setAttribute("data-id", ev.participant_id);
-      item.innerHTML = '<span class="fdot"></span><span class="fn">'+esc(row ? row.name : "A student")+'</span>'+
-        '<span class="fk">'+esc(LABELS[ev.kind]||ev.kind)+'</span><span class="ft">'+hhmmss(ev.at)+'</span>';
-      item.onclick = () => openDrill(ev.participant_id);
-      el.insertBefore(item, el.firstChild);
-      while (el.children.length > 40) el.removeChild(el.lastChild);
+    // ── tile → popup, as one movement ───────────────────────────────────────
+    // The popup is not a new object arriving; it is the tile you pressed, grown.
+    // Measure both boxes, park the popup on top of the tile, then let it go.
+    let openFrom = null, closeTimer = null;
+    function morphOpen(sourceEl) {
+      const pop = $("pop"), inner = $("popIn"), wrap = $("popWrap");
+      clearTimeout(closeTimer); closeTimer = null;   // a re-open cancels a close still in flight
+      wrap.classList.add("on"); wrap.setAttribute("aria-hidden", "false");
+      $("scrim").style.display = "block";
+      requestAnimationFrame(() => $("scrim").classList.add("on"));
+      pop.style.transition = "none"; pop.style.transform = "none"; inner.style.transition = "none"; inner.style.opacity = "1";
+      const p = pop.getBoundingClientRect(), s = sourceEl.getBoundingClientRect();
+      pop.style.transform = "translate(" + (s.left - p.left) + "px," + (s.top - p.top) + "px) scale(" +
+        (s.width / p.width) + "," + (s.height / p.height) + ")";
+      inner.style.opacity = "0";
+      void pop.offsetWidth;   // commit the parked state before animating away from it
+      pop.style.transition = "transform .34s cubic-bezier(.2,.7,.2,1)";
+      inner.style.transition = "opacity .2s ease .08s";   // content a beat behind the shape
+      pop.style.transform = "none"; inner.style.opacity = "1";
+      openFrom = sourceEl;
     }
-    function pushNote(n){
-      const el = $("feedList");
-      if (el.querySelector(".feed-empty")) el.innerHTML = "";
-      const item = document.createElement("div");
-      item.className = "fi note";
-      item.innerHTML = '<span class="fdot"></span><span class="fn" title="'+esc(n.text)+'">'+esc(n.text)+'</span>'+
-        '<span class="fk">Note</span><span class="ft">'+hhmmss(n.at)+'</span>';
-      el.insertBefore(item, el.firstChild);
-      while (el.children.length > 40) el.removeChild(el.lastChild);
+    function morphClose() {
+      const pop = $("pop"), inner = $("popIn"), wrap = $("popWrap");
+      if (!wrap.classList.contains("on")) return;
+      $("scrim").classList.remove("on");
+      const src = openFrom && openFrom.isConnected ? openFrom : null;
+      if (src) {
+        const p = pop.getBoundingClientRect(), s = src.getBoundingClientRect();
+        pop.style.transition = "transform .34s cubic-bezier(.2,.7,.2,1)";
+        inner.style.transition = "opacity .16s ease";
+        inner.style.opacity = "0";
+        pop.style.transform = "translate(" + (s.left - p.left) + "px," + (s.top - p.top) + "px) scale(" +
+          (s.width / p.width) + "," + (s.height / p.height) + ")";
+      }
+      openFrom = null;
+      clearTimeout(closeTimer);
+      closeTimer = setTimeout(() => {
+        closeTimer = null;
+        wrap.classList.remove("on"); wrap.setAttribute("aria-hidden", "true");
+        $("scrim").style.display = "none";
+        pop.style.transition = "none"; pop.style.transform = "none";
+      }, src ? 340 : 0);
+    }
+    $("scrim").onclick = morphClose;
+    addEventListener("keydown", e => { if (e.key === "Escape") morphClose(); });
+
+    // ── what the popup says: now, not the whole exam ────────────────────────
+    function noteField(prefix) {
+      if (!notesOn || CLOSED) return "";
+      return '<div class="noteRow"><input id="noteInp" maxlength="300" placeholder="Add a note" ' +
+        'data-prefix="' + esc(prefix || "") + '" aria-label="Add a note"><div class="noted" id="noted"></div></div>';
+    }
+    function wireNote() {
+      const inp = $("noteInp"); if (!inp) return;
+      setTimeout(() => inp.focus(), 360);
+      inp.addEventListener("keydown", async e => {
+        if (e.key !== "Enter") return;
+        const txt = inp.value.trim(); if (!txt) return;
+        const prefix = inp.getAttribute("data-prefix");
+        inp.value = "";
+        const { data, error } = await sb.from("exam_notes")
+          .insert({ exam_id: examId, text: (prefix ? prefix + " — " : "") + txt }).select("at").maybeSingle();
+        if (error) { inp.value = txt; $("noted").textContent = "Could not save that note."; return; }
+        $("noted").textContent = "Noted at " + clock(data ? data.at : Date.now()) + ".";
+      });
+    }
+
+    function openStudent(pid, sourceEl) {
+      const s = read && read.students.find(x => x.p.id === pid); if (!s) return;
+      const off = !fresh(s.p);
+      const recent = s.events.slice(-8).reverse();
+      const last = s.events[s.events.length - 1];
+      let stat;
+      if (off && !CLOSED) stat = "Not connected · last seen " + clock(s.p.last_seen);
+      else if (last) stat = label(last.kind) + " · " + ago(last.at);
+      else stat = "Looking at screen · settled since " + clock(s.p.joined_at);
+      const caveat = s.calib && s.calib.grade && s.calib.grade !== "solid"
+        ? '<div class="caveat">Setup was ' + esc(s.calib.grade) +
+          (s.calib.reasons && s.calib.reasons.length ? " — " + esc(s.calib.reasons[0]) : "") + ". Read these lightly.</div>" : "";
+      $("popIn").innerHTML =
+        '<div class="ptop"><span class="dot ' + (s.band === "quiet" ? "" : s.band) + '"></span>' +
+        '<h2 id="popName">' + esc(s.p.name) + '</h2></div>' +
+        '<p class="pstat">' + esc(stat) + '</p>' +
+        (recent.length ? '<div class="lab">So far</div>' + recent.map(e =>
+          '<div class="row ' + (ALERT_KINDS.has(e.kind) ? "alert" : "") + '"><span class="t">' + clock(e.at) + '</span>' +
+          '<span class="w">' + esc(label(e.kind)) + '</span></div>').join("") : "") +
+        caveat + noteField(s.p.name);
+      morphOpen(sourceEl); wireNote();
+    }
+
+    function openMoment(m, sourceEl) {
+      const names = [...m.people].map(id => parts.get(id)).filter(Boolean).map(p => p.name);
+      $("popIn").innerHTML =
+        '<div class="ptop"><span class="dot warn"></span><h2 id="popName">' + esc(roomHeadline(m.kind)) + '</h2></div>' +
+        '<p class="pstat">' + names.length + ' of ' + read.roster.length + ' students · ' + clock(m.startT) + '</p>' +
+        '<div class="lab">Who</div>' +
+        '<p class="who">' + names.map(esc).join(", ") + '</p>' +
+        '<div class="caveat">A whole room flagging together is usually the room, not the students.</div>' +
+        noteField("");
+      morphOpen(sourceEl); wireNote();
+    }
+
+    $("out").addEventListener("click", e => {
+      const tile = e.target.closest(".tile"); if (tile) openStudent(tile.getAttribute("data-id"), tile);
+    });
+    $("roomNote").onclick = () => {
+      $("popIn").innerHTML = '<div class="ptop"><h2 id="popName">Note the room</h2></div>' +
+        '<p class="pstat">Goes into the report beside the machine\'s flags.</p>' + noteField("");
+      morphOpen($("roomNote")); wireNote();
+    };
+
+    // ── header ──────────────────────────────────────────────────────────────
+    function renderHead() {
+      const bits = [exam.title.toUpperCase()];
+      if (CLOSED) bits.push("CLOSED");
+      else {
+        bits.push("LIVE");
+        const mins = Math.max(0, Math.round((Date.now() - t(exam.created_at)) / 60000));
+        if (mins >= 1) bits.push(mins + (mins === 1 ? " MINUTE IN" : " MINUTES IN"));
+      }
+      $("eyebrow").textContent = bits.join(" · ");
+      $("h1").textContent = CLOSED ? "Who was in" : "Your room";
     }
 
     (async () => {
-      const { data:{ user } } = await sb.auth.getUser();
+      const { data: { user } } = await sb.auth.getUser();
       if (!user) { location.replace("/exam/"); return; }
       if (!examId) { location.replace("/exam/console.html"); return; }
-      const { data:exam } = await sb.from("exams").select("title,code,status,owner").eq("id", examId).maybeSingle();
+      const { data: e } = await sb.from("exams").select("title,code,status,owner,created_at").eq("id", examId).maybeSingle();
       // this page is the teacher's — only the exam's owner may watch its room
-      if (!exam || exam.owner !== user.id) { location.replace("/exam/console.html"); return; }
-      // status can flip mid-session (teacher closes/reopens from the console) —
-      // applyStatus adapts this page in place, no reload
-      function applyStatus(status){
-        CLOSED = status === "closed";
-        const lv = document.querySelector(".live"); if (lv) lv.style.display = CLOSED ? "none" : "";
-        $("feed").style.display = CLOSED ? "none" : "";
-        $("title").textContent = (CLOSED ? "Who was in · " : "") + exam.title;
-        render();
-      }
-      CLOSED = exam.status === "closed";
-      if (CLOSED) { const lv = document.querySelector(".live"); if (lv) lv.style.display = "none"; $("feed").style.display = "none"; }
-      $("title").textContent = (CLOSED ? "Who was in · " : "") + exam.title; $("code").textContent = exam.code; document.title = "Vigil · " + exam.title;
+      if (!e || e.owner !== user.id) { location.replace("/exam/console.html"); return; }
+      exam = e; CLOSED = exam.status === "closed";
+      $("code").textContent = exam.code; document.title = "Vigil · " + exam.title;
+      renderHead();
 
-      const { data:rows } = await sb.from("participants").select("*").eq("exam_id", examId);
-      (rows||[]).forEach(r => state.set(r.id, r));
+      const [pq, eq] = await Promise.all([
+        sb.from("participants").select("*").eq("exam_id", examId),
+        sb.from("events").select("id,participant_id,kind,severity,at,meta,review").eq("exam_id", examId).order("at", { ascending: true }),
+      ]);
+      (pq.data || []).forEach(r => parts.set(r.id, r));
+      (eq.data || []).forEach(addEvent);
       render();
 
-      // realtime: names + status changes stream in; serious flags also feed the alerts panel
-      sb.channel("exam-"+examId)
-        .on("postgres_changes", { event:"*", schema:"public", table:"participants", filter:"exam_id=eq."+examId },
-          (payload) => {
-            if (payload.eventType === "DELETE") state.delete(payload.old.id);
-            else state.set(payload.new.id, payload.new);
+      // notes need migration v7 — the field simply doesn't appear without it
+      const nq = await sb.from("exam_notes").select("id").eq("exam_id", examId).limit(1);
+      notesOn = !nq.error;
+      $("roomNote").classList.toggle("hidden", !notesOn || CLOSED);
+
+      function applyStatus(status) {
+        CLOSED = status === "closed";
+        $("roomNote").classList.toggle("hidden", !notesOn || CLOSED);
+        renderHead(); render();
+      }
+
+      // Nothing here interrupts. A flag elsewhere while a popup is open changes
+      // the tile behind it quietly; the teacher meets it when they close.
+      sb.channel("exam-" + examId)
+        .on("postgres_changes", { event: "*", schema: "public", table: "participants", filter: "exam_id=eq." + examId },
+          p => { if (p.eventType === "DELETE") parts.delete(p.old.id); else parts.set(p.new.id, p.new); render(); })
+        .on("postgres_changes", { event: "*", schema: "public", table: "events", filter: "exam_id=eq." + examId },
+          p => {
+            if (p.eventType === "INSERT") { if (!addEvent(p.new)) return; }
+            else if (p.eventType === "UPDATE") { const i = events.findIndex(x => x.id === p.new.id); if (i < 0) return; events[i] = p.new; }
+            else return;
             render();
           })
-        .on("postgres_changes", { event:"INSERT", schema:"public", table:"events", filter:"exam_id=eq."+examId },
-          (payload) => { const ev = payload.new; if (!CLOSED && ALERT_KINDS.has(ev.kind)) pushFeed(ev); })
-        .on("postgres_changes", { event:"UPDATE", schema:"public", table:"exams", filter:"id=eq."+examId },
-          (payload) => { if (payload.new && payload.new.status) applyStatus(payload.new.status); })
+        .on("postgres_changes", { event: "UPDATE", schema: "public", table: "exams", filter: "id=eq." + examId },
+          p => { if (p.new && p.new.status) applyStatus(p.new.status); })
         .subscribe();
 
-      setInterval(render, 5000);   // re-evaluate presence freshness
-
-      // invigilator notes — timestamped observations that land in the report
-      // beside the AI flags (needs migration v7; the box stays hidden until then)
-      if (!CLOSED){
-        const nq = await sb.from("exam_notes").select("id,at,text").eq("exam_id", examId).order("at",{ascending:false}).limit(6);
-        if (!nq.error){
-          $("noteBox").classList.remove("hidden");
-          (nq.data||[]).reverse().forEach(pushNote);
-          const add = async () => {
-            const t = $("noteInp").value.trim(); if (!t) return;
-            $("noteInp").value = "";
-            const { data, error } = await sb.from("exam_notes").insert({ exam_id: examId, text: t }).select("id,at,text").maybeSingle();
-            if (!error && data) pushNote(data);
-            else if (error) { $("noteInp").value = t; }   // keep the text if the write failed
-          };
-          $("noteBtn").onclick = add;
-          $("noteInp").addEventListener("keydown", e => { if (e.key === "Enter") add(); });
-        }
-      }
+      setInterval(() => { renderHead(); render(); }, 15000);   // presence freshness + the clock in the eyebrow
     })();
   </script>
 </body>

@@ -66,7 +66,7 @@
           '<div class="row"><div class="meta"><div class="title">'+esc(x.title)+'</div>'+
             '<div class="info">code '+esc(x.code)+' · '+fmtDate(x.created_at)+'</div></div>'+
             '<div class="acts">'+statusPill(x.status)+
-              '<a class="btn ink sm" href="/exam/report.html?e='+encodeURIComponent(x.id)+'">Report</a>'+
+              '<a class="btn ink sm" href="/exam/findings.html?e='+encodeURIComponent(x.id)+'">Report</a>'+
               '<a class="btn ghost sm" href="/exam/live.html?e='+encodeURIComponent(x.id)+'">'+(x.status==="open"?"Live":"Who joined")+'</a>'+
             '</div></div>').join("");
       }

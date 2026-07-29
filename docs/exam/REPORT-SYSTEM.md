@@ -4,7 +4,9 @@ A complete description of the current exam-integrity report: what we measure, ho
 signals become a verdict, and how that verdict is drawn on screen. Written to be read
 cold, with no access to the codebase, by someone proposing improvements.
 
-Everything below describes the **live production behaviour** as of 29 July 2026.
+Everything below describes the **live production behaviour** as of 29 July 2026, after
+the report redesign described in `REPORT-REDESIGN.md` was built. That file records the
+design decisions and the directions that were rejected; this file records what exists.
 
 ---
 
@@ -17,14 +19,17 @@ Vigil Exams is a browser-based exam-integrity tool.
 - Each student's laptop runs computer-vision models **locally** (MediaPipe: a face
   landmarker + an object detector). Video is analysed on-device.
 - **No video, audio, or images ever leave the student's machine.** Only tiny JSON
-  "events" (a kind + a timestamp) and a presence status are sent to the server.
-- The teacher watches a live wall during the exam, then reads a **report** afterwards.
+  "events" (a kind + a timestamp + occasionally a small `meta` object) and a presence
+  status are sent to the server.
+- The teacher watches **the room** live during the exam, then reads a one-page
+  **findings document** afterwards.
 
 This privacy property is the product's core promise, so any proposal that requires
 uploading frames, video, or screenshots is off the table.
 
-The report is the artefact that matters: it's what a teacher reads to decide whether a
-student did something wrong, and potentially what gets shown at a disciplinary hearing.
+The findings document is the artefact that matters: it's what a teacher reads to decide
+whether a student did something wrong, and potentially what gets shown at a disciplinary
+hearing.
 
 ---
 
@@ -41,7 +46,7 @@ participants   id, exam_id, user_id, name,
 events         id, exam_id, participant_id,
                kind(text), severity('info'|'warn'|'alert'),
                at(timestamptz), meta(jsonb),
-               review('confirmed'|'dismissed'|null)
+               review('confirmed'|'dismissed'|'discuss'|null)
 
 exam_notes     id, exam_id, owner, at, text      -- teacher's own observations
 ```
@@ -50,10 +55,26 @@ Notes:
 
 - `events` is append-only from the student's side. Students can insert their own events
   and read their own back; only the exam owner can **update** `review`.
-- There is **no exam start/end timestamp** for the monitoring window itself. We have
-  `created_at` and `closed_at` on the exam, but students join at arbitrary times, and
-  the report currently derives its time axis from the events themselves (see §5.3).
-- `meta` is currently used for exactly one thing: the calibration quality record (§4.3).
+- `review = 'discuss'` requires migration **v9**. Until it is applied the column only
+  accepts `'confirmed'|'dismissed'`, and the findings document says so in place rather
+  than failing silently.
+- There is **no exam start/end timestamp for the monitoring window itself**. We have
+  `created_at` and `closed_at` on the exam; the findings document uses those as its time
+  window, while the full-record view still derives its time axis from the events (§5.9).
+- `meta` now carries exactly two things: the calibration quality record on a `calibrated`
+  event (§4.3) and the detector's confidence on a `phone` event (§4.4).
+
+### 2.1 Migrations
+
+| | what it adds | required by |
+|---|---|---|
+| v6 | `events.review` + owner-update policy | Confirm / Dismiss |
+| v7 | `exam_notes` table | invigilator notes |
+| v8 | `exams` on the realtime publication | instant close/reopen |
+| v9 | widens `events_review_check` to allow `'discuss'` | the third verdict |
+
+Every surface degrades gracefully when a migration hasn't been run — the note field
+simply doesn't appear, the third verdict reports that it isn't available, and so on.
 
 ---
 
@@ -121,21 +142,74 @@ Reasons are derived from: average image brightness (`luma < 60` = low light,
 and how much the gaze wandered during calibration. `solid` = 0 reasons, `fair` = 1,
 `weak` = 2+.
 
-This is **currently informational only** — it is displayed but does not affect scoring.
+It still does **not affect scoring**. It is now surfaced in two places where it changes
+how a reader should weigh a flag: as the caveat line in a live popup, and as the
+evidence-quality segment of a finding (§5.6).
+
+### 4.4 Phone detector confidence (`phone` event `meta`)
+
+`detectPhone()` keeps the **highest** detector score seen during the current episode and
+writes it with the event:
+
+```json
+{ "score": 0.71 }
+```
+
+`best` resets each time the event fires, so each of the ~15 s re-fires carries the best
+score since the previous one, not since the start of the episode.
+
+This is the **only real confidence number anywhere in the system.** Every other kind is
+rule-based and has no confidence value; the report is required to say so rather than
+invent one (§5.6).
 
 ---
 
 ## 5. How events become the report
 
-### 5.1 Filtering
+Two surfaces are the redesign — the live room and the findings document. A third, the
+pre-redesign full record, is kept behind them as the underlying detail.
+
+### 5.1 One shared reading
+
+`exam-core.js` holds the whole interpretation layer. It talks to nothing — no network, no
+DOM — so both surfaces read the same exam the same way and cannot drift apart.
+
+`readExam(participants, events)` runs in this order, and the order matters:
 
 1. `calibrated` events are separated out — they are context, never flags.
-2. Events with `review = 'dismissed'` are excluded from counts, risk score, and bands
-   (but still render, struck through, so the record stays honest).
+2. **Room-wide moments are found first** (§5.2).
+3. Each student's **own** events are everything not absorbed by a room-wide moment.
+4. Their **score** is the weighted sum over their own events, excluding `dismissed` ones.
+5. **Findings** are built from the moments plus each student's own events (§5.4).
 
-### 5.2 Risk score and bands
+It returns `{ roster, students, moments, findings, clear, startT, endT }`.
 
-Each remaining event adds a fixed weight:
+### 5.2 Room-wide moments
+
+If every student looks away at 11:18, that is almost certainly the room — a door, an
+announcement, the invigilator walking past — and not fifteen people deciding to cheat
+simultaneously. This was the system's biggest blind spot and it is computed entirely from
+data that already existed.
+
+- Group all events by `(kind, minute)` across the whole exam.
+- A bucket becomes a room-wide moment when it contains **≥ 60 % of the roster** and
+  **≥ 5 distinct students**. Exams smaller than 5 students never produce one.
+- Adjacent minutes of the same kind merge, so a moment straddling 11:17:58 is one moment.
+
+Consequences:
+
+- Those events **stop counting toward the individual students' scores**, so a room-wide
+  look-away no longer turns eighteen tiles amber.
+- The moment becomes a **first-class finding** in the document, sitting beside a phone.
+- Setting it aside is one action that writes `review = 'dismissed'` to every underlying
+  event at once.
+
+Thresholds are constants in `exam-core.js` (`ROOM_SHARE`, `ROOM_MIN`) and are not
+configurable per exam.
+
+### 5.3 Risk score and bands
+
+Each counted event adds a fixed weight — unchanged:
 
 ```
 second_face 5   phone 5   virtual_cam 5
@@ -145,17 +219,37 @@ face_absent 1.5
 look_away   1   head_down 1
 ```
 
-Score is a **plain sum**. Bands:
+Score is a **plain sum** over a student's own, non-dismissed events. Two things changed:
+events absorbed by a room-wide moment are excluded, and `discuss` scores exactly like an
+unreviewed flag (only `dismissed` removes a flag from the sum).
+
+`exam-core.js` bands the sum into three states for the live tile:
 
 ```
-score >= 10 → high      score >= 4 → medium
-score  >  0 → low       score == 0 → clear
+score >= 10 → alert      score >= 4 → warn      score < 4 → quiet
 ```
 
-Students are sorted by score, descending. "Clear" students collapse into a single
-summary row.
+The full-record view (§5.9) keeps its own older four-band vocabulary
+(`high / medium / low / clear` at the same 10 and 4 thresholds) and its **own copy** of
+the weights — see §7.12.
 
-### 5.3 Episodes (display-level grouping)
+### 5.4 Findings — the document's unit
+
+The unit is the **moment**, not the student. A finding is either:
+
+- a **room-wide moment**, or
+- one student's events **of a single kind**, taken together, whose raw weighted score
+  reaches `FINDING_SCORE = 4` — the same bar as the old "medium" band.
+
+Anything below that bar is not a finding and appears only in the full record. Findings
+are sorted by score descending, then by time, and numbered `01`, `02`, … in that order,
+so `01` is the thing that most needs reading.
+
+Findings are built from **all** of a student's own events regardless of verdict, so a
+finding that was considered and set aside stays on the page wearing its verdict. What a
+verdict changes is the *score*, and therefore the clear list (§5.7).
+
+### 5.5 Episodes (display-level grouping)
 
 Consecutive events **of the same kind** whose gap is ≤ **90 seconds** merge into one
 "episode":
@@ -167,70 +261,136 @@ Consecutive events **of the same kind** whose gap is ≤ **90 seconds** merge in
 04:25:16 look_away ┘
 ```
 
-An episode shows one row, and Confirm/Dismiss applies to **all** its underlying events at
-once. This grouping is computed at render time and **not persisted** — the 90 s constant
-is a UI decision, not stored data.
+This grouping is computed at render time and **not persisted** — the 90 s constant is a
+UI decision, not stored data. Episodes are what the findings appendix lists and what the
+full record shows as one reviewable row. Scoring is still per **event**, not per episode.
 
-Note: the risk score is still computed **per event**, not per episode. Four glances in
-40 s score 4, the same as four glances spread across an hour.
+### 5.6 Evidence quality
 
-### 5.4 The timeline strip
+Each finding ends with one honest statement about how much weight its evidence carries.
+There are exactly three possible answers, in priority order:
 
-Each student card has a horizontal strip:
+1. `detector 71% confident` — only when the underlying events carry real `meta.score`
+   values, i.e. only for `phone`. The number is the mean of those scores.
+2. `weak camera setup` / `fair camera setup` — when calibration was not solid.
+3. `no confidence value` — everything else, said plainly.
 
-- The **time window is shared across every student** in the exam, so strips line up and
-  can be compared vertically.
-- The window is derived from the **first and last event in the whole exam**, padded, with
-  a minimum width of 10 minutes. It is *not* the real exam duration — if nobody flagged
-  in the first 15 minutes, those minutes don't exist on the axis.
-- Each event is a tick. Alert-severity ticks are red, warn ticks amber. Dismissed ticks
-  fade to 22 % opacity.
-- Episodes of 3 or more events also paint a soft shaded "burst" band behind the ticks.
+**No confidence number is ever displayed that the system did not actually compute.** This
+is a hard rule, not a preference: the document is meant to survive a disciplinary hearing.
 
-### 5.5 The auto-written sentence
+### 5.7 Surface 1 — the live room (`live.html`)
 
-One plain-English line per student, generated from the episode set:
+What the teacher watches during the exam. Its job is ambient awareness, not analysis.
 
-> Mostly **phone detected** — 14 times. The worst run was around **11:09 PM**.
+- Header: `AI AND ML · LIVE · 41 MINUTES IN` (small, faint, letterspaced), then
+  `Your room` with `20 quiet · 4 worth a look` beside it.
+- A 4-column grid of tiles. A **quiet** tile is a faint name and nothing else — this is
+  most of the room and it is meant to look calm and unimportant. A **flagged** tile gets
+  the semantic border colour, the name in full ink, and one short lowercase phrase
+  (`phone, 8 times` / `eyes off screen, 4 times`). An offline tile dims and says so.
+- Tiles are reconciled **in place** across redraws — classes and text change over a 600 ms
+  fade, so the room never flashes and never re-flows under the teacher's eye.
+- A single line at the bottom appears only when a room-wide moment exists, with a
+  "See it" action.
 
-Logic: find the most frequent event kind, report its total count, then either name the
-time of its largest episode, or say "Spread out, with no single bad stretch" if no
-episode has more than one event.
+**Tile → popup.** Pressing a tile morphs it into the popup (FLIP): the popup's content is
+filled first, both rectangles are measured, the popup is parked scaled-and-translated onto
+the tile with its content at `opacity: 0`, then released to identity over 340 ms with the
+content fading in a beat behind. Closing reverses it. Backdrop is
+`rgba(243,242,239,.72)`; backdrop click or Esc closes.
 
-### 5.6 Review workflow
+The popup is about **now**: live status (`Phone detected · a moment ago`, or
+`Looking at screen · settled since 11:01` for a quiet student), the last few events
+newest-first, a setup caveat only when calibration wasn't solid, and exactly one action —
+**Add a note**. There is deliberately **no confirm/dismiss here**: reviewing is a
+post-exam job and must not pull the teacher into paperwork mid-invigilation.
 
-- Every episode has Confirm (✓) / Dismiss (✕).
-- A sticky bar shows `N of M reviewed` with a progress bar.
-- Keyboard triage: `↑`/`↓` (or `j`/`k`) move a highlight, `C` confirms, `X` dismisses,
-  and the highlight advances automatically.
-- Dismissing removes the events from the score, which can re-band the student and
-  re-sort the list live.
-- **Confirming currently has no scoring effect** — it is a visual mark only.
+**Nothing interrupts.** If a flag lands elsewhere while a popup is open, the tile behind
+it changes quietly and the teacher meets it on close. No toasts, no focus steal.
 
-### 5.7 Other report sections
+Invigilator notes are written from the popup (prefixed with the student's name) or from
+"Note the room" in the header. Both land in `exam_notes` and appear in the full record.
 
-- **Setup badge** — a small chip on the student's card, shown **only when calibration was
-  `fair` or `weak`**, with the reasons on hover. A solid setup shows nothing.
-- **Invigilator notes** — the teacher can type timestamped observations during the live
-  exam ("phone buzz, back left"). They appear as their own section in the report, beside
-  the machine's flags, and in the CSV.
-- **Exports** — CSV columns are `Student, Event, Count, Start, End, Review` (one row per
-  episode, plus note rows). "Save as PDF" uses the browser print stylesheet, which hides
-  the review buttons and appends a sign-off block (reviewed-by / signature / date) plus a
-  line stating flags are aids to human judgement.
+> The old live wall — coloured status tiles plus a streaming "Live alerts" sidebar — was
+> replaced by this. The sidebar is gone; a feed of red items fought the premise that
+> nothing should interrupt.
 
-### 5.8 Two audiences, one engine
+### 5.8 Surface 2 — the findings document (`findings.html`)
 
-- **Teacher view** — all students, risk bands, review controls, notes, exports.
-- **Student view** (`?as=student`) — their own card only: the same strip, same episodes,
-  same narrative, no review controls, no notes, no other students. This is deliberate:
-  the student sees exactly what the teacher sees about them.
+What gets read once, decided, signed and filed. Teacher-only; a student who lands here is
+sent to their own activity view instead.
 
-### 5.9 Live behaviour
+Structure, in order, and nothing else:
 
-While the exam is `open`, the report subscribes to Postgres changes on `events`,
-`participants`, `exam_notes` and the exam row itself, and redraws (debounced 600 ms). A
-"Live" pill shows, and disappears the moment the teacher closes the exam.
+1. Letterhead rule: Vigil mark + `EXAM INTEGRITY REPORT` right-aligned.
+2. Exam title, then one grey line: `UXY2TE · 28 July 2026 · 11:01–11:42 PM · 24 students`.
+   The window comes from `exams.created_at` → `closed_at`, so it is the real monitoring
+   window; the meridiem is said once across the range.
+3. Standfirst: `Five findings.` + muted `Twenty students finished clear.`
+4. **Findings**, each exactly two lines: number · headline · verdict chip, then one grey
+   line of `who · when · how many · evidence quality`.
+5. A compact list of the students who finished clear.
+6. A one-line privacy statement above a hairline.
+7. Sign-off: `REVIEWED BY` / `SIGNATURE` / `DATE`, three 1px rules.
+8. An **appendix** with per-episode timings, on its own printed page. Most readers will
+   never turn to it, which is correct.
+
+Serif is reserved for the little prose there is (standfirst, privacy line); everything
+else is sans. "Download" calls `window.print()`; the print stylesheet drops the toolbar
+and the picker, forces a page break before the appendix, and **hides unreviewed chips**
+entirely — an absent chip is the honest mark for "not reviewed".
+
+This page **does not subscribe to realtime.** It is a document; it reads the exam once
+when opened.
+
+### 5.9 Surface 3 — the full record (`report.html`)
+
+The pre-redesign report, kept as the underlying record and reachable from the document as
+"Full record". Nothing was removed from it. It still provides:
+
+- per-student cards with risk bands, the shared **timeline strip** (whose axis is still
+  first-flag → last-flag, padded, min 10 minutes — *not* the real exam duration),
+- the auto-written sentence per student (*"Mostly phone detected — 14 times…"*),
+- Confirm / Dismiss on each episode with keyboard triage (`↑`/`↓`/`j`/`k`, `C`, `X`) and
+  an `N of M reviewed` progress bar,
+- invigilator notes as their own section,
+- **CSV export** (`Student, Event, Count, Start, End, Review`, one row per episode plus
+  note rows) — the findings document has no CSV,
+- the **student view** (`?as=student`): their own card only, same strip, same episodes,
+  same sentence, no review controls, no other students,
+- live redraws while the exam is open (debounced 600 ms) on `events`, `participants`,
+  `exam_notes` and the exam row.
+
+Its "Save as PDF" button is now a **Findings** link; the browser's own print still works.
+
+### 5.10 Review workflow
+
+Three verdicts, mapped onto the `review` column:
+
+| verdict | stored | effect on the score |
+|---|---|---|
+| **Upheld** | `confirmed` | none — a visual mark only |
+| **Set aside** | `dismissed` | the events stop counting; the student can return to the clear list |
+| **To discuss** | `discuss` | none — scores exactly like an unreviewed flag |
+
+Set from the findings document by pressing a finding's chip, which writes the verdict to
+**every event behind that finding** in one action — including all of a room-wide moment.
+Nulling it back to unreviewed is offered in the same menu.
+
+A set-aside finding **stays on the document** wearing its chip, but its student moves into
+the "finished clear" list. That consequence is the point of giving a verdict.
+
+`discuss` can only be set from the findings document. The full record's two buttons still
+write only `confirmed`/`dismissed`, and it renders a `discuss` episode as unreviewed
+(§7.13).
+
+### 5.11 Live behaviour
+
+While the exam is `open`, the live room subscribes to `participants`, `events` and the
+exam row, and re-renders in place. It also re-renders every 15 s to re-evaluate presence
+freshness (a student is "present" if `last_seen` is under 15 s old) and to advance the
+`… MINUTES IN` clock. Closing the exam from the console flips the room to its
+"Who was in" state with no reload.
 
 ---
 
@@ -243,54 +403,76 @@ While the exam is `open`, the report subscribes to Postgres changes on `events`,
    (green = ok, amber = warn, red = alert). No decorative colour.
 4. Flags are **aids to human judgement**, never automated accusations. The wording must
    never assert cheating.
-5. It must stay a static site + Supabase — no server-side rendering or background jobs.
+5. **Never display a confidence number that isn't real** (§5.6).
+6. It must stay a static site + Supabase — no server-side rendering or background jobs.
+7. The consistent design signal through many rounds was **less**: cut words, cut chrome,
+   cut numbers. Whitespace over borders. `REPORT-REDESIGN.md` lists the directions that
+   were tried and rejected — don't revisit them.
 
 ---
 
 ## 7. Known weaknesses / open questions
 
-These are the things we are least happy with, and where suggestions are most welcome.
+Where suggestions are most welcome. Items 3, 4 and 8 from the pre-redesign version are
+now partly or wholly addressed and are marked as such.
 
 1. **The risk score is an unnormalised sum.** A 3-hour exam accumulates far more points
    than a 45-minute one, but the band thresholds (4, 10) are absolute. Long exams will
-   push everyone into "high". Should score be per-hour? Per-event-type capped?
-   Duration-weighted?
+   push everyone into the top band. Should score be per-hour? Per-event-type capped?
 
 2. **Episodes are cosmetic; scoring is per-event.** Four glances in 40 seconds probably
    means something different from four glances across an hour, but they score identically.
-   Should the score be computed over episodes rather than events?
 
-3. **No class-relative context.** If every student looked away at 11:18, that's almost
-   certainly a room event (an announcement, a door) — not fifteen cheaters. The report
-   has no notion of "normal for this room", so it can't tell an outlier from a crowd.
+3. ~~No class-relative context.~~ **Addressed** by room-wide moments (§5.2). Still open:
+   the 60 % / 5-student rule is a fixed guess, it only groups within a single minute
+   (a slow ripple across three minutes won't trigger), and there is no notion of a room
+   *baseline* — only of simultaneity.
 
-4. **Calibration quality is measured but unused.** A student flagged 20× for `look_away`
-   on a `weak` setup is much weaker evidence than the same on a `solid` one. Should weak
-   calibration discount the gaze-based flags, or at least visibly caveat the band?
+4. ~~Calibration quality is measured but unused.~~ **Partly addressed**: a weak setup is
+   now stated on the finding and caveated in the live popup. It still does **not**
+   discount the gaze-based flags numerically, which is arguably where it belongs.
 
-5. **The time axis isn't the exam.** It spans first→last flag, so idle stretches vanish
-   and two exams aren't comparable. We'd need a real monitoring start/end per student.
+5. **The time axis isn't the exam** — in the full record. The findings document now uses
+   `created_at → closed_at`, but that is the exam room's lifetime, not each student's
+   monitored window; students join at arbitrary times.
 
-6. **`confirm` does nothing numerically.** It marks a flag as real but doesn't raise the
-   score, so a reviewed report and an unreviewed one score the same.
+6. **`confirm` does nothing numerically.** Upheld marks a flag as real but doesn't raise
+   the score, so a reviewed report and an unreviewed one score the same. The same is now
+   true of "To discuss" by design.
 
 7. **Thresholds are global constants.** No per-exam sensitivity, no adaptation to webcam
-   quality, no per-student normalisation.
+   quality, no per-student normalisation. `FINDING_SCORE`, `ROOM_SHARE` and `ROOM_MIN`
+   join the list.
 
-8. **Phone detection is a generic object detector at 0.45 confidence.** False positives
-   (a dark rectangle, a wallet, a calculator) are plausible and would be indistinguishable
-   from a real phone in the report.
+8. ~~Phone detection's confidence is discarded.~~ **Addressed** — it is persisted and
+   shown (§4.4). But the underlying weakness remains: it is a *generic* object detector at
+   0.45, so a wallet or a calculator can produce a confident-looking false positive, and
+   a high number now looks more authoritative than it deserves.
 
-9. **Scale.** Everything renders into one DOM at once; a 30-student exam with hundreds of
-   episodes is a very long page with no virtualisation, no search, no filtering by kind.
+9. **Scale.** The findings document is short by construction, but the full record still
+   renders everything into one DOM with no virtualisation, search, or filtering by kind.
 
-10. **No student voice.** The student sees their report but has no way to contest a flag,
-    and the teacher has no field to record the outcome of a conversation.
+10. **No student voice.** The student sees their activity but has no way to contest a
+    flag, and there is no field to record the outcome of a conversation — which is
+    precisely what "To discuss" leads to.
 
 11. **Times render in the viewer's local timezone**, not the exam's — a teacher reviewing
     from another timezone sees shifted clock times.
 
-12. **Severity vs weight are two parallel concepts** (`severity` on the row, `WEIGHT` in
+12. **The interpretation layer is duplicated.** `exam-core.js` is the shared reading, but
+    `report.html` still carries its own inline copies of `WEIGHT`, `episodesOf`, the band
+    thresholds and the labels. They agree today and can drift tomorrow. Folding the full
+    record onto `exam-core.js` is the obvious cleanup.
+
+13. **The full record can't see the third verdict.** It renders a `discuss` episode as
+    unreviewed and counts it as unreviewed in its progress bar, because its episode logic
+    only recognises `confirmed`/`dismissed`.
+
+14. **The findings document isn't live.** It reads once on open. For an exam still in
+    progress that is arguably right, but there is no indication that what you're reading
+    is a snapshot.
+
+15. **Severity vs weight are two parallel concepts** (`severity` on the row, `WEIGHT` in
     the client) that can drift apart.
 
 ---
