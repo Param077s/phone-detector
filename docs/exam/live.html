@@ -33,15 +33,13 @@
       transition:transform .18s var(--spring),border-color .6s ease,box-shadow .18s,opacity .6s ease}
     .tile:hover{transform:translateY(-2px)}
     .tile:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
-    .tile .nm{font-size:14px;color:var(--faint);font-weight:400;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
-      transition:color .6s ease,font-weight .6s ease}
-    .tile .ph{font-size:12.5px;margin-top:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
-      opacity:0;max-height:0;transition:opacity .6s ease,max-height .6s ease}
-    .tile.flag .nm{color:var(--ink);font-weight:500}
-    .tile.flag .ph{opacity:1;max-height:20px}
-    .tile.warn{border-color:var(--warn)} .tile.warn .ph{color:#854f0b}
+    .tile .nm{font-size:14px;color:var(--ink);font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+      transition:color .6s ease}
+    .tile .ph{font-size:12.5px;margin-top:4px;color:var(--faint);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+      transition:color .6s ease}
+    /* red is the only colour, and only for a phone, a second face or a virtual camera */
     .tile.alert{border-color:var(--alert)} .tile.alert .ph{color:#a32d2d}
-    .tile.off{opacity:.45} .tile.off .ph{opacity:1;max-height:20px;color:var(--faint)}
+    .tile.off{opacity:.5}
     .tile.new{animation:fadein .6s ease both}
     @keyframes fadein{from{opacity:0}}
 
@@ -112,7 +110,11 @@
     let CLOSED = false, exam = null, read = null, notesOn = false;
     const tiles = new Map();            // participant id -> tile element (kept, never rebuilt)
 
-    const fresh = row => CLOSED || (Date.now() - t(row.last_seen)) < 15000;
+    // A student's heartbeat is every 6 s, but a browser that has throttled their
+    // tab can stretch that. 40 s means a tile only says "offline" when they really
+    // are gone, instead of every time their machine got busy.
+    const PRESENCE_MS = 40000;
+    const fresh = row => CLOSED || (Date.now() - t(row.last_seen)) < PRESENCE_MS;
 
     function addEvent(e) {
       if (e.id && seenEv.has(e.id)) return false;
@@ -120,6 +122,30 @@
       events.push(e);
       events.sort((a, b) => t(a.at) - t(b.at));
       return true;
+    }
+
+    // ── keeping the room true ───────────────────────────────────────────────
+    // Realtime is the fast path, not the only path. Sockets drop, tabs sleep, and
+    // a teacher must never have to leave and come back to find out who joined —
+    // so we also just ask, every few seconds. The roster is tiny; events are
+    // fetched incrementally from the newest one we already hold.
+    let lastEventAt = null, polling = false;
+    async function refresh() {
+      if (polling) return; polling = true;
+      try {
+        const pq = sb.from("participants").select("*").eq("exam_id", examId);
+        let eq = sb.from("events").select("id,participant_id,kind,severity,at,meta,review").eq("exam_id", examId);
+        if (lastEventAt) eq = eq.gt("at", lastEventAt);
+        const [pr, er] = await Promise.all([pq, eq.order("at", { ascending: true })]);
+        if (pr.data) {
+          const seen = new Set(pr.data.map(r => r.id));
+          pr.data.forEach(r => parts.set(r.id, r));
+          for (const id of [...parts.keys()]) if (!seen.has(id)) parts.delete(id);
+        }
+        (er.data || []).forEach(e => { addEvent(e); if (!lastEventAt || e.at > lastEventAt) lastEventAt = e.at; });
+        render();
+      } catch (_) { /* a blip must never blank the room */ }
+      finally { polling = false; }
     }
 
     // ── the room ────────────────────────────────────────────────────────────
@@ -135,34 +161,46 @@
       let grid = $("out").querySelector(".room");
       if (!grid) { $("out").innerHTML = '<div class="room"></div>'; grid = $("out").querySelector(".room"); tiles.clear(); }
 
-      let quiet = 0, look = 0;
+      let on = 0, off_ = 0, look = 0;
       for (const s of rows) {
         const off = !fresh(s.p);
-        const flagged = s.band !== "quiet";
-        if (flagged) look++; else quiet++;
+        const flagged = s.serious && !CLOSED;   // red, and only for phone / second face / virtual cam
+        if (off) off_++; else on++;
+        if (flagged) look++;
         let el = tiles.get(s.p.id);
         if (!el) {
           el = document.createElement("button");
           el.type = "button"; el.className = "tile new"; el.setAttribute("data-id", s.p.id);
           el.innerHTML = '<div class="nm"></div><div class="ph"></div>';
           grid.appendChild(el); tiles.set(s.p.id, el);
+          setTimeout(() => el.classList.remove("new"), 700);   // spent — never let it replay
         }
         // classes change on a 600ms colour transition — the room never flashes
         el.classList.toggle("flag", flagged);
-        el.classList.toggle("warn", s.band === "warn");
-        el.classList.toggle("alert", s.band === "alert");
+        el.classList.toggle("alert", flagged);
         el.classList.toggle("off", off);
         const nm = el.querySelector(".nm"), ph = el.querySelector(".ph");
         if (nm.textContent !== s.p.name) nm.textContent = s.p.name;
-        const txt = off && !CLOSED ? "offline" : s.phrase;
+        // presence is the whole story here; the report is where risk gets read
+        const txt = CLOSED ? "" : (off ? "offline" : "online");
         if (ph.textContent !== txt) ph.textContent = txt;
-        el.setAttribute("aria-label", s.p.name + (txt ? " — " + txt : ""));
+        el.setAttribute("aria-label", s.p.name + (txt ? " — " + txt : "") + (flagged ? ", needs a look" : ""));
       }
       for (const [id, el] of tiles) if (!parts.has(id)) { el.remove(); tiles.delete(id); }
-      // keep tile order matching the roster (joined order) as people arrive
-      rows.forEach(s => { const el = tiles.get(s.p.id); if (el) grid.appendChild(el); });
+      // Keep tile order matching the roster (joined order) as people arrive — but
+      // ONLY move a tile that is actually out of place. appendChild() on a node that
+      // is already there still removes and re-inserts it, which restarts its CSS
+      // animation: doing that to every tile on every update is what made the room
+      // flicker several times a minute.
+      let want = grid.firstChild;
+      for (const s of rows) {
+        const el = tiles.get(s.p.id); if (!el) continue;
+        if (el !== want) grid.insertBefore(el, want); else want = el.nextSibling;
+      }
 
-      $("count").textContent = look ? quiet + " quiet · " + look + " worth a look" : quiet + " quiet";
+      $("count").textContent = CLOSED
+        ? rows.length + (rows.length === 1 ? " student" : " students")
+        : on + " online" + (off_ ? " · " + off_ + " offline" : "") + (look ? " · " + look + " worth a look" : "");
       renderRoomLine();
     }
 
@@ -255,7 +293,7 @@
         ? '<div class="caveat">Setup was ' + esc(s.calib.grade) +
           (s.calib.reasons && s.calib.reasons.length ? " — " + esc(s.calib.reasons[0]) : "") + ". Read these lightly.</div>" : "";
       $("popIn").innerHTML =
-        '<div class="ptop"><span class="dot ' + (s.band === "quiet" ? "" : s.band) + '"></span>' +
+        '<div class="ptop"><span class="dot ' + (s.serious ? "alert" : off ? "" : "ok") + '"></span>' +
         '<h2 id="popName">' + esc(s.p.name) + '</h2></div>' +
         '<p class="pstat">' + esc(stat) + '</p>' +
         (recent.length ? '<div class="lab">So far</div>' + recent.map(e =>
@@ -310,13 +348,7 @@
       $("code").textContent = exam.code; document.title = "Vigil · " + exam.title;
       renderHead();
 
-      const [pq, eq] = await Promise.all([
-        sb.from("participants").select("*").eq("exam_id", examId),
-        sb.from("events").select("id,participant_id,kind,severity,at,meta,review").eq("exam_id", examId).order("at", { ascending: true }),
-      ]);
-      (pq.data || []).forEach(r => parts.set(r.id, r));
-      (eq.data || []).forEach(addEvent);
-      render();
+      await refresh();
 
       // notes need migration v7 — the field simply doesn't appear without it
       const nq = await sb.from("exam_notes").select("id").eq("exam_id", examId).limit(1);
@@ -345,7 +377,12 @@
           p => { if (p.new && p.new.status) applyStatus(p.new.status); })
         .subscribe();
 
-      setInterval(() => { renderHead(); render(); }, 15000);   // presence freshness + the clock in the eyebrow
+      // Ask every 4 s regardless of the socket: this is what makes a student appear
+      // the moment they join and disappear when they go, with no reload.
+      setInterval(refresh, 4000);
+      setInterval(() => { renderHead(); render(); }, 5000);   // presence freshness + the eyebrow clock
+      // coming back to this tab should never show a stale room
+      document.addEventListener("visibilitychange", () => { if (!document.hidden) refresh(); });
     })();
   </script>
 </body>

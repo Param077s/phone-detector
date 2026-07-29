@@ -15,7 +15,30 @@ const CFG = {
   // Presence
   ABSENT_HOLD_MS: 5000, SECOND_HOLD_MS: 1500, SECOND_COOLDOWN_MS: 15000,
   HEARTBEAT_MS: 6000, STATUS_MIN_MS: 1500,
+  // A blind gap is measured, never guessed. Vigil keeps reading the camera when it
+  // is behind another tab, another app, or minimised — so what matters is whether
+  // frames actually stopped arriving, not which window happens to be in front.
+  VISION_GAP_MS: 20000, WATCHDOG_MS: 2000,
 };
+
+// ── the clock that doesn't sleep ────────────────────────────────────────────
+// requestAnimationFrame is paused, and setInterval throttled to ~1/min, the moment
+// a tab is hidden. That — not any browser limit — is what used to stop detection
+// dead when a student opened another tab for the exam itself. A Worker's timer is
+// not throttled, and the message it posts wakes the main thread on time.
+function ticker(ms, fn) {
+  try {
+    const src = "let i=null;onmessage=e=>{clearInterval(i);" +
+      "if(!e.data.stop)i=setInterval(()=>postMessage(0),e.data.ms)}";
+    const w = new Worker(URL.createObjectURL(new Blob([src], { type: "text/javascript" })));
+    w.onmessage = fn;
+    w.postMessage({ ms });
+    return { stop() { try { w.postMessage({ stop: 1 }); w.terminate(); } catch (e) {} } };
+  } catch (e) {
+    const id = setInterval(fn, ms);   // no Worker available — throttled, but still runs
+    return { stop() { clearInterval(id); } };
+  }
+}
 // Debug tuning + saved overrides are for the TEACHER previewing their own room only.
 // A real student must never be able to loosen or disable detection, so these are
 // stashed here and applied ONLY after we confirm the viewer owns the exam (see boot).
@@ -98,6 +121,7 @@ const sig = {
   away: { since: null, fired: false },
   cam: { off: false },   // one camera_off event per off-episode, not one per heartbeat
   phone: { since: null, lastFired: 0, best: 0 },   // best = highest detector score this episode
+  gap: { since: null },   // a measured stretch where no camera frame arrived at all
 };
 
 function doMonitor(mx, now) {
@@ -346,14 +370,17 @@ function doCalib(mx, now) {
   }
 }
 
+// One tick of detection. Driven by the worker clock (§ticker), so it keeps running
+// while the tab is in the background — which is the whole point: a student opening
+// another tab or app for the exam is normal, and must not create a blind spot.
 function loop() {
   if (!state.running) return;
-  requestAnimationFrame(loop);
   const now = performance.now();
   if (now - state.lastDetect < CFG.DETECT_MS) return;
   state.lastDetect = now;
   let ts = now; if (ts <= state.lastTs) ts = state.lastTs + 1; state.lastTs = ts;
   let res; try { res = state.landmarker.detectForVideo(state.video, ts); } catch { return; }
+  state.lastFrameAt = Date.now();   // proof we can still see — the watchdog reads this
   const mx = metrics(res);
   if (state.mode === "preflight") doPreflight(mx, now); else if (state.mode === "calib") doCalib(mx, now); else if (state.mode === "monitor") doMonitor(mx, now);
   // phone / object detection on its own slower cadence (heavier than face landmarks)
@@ -386,21 +413,12 @@ function detectPhone(now) {
   } else { sig.phone.since = null; }
 }
 
-// ── Integrity: Vigil runs BESIDE the exam, so hiding/closing it is itself a flag ──
-// (a background tab freezes detection, so a cheater who hides Vigil is caught by this)
-let hiddenSince = 0, lastHiddenEmit = 0;
-function onVisibility() {
-  if (state.mode !== "monitor" && state.mode !== "calib") return;
-  if (document.hidden) { hiddenSince = Date.now(); }
-  else if (hiddenSince) {
-    const secs = Math.round((Date.now() - hiddenSince) / 1000); hiddenSince = 0;
-    if (secs >= 2 && state.mode === "monitor" && Date.now() - lastHiddenEmit > 3000) {
-      lastHiddenEmit = Date.now();
-      emit("monitor_hidden", "alert");
-      showWarn(`Vigil was hidden for ${secs}s — that was recorded. Keep this window visible beside your exam.`);
-    }
-  }
-}
+// Integrity: Vigil runs BESIDE the exam. Switching to another tab or app is normal
+// and is NOT a flag — detection keeps running on the worker clock, so we can simply
+// carry on watching. What used to fire here (a visibilitychange guess, 2 s hold) was
+// wrong twice over: it accused students of "leaving" for a two-second tab switch,
+// and it said nothing about whether we could actually still see them. That job now
+// belongs to watchVision(), which measures the gap instead of inferring it.
 function beaconEvent(kind, severity) {   // best-effort write that survives the page unloading
   if (!part || !state.token) return;
   try {
@@ -411,9 +429,15 @@ function beaconEvent(kind, severity) {   // best-effort write that survives the 
     });
   } catch (e) {}
 }
-function onPageHide() { if (state.mode === "monitor") beaconEvent("left_exam", "alert"); }
+// Only a genuine unload. `persisted` means the page went into the back/forward
+// cache and is still alive — that is not leaving, and recording it as "closed" was
+// one of the ways a student got accused of something they hadn't done.
+function onPageHide(e) {
+  if (state.mode !== "monitor" || state.leaving) return;
+  if (e && e.persisted) return;
+  beaconEvent("left_exam", "alert");
+}
 function setupIntegrity() {
-  document.addEventListener("visibilitychange", onVisibility);
   window.addEventListener("pagehide", onPageHide);
   // reloading or closing mid-exam is recorded — make the student confirm first
   window.addEventListener("beforeunload", (e) => {
@@ -441,23 +465,46 @@ function startMonitoring(now) {
   pushStatus("ok", true);
   cacheToken();
   if (state.suspiciousCam) emit("virtual_cam", "alert");
-  state.hbTimer = setInterval(() => {
+  // heartbeat on the worker clock too, so "online" survives a backgrounded tab
+  state.hbTimer = ticker(CFG.HEARTBEAT_MS, () => {
     const track = state.stream && state.stream.getVideoTracks()[0];
     const camOn = track && track.readyState === "live" && track.enabled;
     if (!camOn) {
       $("monTag").textContent = "🔴 Camera is off";
       if (!sig.cam.off) { emit("camera_off", "alert"); sig.cam.off = true; }   // fire once, not every beat
-    } else {
-      if (sig.cam.off) { sig.cam.off = false; $("monTag").textContent = "🟢 Camera active · nothing is uploaded"; }
-      pushStatus(state.lastStatus, true);   // refresh last_seen
+    } else if (sig.cam.off) {
+      sig.cam.off = false; $("monTag").textContent = "🟢 Camera active · nothing is uploaded";
     }
+    // last_seen is refreshed either way — the camera being off is a flag, not an
+    // absence; the teacher should still see them as present and flagged.
+    pushStatus(state.lastStatus, true);
     cacheToken();   // keep the unload-beacon token fresh across a long exam
-  }, CFG.HEARTBEAT_MS);
+  });
   const track = state.stream.getVideoTracks()[0];
   if (track) track.addEventListener("ended", () => { $("monTag").textContent = "🔴 Camera stopped"; if (!sig.cam.off) { emit("camera_off", "alert"); sig.cam.off = true; } });
-  state.closeTimer = setInterval(checkClosed, 4000);   // stop monitoring once the teacher ends the exam
+  state.closeTimer = ticker(4000, checkClosed);   // stop monitoring once the teacher ends the exam
+  state.watchTimer = ticker(CFG.WATCHDOG_MS, watchVision);
   // catch it immediately when the student comes back to the tab
   document.addEventListener("visibilitychange", () => { if (!document.hidden) checkClosed(); });
+}
+
+// ── the only thing that counts as "Vigil wasn't watching" ───────────────────
+// Not which window is in front — whether frames actually stopped arriving. If the
+// student has Vigil behind their exam paper, or in another app, and we are still
+// reading the camera, nothing here fires. Only a real gap is recorded, once, on
+// recovery, with its measured length.
+function watchVision() {
+  if (state.mode !== "monitor") return;
+  const gap = Date.now() - (state.lastFrameAt || Date.now());
+  if (gap >= CFG.VISION_GAP_MS) { sig.gap.since = sig.gap.since || state.lastFrameAt; return; }
+  if (sig.gap.since) {
+    const secs = Math.round((state.lastFrameAt - sig.gap.since) / 1000);
+    sig.gap.since = null;
+    if (secs >= CFG.VISION_GAP_MS / 1000) {
+      emit("monitor_hidden", "alert", { seconds: secs });
+      showWarn("Vigil could not see the camera for " + secs + "s — that gap was recorded.");
+    }
+  }
 }
 
 async function checkClosed() {
@@ -473,7 +520,7 @@ async function checkClosed() {
 function endExam() {
   if (state.mode === "ended") return;
   state.mode = "ended"; state.running = false;
-  clearInterval(state.hbTimer); clearInterval(state.closeTimer);
+  stopTimers();
   try { state.stream && state.stream.getTracks().forEach(t => t.stop()); } catch (e) {}
   show("s-ended");
 }
@@ -509,9 +556,15 @@ async function begin() {
   const skip = $("pfSkip");
   if (skip) { skip.onclick = (e) => { e.preventDefault(); beginCalib(); };
     setTimeout(() => skip.classList.remove("hidden"), 10000); }
-  requestAnimationFrame(loop);
+  state.lastFrameAt = Date.now();
+  state.loopTimer = ticker(CFG.DETECT_MS, loop);
 }
-function fail(msg) { state.running = false; $("errMsg").textContent = msg; show("s-error"); }
+function fail(msg) { state.running = false; stopTimers(); $("errMsg").textContent = msg; show("s-error"); }
+function stopTimers() {
+  [state.loopTimer, state.hbTimer, state.closeTimer, state.watchTimer]
+    .forEach(t => { try { t && t.stop(); } catch (e) {} });
+  state.loopTimer = state.hbTimer = state.closeTimer = state.watchTimer = null;
+}
 
 // ── Boot: confirm the student joined this exam, then start ────────────────────
 (async () => {

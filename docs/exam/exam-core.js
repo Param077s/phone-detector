@@ -17,22 +17,22 @@ export function esc(s) {
 export const LABELS = {
   head_down: "Looked down", look_away: "Looked away", face_absent: "Face not visible",
   second_face: "Second face detected", phone: "Phone detected", camera_off: "Camera off",
-  monitor_hidden: "Hid / left Vigil", left_exam: "Closed Vigil", virtual_cam: "Virtual camera",
+  monitor_hidden: "Camera not readable", left_exam: "Left the exam page", virtual_cam: "Virtual camera",
   calibrated: "Calibrated",
 };
 
 // the short lowercase phrase a live tile wears — a glance, not a sentence
 export const PHRASES = {
-  phone: "phone", second_face: "someone else in frame", virtual_cam: "virtual camera",
-  camera_off: "camera off", monitor_hidden: "hid vigil", left_exam: "closed vigil",
-  face_absent: "face out of view", look_away: "eyes off screen", head_down: "head down",
+  phone: "phone", second_face: "second face", virtual_cam: "virtual camera",
+  camera_off: "camera off", monitor_hidden: "camera gap", left_exam: "left the page",
+  face_absent: "face not visible", look_away: "eyes off screen", head_down: "head down",
 };
 
 // the headline a finding wears in the document — describes, never accuses
 export const HEADLINES = {
   phone: "A phone was in view", second_face: "Someone else was in frame",
   virtual_cam: "A virtual camera was in use", camera_off: "The camera was off",
-  monitor_hidden: "Vigil was hidden", left_exam: "Vigil was closed",
+  monitor_hidden: "Vigil could not read the camera", left_exam: "Left the exam page",
   face_absent: "Face out of view", look_away: "Eyes off screen, repeatedly",
   head_down: "Head down, repeatedly",
 };
@@ -41,11 +41,13 @@ export const HEADLINES = {
 export const ROOM_HEADLINES = {
   look_away: "The room looked away at once", head_down: "The room looked down at once",
   face_absent: "The room dropped out of view at once", phone: "Phones in view across the room",
-  second_face: "Second faces across the room", monitor_hidden: "The room left Vigil at once",
+  second_face: "Second faces across the room", monitor_hidden: "Cameras unreadable across the room",
   camera_off: "Cameras went off across the room",
 };
 
 export const ALERT_KINDS = new Set(["second_face", "phone", "camera_off", "monitor_hidden", "left_exam", "virtual_cam"]);
+// worth interrupting an invigilator mid-exam for — the live room shows only these
+export const SERIOUS_KINDS = new Set(["phone", "second_face", "virtual_cam"]);
 // unchanged from the live report — this is not a scoring redesign
 export const WEIGHT = { second_face: 5, phone: 5, virtual_cam: 5, left_exam: 4, monitor_hidden: 3, camera_off: 3, face_absent: 1.5, look_away: 1, head_down: 1 };
 
@@ -205,8 +207,12 @@ export function readExam(participants, events, opts = {}) {
     });
     const eps = episodesOf(evs);
     const top = Object.entries(counts).sort((a, b) => (WEIGHT[b[0]] || 1) * b[1] - (WEIGHT[a[0]] || 1) * a[1])[0];
+    // The live room only ever shows red, and only for the things a teacher would
+    // walk over for. Looking away is not one of them — it would paint half the room
+    // amber and teach the teacher to ignore colour entirely.
+    const serious = own.some(e => e.review !== "dismissed" && SERIOUS_KINDS.has(e.kind));
     return {
-      p, calib, events: evs, live, own, episodes: eps, counts, score,
+      p, calib, events: evs, live, own, episodes: eps, counts, score, serious,
       band: score >= 10 ? "alert" : score >= FINDING_SCORE ? "warn" : "quiet",
       lastAt: evs.length ? t(evs[evs.length - 1].at) : null,
       phrase: top ? phrase(top[0], top[1]) : "",

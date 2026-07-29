@@ -53,13 +53,53 @@
     .chip[disabled]{cursor:default;pointer-events:none}
 
     /* verdict picker — screen only; the document itself never shows controls */
-    .pick{position:fixed;z-index:50;background:var(--card);border:1px solid var(--line);border-radius:12px;
+    .pick{position:fixed;z-index:120;background:var(--card);border:1px solid var(--line);border-radius:12px;
       box-shadow:var(--shadow);padding:5px;display:none;min-width:132px}
     .pick.on{display:block}
     .pick button{display:block;width:100%;text-align:left;background:none;border:0;border-radius:8px;
       padding:8px 10px;font:500 13.5px var(--font);color:var(--ink);cursor:pointer}
     .pick button:hover{background:var(--soft)}
     .pick button.clear{color:var(--faint)}
+
+    /* the room, coloured by risk — green clear, amber flagged, red serious */
+    .room{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:9px;margin:30px 0 0}
+    .rtile{background:var(--card);border:1.5px solid transparent;border-radius:10px;padding:14px 12px;
+      text-align:left;font:inherit;width:100%;cursor:pointer;
+      transition:transform .18s var(--spring),border-color .25s}
+    .rtile:hover{transform:translateY(-2px)}
+    .rtile:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
+    .rtile .rn{display:block;font-size:14px;font-weight:500;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .rtile .rs{display:block;font-size:12.5px;margin-top:4px;color:var(--faint);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .rtile.quiet{border-color:rgba(31,157,99,.45)} .rtile.quiet .rs{color:var(--ok)}
+    .rtile.warn{border-color:var(--warn)} .rtile.warn .rs{color:#854f0b}
+    .rtile.alert,.rtile.serious{border-color:var(--alert)} .rtile.alert .rs,.rtile.serious .rs{color:#a32d2d}
+    .roomline{display:flex;align-items:baseline;gap:10px;margin-top:22px;font-size:13.5px;color:var(--muted)}
+    .roomline .see{background:none;border:0;padding:0;font:600 13.5px var(--font);color:var(--ink);cursor:pointer;border-bottom:1px solid var(--line-strong)}
+    .roomline .see:hover{border-color:var(--ink)}
+
+    /* the tile becomes the popup — the same movement as the live room */
+    .scrim{position:fixed;inset:0;z-index:100;background:rgba(243,242,239,.72);opacity:0;
+      transition:opacity .28s ease;pointer-events:none;display:none}
+    .scrim.on{opacity:1;pointer-events:auto}
+    .popWrap{position:fixed;inset:0;z-index:101;display:none;place-items:center;padding:22px;pointer-events:none}
+    .popWrap.on{display:grid}
+    .pop{width:min(420px,100%);max-height:80vh;overflow-y:auto;background:var(--card);border-radius:16px;
+      padding:22px 22px 18px;box-shadow:var(--shadow);transform-origin:0 0;pointer-events:auto;will-change:transform}
+    .popIn{transition:opacity .2s ease}
+    .pop .ptop{display:flex;align-items:center;gap:10px}
+    .pop .ptop .dot{width:9px;height:9px;border-radius:50%;background:var(--ok);flex:0 0 auto}
+    .pop .ptop .dot.warn{background:var(--warn)} .pop .ptop .dot.alert{background:var(--alert)}
+    .pop h2{font-size:21px;font-weight:500;letter-spacing:-.02em;margin:0}
+    .pop .pstat{font-size:13.5px;color:var(--muted);margin:5px 0 0}
+    .pop .lab{font-size:10.5px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:var(--faint);margin:20px 0 8px}
+    .pop .row{display:flex;gap:12px;font-size:13.5px;padding:4px 0;align-items:baseline}
+    .pop .row .t{color:var(--faint);min-width:86px;font-variant-numeric:tabular-nums}
+    .pop .row .w{color:var(--ink-2);flex:1}
+    .pop .row.alert .w{color:#a32d2d}
+    .pop .fnd{display:flex;align-items:baseline;gap:10px;padding:8px 0;border-top:1px solid var(--line)}
+    .pop .fnd .fh{flex:1;font-size:14px;font-weight:500}
+    .pop .caveat{font-size:12.5px;color:var(--warn);margin-top:14px}
+    .pop .who{font-size:13.5px;color:var(--ink-2);line-height:1.6;margin:0}
 
     .none-yet{font-family:var(--voice);font-size:19px;color:var(--muted);margin:30px 0 34px}
     .clearlist{font-size:13.5px;color:var(--muted);margin:38px 0 0;line-height:1.6}
@@ -81,11 +121,18 @@
     .msg{font-size:13px;color:var(--warn);margin-top:8px}
     .loading{color:var(--muted);padding:40px 0}
 
+    /* on screen the room is the working surface; the document is what prints */
+    #body{display:none}
+    @media(max-width:860px){ .room{grid-template-columns:repeat(3,minmax(0,1fr))} }
+    @media(max-width:560px){ .room{grid-template-columns:repeat(2,minmax(0,1fr))} }
+    @media(prefers-reduced-motion:reduce){ .pop,.popIn,.rtile{transition-duration:.01ms !important} }
     @media print{
       @page{ margin:16mm }
       body{background:#fff;background-image:none}
       body::before{display:none}
       .sheet{max-width:none;padding:0}
+      #body{display:block}
+      .screenonly,.scrim,.popWrap{display:none !important}
       .tools,.pick,.msg{display:none !important}
       .chip{cursor:default}
       .chip.none{display:none}   /* no chip is the honest mark for "not reviewed" */
@@ -110,14 +157,25 @@
 
     <h1 id="title">Exam</h1>
     <div class="context" id="context"></div>
+
+    <!-- screen: the room, read afterwards. print: hidden, the document takes over -->
+    <div class="screenonly">
+      <div class="room" id="room"></div>
+      <div class="roomline hidden" id="roomline"><span id="roomtxt"></span><button class="see" id="roomsee" type="button">See it</button></div>
+    </div>
+
     <div id="body"><div class="loading">Reading the exam…</div></div>
   </div>
 
   <div class="pick" id="pick" role="menu"></div>
+  <div class="scrim" id="scrim"></div>
+  <div class="popWrap" id="popWrap" aria-hidden="true">
+    <div class="pop" id="pop" role="dialog" aria-modal="true" aria-labelledby="popName"><div class="popIn" id="popIn"></div></div>
+  </div>
 
   <script type="module">
     import { sb } from "/exam/sb.js";
-    import { esc, label, clock, clockRange, dateLong, word, readExam, spanTxt } from "/exam/exam-core.js";
+    import { esc, label, clock, clockRange, dateLong, word, readExam, spanTxt, roomHeadline } from "/exam/exam-core.js";
     const $ = id => document.getElementById(id);
     const examId = new URLSearchParams(location.search).get("e");
 
@@ -153,6 +211,26 @@
         'detection, offered as an aid to human judgement and not as a conclusion.</p>' +
         '<div class="sign"><span>Reviewed by</span><span>Signature</span><span>Date</span></div>' +
         appendixHtml(f) + '<div class="msg" id="msg"></div>';
+      drawRoom();
+    }
+
+    // ── the room, read afterwards ───────────────────────────────────────────
+    // Same tiles as the live room, but now they carry risk rather than presence:
+    // green finished clear, amber was flagged, red flagged seriously. Press one and
+    // it grows into that student's record. The document above is what Download
+    // prints; on screen this is what a teacher actually works through.
+    function drawRoom() {
+      const rows = read.students.slice().sort((a, b) => b.score - a.score || a.p.name.localeCompare(b.p.name));
+      $("room").innerHTML = rows.map(s =>
+        '<button type="button" class="rtile ' + s.band + (s.serious ? " serious" : "") + '" data-id="' + esc(s.p.id) + '">' +
+        '<span class="rn">' + esc(s.p.name) + '</span>' +
+        '<span class="rs">' + (s.score === 0 ? "clear" : esc(s.phrase || "flagged")) + '</span></button>').join("");
+      const m = read.moments.length ? read.moments[read.moments.length - 1] : null;
+      $("roomline").classList.toggle("hidden", !m);
+      if (m) {
+        $("roomtxt").textContent = clock(m.startT) + " — " + roomHeadline(m.kind).toLowerCase() + ".";
+        $("roomsee").onclick = () => openMoment(m, $("roomsee"));
+      }
     }
 
     function chipHtml(x) {
@@ -181,6 +259,112 @@
         f.map(x => '<div class="apx"><div class="t"><span class="n">' + x.n + '</span>' +
           esc(x.headline) + ' — ' + esc(x.who) + '</div>' + rows(x) + '</div>').join("") + '</div>';
     }
+
+    // ── a tile grows into the record ────────────────────────────────────────
+    let openFrom = null, closeTimer = null;
+    function morphOpen(sourceEl) {
+      const pop = $("pop"), inner = $("popIn"), wrap = $("popWrap");
+      clearTimeout(closeTimer); closeTimer = null;
+      wrap.classList.add("on"); wrap.setAttribute("aria-hidden", "false");
+      $("scrim").style.display = "block";
+      requestAnimationFrame(() => $("scrim").classList.add("on"));
+      pop.style.transition = "none"; pop.style.transform = "none";
+      inner.style.transition = "none"; inner.style.opacity = "1";
+      const p = pop.getBoundingClientRect(), s = sourceEl.getBoundingClientRect();
+      pop.style.transform = "translate(" + (s.left - p.left) + "px," + (s.top - p.top) + "px) scale(" +
+        (s.width / p.width) + "," + (s.height / p.height) + ")";
+      inner.style.opacity = "0";
+      void pop.offsetWidth;
+      pop.style.transition = "transform .34s cubic-bezier(.2,.7,.2,1)";
+      inner.style.transition = "opacity .2s ease .08s";
+      pop.style.transform = "none"; inner.style.opacity = "1";
+      openFrom = sourceEl;
+    }
+    function morphClose() {
+      const pop = $("pop"), inner = $("popIn"), wrap = $("popWrap");
+      if (!wrap.classList.contains("on")) return;
+      $("scrim").classList.remove("on");
+      const src = openFrom && openFrom.isConnected ? openFrom : null;
+      if (src) {
+        const p = pop.getBoundingClientRect(), s = src.getBoundingClientRect();
+        pop.style.transition = "transform .34s cubic-bezier(.2,.7,.2,1)";
+        inner.style.transition = "opacity .16s ease"; inner.style.opacity = "0";
+        pop.style.transform = "translate(" + (s.left - p.left) + "px," + (s.top - p.top) + "px) scale(" +
+          (s.width / p.width) + "," + (s.height / p.height) + ")";
+      }
+      openFrom = null; openPid = null; openMom = null;
+      clearTimeout(closeTimer);
+      closeTimer = setTimeout(() => {
+        closeTimer = null;
+        wrap.classList.remove("on"); wrap.setAttribute("aria-hidden", "true");
+        $("scrim").style.display = "none";
+        pop.style.transition = "none"; pop.style.transform = "none";
+      }, src ? 340 : 0);
+    }
+    $("scrim").onclick = morphClose;
+
+    // what is open, so a verdict can refresh it in place instead of slamming it shut
+    let openPid = null, openMom = null;
+    function reopen() {
+      if (openPid) { const t = $("room").querySelector('.rtile[data-id="' + CSS.escape(openPid) + '"]');
+        if (t) { openFrom = t; } studentHtml(openPid); }
+      else if (openMom) {
+        const m = read.moments.find(x => x.kind === openMom.kind && x.startT === openMom.startT);
+        if (m) { openMom = m; momentHtml(m); }
+      }
+    }
+
+    function openStudent(pid, sourceEl) {
+      if (!studentHtml(pid)) return;
+      openPid = pid; openMom = null;
+      morphOpen(sourceEl);
+    }
+    function studentHtml(pid) {
+      const s = read.students.find(x => x.p.id === pid); if (!s) return false;
+      const mine = read.findings.filter(f => !f.room && f.student && f.student.p.id === pid);
+      const eps = s.episodes;
+      const caveat = s.calib && s.calib.grade && s.calib.grade !== "solid"
+        ? '<div class="caveat">Setup was ' + esc(s.calib.grade) +
+          (s.calib.reasons && s.calib.reasons.length ? " — " + esc(s.calib.reasons[0]) : "") + ". Read these lightly.</div>" : "";
+      $("popIn").innerHTML =
+        '<div class="ptop"><span class="dot ' + (s.band === "quiet" ? "" : s.band) + '"></span>' +
+        '<h2 id="popName">' + esc(s.p.name) + '</h2></div>' +
+        '<p class="pstat">' + (s.score === 0 ? "Finished clear" :
+          s.live.length + " flag" + (s.live.length === 1 ? "" : "s") + " · " + esc(s.phrase)) + '</p>' +
+        // the verdicts that belong to this student, decidable right here
+        (mine.length ? '<div class="lab">Findings</div>' + mine.map(f =>
+          '<div class="fnd"><span class="fh">' + esc(f.headline) + '</span>' + chipHtml(f) + '</div>').join("") : "") +
+        (eps.length ? '<div class="lab">Every flag</div>' + eps.map(ep =>
+          '<div class="row ' + (ep.alert ? "alert" : "") + '"><span class="t">' + clock(ep.startT) +
+          (ep.count > 1 ? "–" + clock(ep.endT) : "") + '</span><span class="w">' + esc(label(ep.kind)) +
+          (ep.count > 1 ? " · " + ep.count + "×" : "") + '</span></div>').join("")
+          : '<div class="lab">Every flag</div><div class="row"><span class="w">Nothing was recorded.</span></div>') +
+        caveat;
+      return true;
+    }
+
+    function openMoment(m, sourceEl) {
+      openMom = m; openPid = null;
+      momentHtml(m);
+      morphOpen(sourceEl);
+    }
+    function momentHtml(m) {
+      const names = [...m.people].map(id => (read.students.find(s => s.p.id === id) || {}).p)
+        .filter(Boolean).map(p => p.name);
+      const f = read.findings.find(x => x.room && x.startT === m.startT && x.kind === m.kind);
+      $("popIn").innerHTML =
+        '<div class="ptop"><span class="dot warn"></span><h2 id="popName">' + esc(roomHeadline(m.kind)) + '</h2></div>' +
+        '<p class="pstat">' + names.length + ' of ' + read.roster.length + ' students · ' + clock(m.startT) + '</p>' +
+        (f ? '<div class="lab">Verdict</div><div class="fnd"><span class="fh">' + esc(f.headline) + '</span>' + chipHtml(f) + '</div>' : "") +
+        '<div class="lab">Who</div><p class="who">' + names.map(esc).join(", ") + '</p>' +
+        '<div class="caveat">A whole room flagging together is usually the room, not the students. ' +
+        'Setting this aside clears it for all of them at once.</div>';
+    }
+
+    $("room").addEventListener("click", e => {
+      const tile = e.target.closest(".rtile");
+      if (tile && !e.target.closest(".chip")) openStudent(tile.getAttribute("data-id"), tile);
+    });
 
     // ── verdicts: one press sets every event behind the finding ─────────────
     let pickFor = null;
@@ -217,8 +401,9 @@
         return;
       }
       await load();
+      if ($("popWrap").classList.contains("on")) reopen();
     });
-    addEventListener("keydown", e => { if (e.key === "Escape") closePick(); });
+    addEventListener("keydown", e => { if (e.key !== "Escape") return; if ($("pick").classList.contains("on")) closePick(); else morphClose(); });
     addEventListener("resize", closePick);
 
     // ── data ────────────────────────────────────────────────────────────────
