@@ -437,6 +437,15 @@
       $("fullLink").href = "/exam/report.html?e=" + examId;
       $("dl").onclick = () => window.print();
       await load();
+      setInterval(async () => {
+        await load();
+        if ($("popWrap").classList.contains("on")) reopen();
+      }, 5000);
+      addEventListener("visibilitychange", async () => {
+        if (document.hidden) return;
+        await load();
+        if ($("popWrap").classList.contains("on")) reopen();
+      });
     })();
   </script>
 </body>

@@ -27,10 +27,10 @@
     .toggle{margin-left:auto;font-size:13px;color:var(--muted);font-weight:600;display:inline-flex;align-items:center;gap:7px;cursor:pointer;user-select:none}
     .toggle input{accent-color:var(--ink);width:15px;height:15px}
     .sec-h{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--faint);font-weight:700;margin:22px 0 10px}
-    .student{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:20px 22px;margin-bottom:16px;box-shadow:var(--shadow-sm)}
+    .student{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:22px 24px 14px;margin-bottom:16px;box-shadow:var(--shadow-sm)}
     .student.hide{display:none}
     .student.pri{border-color:#f3c9ca} .student.pri-w{border-color:#f0dcb6}
-    .student h2{font-size:17px;margin:0 0 12px;display:flex;align-items:center;gap:10px}
+    .student h2{font-size:17px;margin:0 0 14px;display:flex;align-items:center;gap:10px}
     .student h2 .sd{width:9px;height:9px;border-radius:50%;flex:0 0 9px;background:var(--faint)}
     .student h2 .sd.warn{background:var(--warn)} .student h2 .sd.alert{background:var(--alert)}
     .student h2 .n{flex:1} .student h2 .ct{font-size:12.5px;font-weight:600;color:var(--muted)}
@@ -64,17 +64,10 @@
     .setup{font-size:10.5px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;padding:3px 8px;border-radius:999px;border:1px solid var(--line);flex:0 0 auto}
     .setup.s-ok{color:var(--ok);background:var(--ok-soft);border-color:#c3e6d5}
     .setup.s-warn{color:var(--warn);background:var(--warn-soft);border-color:#f0dcb6}
-    /* exam strip — when the flags happened, at a glance */
-    .strip{position:relative;height:26px;border-radius:8px;background:var(--soft);border:1px solid var(--line);overflow:hidden;margin:2px 0 4px}
-    .strip .burst{position:absolute;top:0;bottom:0;border-radius:4px;background:rgba(216,58,63,.10)}
-    .strip .tick{position:absolute;top:5px;width:3px;height:16px;border-radius:2px;background:var(--warn);transform:translateX(-50%)}
-    .strip .tick.alert{background:var(--alert)}
-    .strip .tick.dim{opacity:.22}
-    .saxis{display:flex;justify-content:space-between;font-size:11px;color:var(--faint);margin-bottom:8px;font-variant-numeric:tabular-nums}
-    .story{font-size:13px;color:var(--ink-2);margin:0 0 12px;line-height:1.5}
+    .story{font-size:13px;color:var(--ink-2);margin:2px 0 6px;line-height:1.5}
     .story b{color:var(--ink);font-weight:600}
     /* episodes — consecutive same-kind flags merged into one row, one decision */
-    .eprow{display:flex;align-items:center;gap:12px;padding:9px 6px;border-top:1px solid var(--line);font-size:13.5px;border-radius:8px}
+    .eprow{display:flex;align-items:center;gap:12px;padding:11px 4px;border-top:1px solid var(--line);font-size:13.5px;border-radius:8px}
     .eprow .when{flex:0 0 74px;color:var(--muted);font-weight:600;font-variant-numeric:tabular-nums;font-size:12.5px;white-space:nowrap}
     .eprow .what{flex:1;color:var(--ink);font-weight:500}
     .eprow .cnt{font-size:11.5px;font-weight:600;color:var(--muted);white-space:nowrap;font-variant-numeric:tabular-nums}
@@ -84,8 +77,7 @@
     .eprow.cur{outline:2px solid var(--ink);outline-offset:-1px;background:#faf9f7}
     /* review inbox — progress + keyboard triage */
     .inbox{position:sticky;top:10px;z-index:5;display:flex;align-items:center;gap:12px;background:var(--card);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow-sm);padding:11px 16px;margin:0 0 16px}
-    .inbox .ibar{flex:1;height:6px;border-radius:4px;background:var(--soft);overflow:hidden;min-width:60px}
-    .inbox .ibar i{display:block;height:100%;background:var(--ink);border-radius:4px;transition:width .25s}
+    .inbox .sp{flex:1}
     .inbox .itxt{font-size:12.5px;color:var(--muted);font-weight:600;white-space:nowrap;font-variant-numeric:tabular-nums}
     .inbox .keys{display:flex;gap:5px;align-items:center;font-size:11.5px;color:var(--faint);white-space:nowrap}
     .inbox kbd{font-size:10.5px;border:1px solid var(--line);border-bottom-width:2px;border-radius:5px;padding:1px 6px;color:var(--muted);background:#fff;font-weight:700;font-family:inherit}
@@ -170,23 +162,6 @@
       }
       return eps;
     }
-    // shared time window so every student's strip lines up (min 10 minutes wide)
-    function windowOf(events) {
-      const ts = (events||[]).map(e => new Date(e.at).getTime());
-      if (!ts.length) return null;
-      const lo = Math.min(...ts), hi = Math.max(...ts), mid = (lo+hi)/2;
-      const half = Math.max(hi-lo, 10*60*1000) / 2 * 1.06;
-      return { min: mid-half, max: mid+half };
-    }
-    const pct = (t, w) => (((t - w.min) / (w.max - w.min)) * 100).toFixed(2);
-    function stripHtml(evs, eps, w) {
-      if (!w || !evs.length) return "";
-      const bursts = eps.filter(ep => ep.count >= 3)
-        .map(ep => '<span class="burst" style="left:'+pct(ep.startT,w)+'%;width:'+Math.max(1.2,(ep.endT-ep.startT)/(w.max-w.min)*100).toFixed(2)+'%"></span>').join("");
-      const ticks = evs.map(e => '<span class="tick'+(ALERT_KINDS.has(e.kind)?" alert":"")+(e.review==="dismissed"?" dim":"")+'" style="left:'+pct(new Date(e.at).getTime(),w)+'%"></span>').join("");
-      return '<div class="strip">'+bursts+ticks+'</div>'+
-        '<div class="saxis"><span>'+fmtHM(new Date(w.min).toISOString())+'</span><span>'+fmtHM(new Date((w.min+w.max)/2).toISOString())+'</span><span>'+fmtHM(new Date(w.max).toISOString())+'</span></div>';
-    }
     // one auto-written sentence per student — the report reads itself
     function narrative(eps) {
       if (!eps.length) return "";
@@ -245,7 +220,6 @@
 
       if (!teacher) { drawStudent(roster, byP); return; }   // personal "Your activity" view
 
-      const win = windowOf(events);   // one shared clock so every strip lines up
       const info = roster.map(p => {
         const all = byP.get(p.id) || [];
         // calibration-quality records ride the events table but are context, not flags
@@ -297,7 +271,7 @@
           ? '<span class="setup s-warn" title="'+esc((i.calib.reasons||[]).join(", "))+'">setup '+esc(i.calib.grade)+'</span>' : '';
         return '<div class="student '+(i.band==="high"?"pri":"pri-w")+'"><h2><span class="band '+i.band+'">'+i.band+'</span>'+
           '<span class="n">'+esc(p.name)+'</span>'+setup+'<span class="ct">'+i.flags+' flag'+(i.flags===1?"":"s")+'</span></h2>'+
-          stripHtml(i.evs, eps, win)+narrative(eps)+'<div class="eps">'+list+'</div></div>';
+          narrative(eps)+'<div class="eps">'+list+'</div></div>';
       };
 
       // review inbox — progress across every flagged student's episodes
@@ -306,7 +280,7 @@
         const allEps = flagged.flatMap(i => i.eps);
         const done = allEps.filter(e => e.review).length;
         inbox = '<div class="inbox"><span class="itxt">'+done+' of '+allEps.length+' reviewed</span>'+
-          '<span class="ibar"><i style="width:'+(allEps.length ? Math.round(done/allEps.length*100) : 0)+'%"></i></span>'+
+          '<span class="sp"></span>'+
           '<span class="keys"><kbd>&uarr;</kbd><kbd>&darr;</kbd> move &nbsp;<kbd>C</kbd> confirm &nbsp;<kbd>X</kbd> dismiss</span></div>';
       }
 
@@ -344,7 +318,6 @@
       const calib = all.filter(e => e.kind === "calibrated").map(e => e.meta || {}).pop() || null;
       const evs = all.filter(e => e.kind !== "calibrated");
       const eps = episodesOf(evs);
-      const win = windowOf(all);
       const counts = {}; evs.forEach(e => counts[e.kind] = (counts[e.kind]||0)+1);
       const chips = evs.length
         ? Object.entries(counts).sort((a,b)=> b[1]-a[1])
@@ -362,7 +335,7 @@
         ? '<span class="setup s-warn" title="'+esc((calib.reasons||[]).join(", "))+'">setup '+esc(calib.grade)+'</span>' : '';
       $("out").innerHTML = '<div class="student"><h2><span class="n">'+esc(me.name)+'</span>'+setup+
         '<span class="ct">'+evs.length+' flag'+(evs.length===1?"":"s")+'</span></h2>'+
-        '<div class="chips">'+chips+'</div>'+stripHtml(evs, eps, win)+(eps.length?narrative(eps):'')+
+        '<div class="chips">'+chips+'</div>'+(eps.length?narrative(eps):'')+
         (eps.length ? '<div class="eps">'+eps.map(epHtml).join("")+'</div>' : '')+'</div>';
     }
 
@@ -445,6 +418,9 @@
       await fetchAndDraw();
 
       // LIVE: while the exam is open, new events + status changes stream straight in
+      // whatever is on screen is current — no going back and forth to refresh
+      setInterval(fetchAndDraw, 5000);
+      addEventListener("visibilitychange", () => { if (!document.hidden) fetchAndDraw(); });
       if (open){
         let t; const deb = () => { clearTimeout(t); t = setTimeout(fetchAndDraw, 600); };
         sb.channel("report-"+examId)

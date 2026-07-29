@@ -41,6 +41,14 @@
       border-radius:var(--r-sm);padding:10px 12px;margin-bottom:12px;font-size:13px;font-weight:600;line-height:1.4}
     .warnBanner .wi{font-size:15px} .warnBanner .wx{margin-left:auto;background:none;border:0;color:var(--alert);cursor:pointer;font-size:13px;opacity:.7}
     .warnBanner .wx:hover{opacity:1}
+    /* a word from the invigilator — ink, not alarm: it is a person talking, not a flag */
+    .noteBanner{display:flex;align-items:center;gap:9px;background:var(--card);border:1px solid var(--line-strong);
+      color:var(--ink);border-radius:12px;padding:11px 13px;font-size:13.5px;margin-bottom:10px;
+      box-shadow:var(--shadow-sm);animation:noteIn .45s cubic-bezier(.2,.7,.2,1) both}
+    @keyframes noteIn{from{opacity:0;transform:translateY(-6px)}}
+    .noteBanner .ni{font-size:14px;opacity:.55}
+    .noteBanner .wx{margin-left:auto;background:none;border:0;color:var(--muted);cursor:pointer;font-size:13px;opacity:.7}
+    .noteBanner .wx:hover{opacity:1}
     .keepnote{font-size:12px;color:var(--muted);background:var(--soft);border-radius:8px;padding:9px 11px;margin-top:12px;line-height:1.45}
     .keepnote b{color:var(--ink)}
     /* live tuning panel (open the room URL with &debug) */
@@ -81,9 +89,10 @@
 
       <!-- monitor -->
       <section id="s-monitor" class="hidden">
+        <div class="noteBanner hidden" id="noteBanner"><span class="ni">✎</span><span id="noteText"></span><button class="wx" id="noteX" type="button" aria-label="Dismiss">✕</button></div>
         <div class="warnBanner hidden" id="warnBanner"><span class="wi">⚠</span><span id="warnText"></span><button class="wx" id="warnX" type="button" aria-label="Dismiss">✕</button></div>
         <div class="status-lg"><span class="dot ok" id="mDot"></span><div><div class="t" id="mTitle">Looking at screen</div><div class="s" id="mSub">Starting…</div></div></div>
-        <div class="preview"><video id="monVid" playsinline muted></video><span class="tag" id="monTag">🟢 Camera active · nothing is uploaded</span></div>
+        <div class="preview"><video id="monVid" playsinline muted></video><span class="tag" id="monTag">🟢 Camera active</span></div>
         <div class="keepnote">Keep Vigil visible beside your exam.<span id="setupNote"></span></div>
         <div class="tune hidden" id="tune">
           <div class="tBig">

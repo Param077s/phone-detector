@@ -445,6 +445,32 @@ function setupIntegrity() {
     e.preventDefault(); e.returnValue = "";
   });
   const wx = $("warnX"); if (wx) wx.onclick = () => $("warnBanner").classList.add("hidden");
+  const nx = $("noteX"); if (nx) nx.onclick = () => $("noteBanner").classList.add("hidden");
+}
+
+// ── a word from the invigilator ─────────────────────────────────────────────
+// Notes addressed to THIS student (v10) arrive on their screen while they sit the
+// exam, which is the only time the words are any use. Room notes never come here —
+// RLS won't return them — so a student can't read what the teacher wrote about
+// anyone else, including themselves in general.
+let lastNoteAt = null, noteTimer = null;
+function showNote(text) {
+  const b = $("noteBanner"); if (!b) return;
+  const bare = String(text).replace(/^.*?\s\u2014\s/, "");   // drop the "Name — " prefix
+  $("noteText").textContent = bare;
+  b.classList.remove("hidden");
+  clearTimeout(noteTimer); noteTimer = setTimeout(() => b.classList.add("hidden"), 20000);
+}
+async function pollNotes() {
+  if (!part || state.mode !== "monitor") return;
+  try {
+    let q = sb.from("exam_notes").select("at,text").eq("participant_id", part.id).order("at", { ascending: true });
+    if (lastNoteAt) q = q.gt("at", lastNoteAt);
+    const { data, error } = await q;
+    if (error || !data || !data.length) return;   // pre-v10 this errors; the exam is unaffected
+    lastNoteAt = data[data.length - 1].at;
+    showNote(data[data.length - 1].text);
+  } catch (e) {}
 }
 let warnTimer = 0;
 function showWarn(msg) {
@@ -473,7 +499,7 @@ function startMonitoring(now) {
       $("monTag").textContent = "🔴 Camera is off";
       if (!sig.cam.off) { emit("camera_off", "alert"); sig.cam.off = true; }   // fire once, not every beat
     } else if (sig.cam.off) {
-      sig.cam.off = false; $("monTag").textContent = "🟢 Camera active · nothing is uploaded";
+      sig.cam.off = false; $("monTag").textContent = "🟢 Camera active";
     }
     // last_seen is refreshed either way — the camera being off is a flag, not an
     // absence; the teacher should still see them as present and flagged.
@@ -484,6 +510,8 @@ function startMonitoring(now) {
   if (track) track.addEventListener("ended", () => { $("monTag").textContent = "🔴 Camera stopped"; if (!sig.cam.off) { emit("camera_off", "alert"); sig.cam.off = true; } });
   state.closeTimer = ticker(4000, checkClosed);   // stop monitoring once the teacher ends the exam
   state.watchTimer = ticker(CFG.WATCHDOG_MS, watchVision);
+  lastNoteAt = new Date().toISOString();   // only notes sent from now on
+  state.noteTimer = ticker(4000, pollNotes);
   // catch it immediately when the student comes back to the tab
   document.addEventListener("visibilitychange", () => { if (!document.hidden) checkClosed(); });
 }
@@ -561,9 +589,9 @@ async function begin() {
 }
 function fail(msg) { state.running = false; stopTimers(); $("errMsg").textContent = msg; show("s-error"); }
 function stopTimers() {
-  [state.loopTimer, state.hbTimer, state.closeTimer, state.watchTimer]
+  [state.loopTimer, state.hbTimer, state.closeTimer, state.watchTimer, state.noteTimer]
     .forEach(t => { try { t && t.stop(); } catch (e) {} });
-  state.loopTimer = state.hbTimer = state.closeTimer = state.watchTimer = null;
+  state.loopTimer = state.hbTimer = state.closeTimer = state.watchTimer = state.noteTimer = null;
 }
 
 // ── Boot: confirm the student joined this exam, then start ────────────────────

@@ -42,24 +42,6 @@
     <div class="card">
       <div class="top brand"><span class="mk"><svg viewBox="0 0 24 24" fill="none"><path d="M6 10V7.5A1.5 1.5 0 0 1 7.5 6H10M14 6h2.5A1.5 1.5 0 0 1 18 7.5V10M18 14v2.5a1.5 1.5 0 0 1-1.5 1.5H14M10 18H7.5A1.5 1.5 0 0 1 6 16.5V14" stroke="#fff" stroke-width="1.8" stroke-linecap="round"/><circle cx="12" cy="12" r="2.6" fill="#fff"/></svg></span><b>Vigil</b><span class="tag">· Exams</span></div>
 
-      <!-- role -->
-      <section id="s-role">
-        <h1>Who's joining?</h1>
-        <p class="lead">Students join with a code. Teachers run the room.</p>
-        <div class="roles">
-          <button class="role" id="pickStudent" type="button">
-            <span class="ic"><svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="8" r="3.4" stroke="#fff" stroke-width="1.7"/><path d="M5.5 19a6.5 6.5 0 0 1 13 0" stroke="#fff" stroke-width="1.7" stroke-linecap="round"/></svg></span>
-            <span><span class="t">I'm a student</span><span class="s">Join an exam with your code</span></span>
-            <span class="arw"><svg viewBox="0 0 24 24" fill="none"><path d="M5 12h14M13 6l6 6-6 6" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
-          </button>
-          <button class="role" id="pickTeacher" type="button">
-            <span class="ic"><svg viewBox="0 0 24 24" fill="none"><rect x="3.5" y="5" width="17" height="12" rx="2" stroke="#fff" stroke-width="1.7"/><path d="M8 20h8" stroke="#fff" stroke-width="1.7" stroke-linecap="round"/></svg></span>
-            <span><span class="t">I'm a teacher</span><span class="s">Create rooms & watch presence</span></span>
-            <span class="arw"><svg viewBox="0 0 24 24" fill="none"><path d="M5 12h14M13 6l6 6-6 6" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
-          </button>
-        </div>
-      </section>
-
       <!-- student join -->
       <section id="s-student" class="hidden">
         <span class="back" data-back><svg viewBox="0 0 24 24" fill="none"><path d="M15 18l-6-6 6-6" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg>Back</span>
@@ -78,6 +60,7 @@
         <div class="orline" id="guestOr">or</div>
         <a class="back" id="guestJoin" style="justify-content:center;margin:0">Join as a guest instead</a>
         <div class="err" id="sErr"></div>
+        <a class="back" id="goTeacher" style="justify-content:center;margin:14px 0 0;color:var(--faint)">I'm the teacher</a>
       </section>
 
       <!-- teacher auth -->
@@ -104,7 +87,7 @@
   <script type="module">
     import { sb, esc } from "/exam/sb.js";
     const $ = id => document.getElementById(id);
-    const show = (which) => { ["s-role","s-student","s-teacher"].forEach(s => $(s).classList.toggle("hidden", s !== which)); };
+    const show = (which) => { ["s-student","s-teacher"].forEach(s => $(s).classList.toggle("hidden", s !== which)); };
     const toast = (m) => { const t=$("toast"); t.textContent=m; t.classList.add("show"); clearTimeout(toast._t); toast._t=setTimeout(()=>t.classList.remove("show"),1800); };
 
     const origin = location.origin;
@@ -151,16 +134,21 @@
       const role = localStorage.getItem("vg_role");
       if (role === "teacher" && isTeacherAcct(user)) { location.replace("/exam/console.html"); return; }
       if (role === "student") { await openStudent(); return; }
-      // otherwise: leave the role picker showing
+      // no role, no code: students are the overwhelming majority of people
+      // who land here, and there is a teacher link on that screen
+      await openStudent();
     })();
 
-    $("pickStudent").onclick = () => openStudent();
-    $("pickTeacher").onclick = async () => {
+    $("goTeacher").onclick = async () => {
       const { data:{ user } } = await sb.auth.getUser();
       if (isTeacherAcct(user)) { localStorage.setItem("vg_role","teacher"); location.replace("/exam/console.html"); return; }
       show("s-teacher");
     };
-    document.querySelectorAll("[data-back]").forEach(b => b.onclick = () => show("s-role"));
+    // back goes where the student came from, not to a screen we deleted
+    document.querySelectorAll("[data-back]").forEach(b => b.onclick = () => {
+      if (b.closest("#s-teacher")) { show("s-student"); return; }
+      if (history.length > 1) history.back(); else location.href = "/";
+    });
 
     // ---- student join ----
     async function resolveExam(code) {

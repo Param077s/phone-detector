@@ -260,10 +260,12 @@
     addEventListener("keydown", e => { if (e.key === "Escape") morphClose(); });
 
     // ── what the popup says: now, not the whole exam ────────────────────────
-    function noteField(prefix) {
+    function noteField(prefix, pid) {
       if (!notesOn || CLOSED) return "";
-      return '<div class="noteRow"><input id="noteInp" maxlength="300" placeholder="Add a note" ' +
-        'data-prefix="' + esc(prefix || "") + '" aria-label="Add a note"><div class="noted" id="noted"></div></div>';
+      return '<div class="noteRow"><input id="noteInp" maxlength="300" placeholder="' +
+        (pid ? "Say something to " + esc(prefix.split(" ")[0]) : "Add a note") + '" ' +
+        'data-prefix="' + esc(prefix || "") + '" data-pid="' + esc(pid || "") + '" aria-label="Add a note">' +
+        '<div class="noted" id="noted">' + (pid ? "They see this on their screen." : "") + '</div></div>';
     }
     function wireNote() {
       const inp = $("noteInp"); if (!inp) return;
@@ -271,12 +273,18 @@
       inp.addEventListener("keydown", async e => {
         if (e.key !== "Enter") return;
         const txt = inp.value.trim(); if (!txt) return;
-        const prefix = inp.getAttribute("data-prefix");
+        const prefix = inp.getAttribute("data-prefix"), pid = inp.getAttribute("data-pid") || null;
         inp.value = "";
-        const { data, error } = await sb.from("exam_notes")
-          .insert({ exam_id: examId, text: (prefix ? prefix + " — " : "") + txt }).select("at").maybeSingle();
+        const row = { exam_id: examId, text: (prefix ? prefix + " — " : "") + txt };
+        if (pid) row.participant_id = pid;
+        let { data, error } = await sb.from("exam_notes").insert(row).select("at").maybeSingle();
+        if (error && pid) {   // pre-v10 the column doesn't exist — still record the note
+          delete row.participant_id;
+          ({ data, error } = await sb.from("exam_notes").insert(row).select("at").maybeSingle());
+          if (!error) { $("noted").textContent = "Saved to the report, but not sent (needs the v10 update)."; return; }
+        }
         if (error) { inp.value = txt; $("noted").textContent = "Could not save that note."; return; }
-        $("noted").textContent = "Noted at " + clock(data ? data.at : Date.now()) + ".";
+        $("noted").textContent = pid ? "Sent." : "Noted at " + clock(data ? data.at : Date.now()) + ".";
       });
     }
 
@@ -299,7 +307,7 @@
         (recent.length ? '<div class="lab">So far</div>' + recent.map(e =>
           '<div class="row ' + (ALERT_KINDS.has(e.kind) ? "alert" : "") + '"><span class="t">' + clock(e.at) + '</span>' +
           '<span class="w">' + esc(label(e.kind)) + '</span></div>').join("") : "") +
-        caveat + noteField(s.p.name);
+        caveat + noteField(s.p.name, s.p.id);
       morphOpen(sourceEl); wireNote();
     }
 

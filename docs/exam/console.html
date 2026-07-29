@@ -16,6 +16,10 @@
     .create .row{display:flex;gap:10px;flex-wrap:wrap} .create .input{flex:1;min-width:200px}
     .reqrow{display:flex;align-items:center;gap:9px;margin-top:14px;font-size:13px;color:var(--muted);cursor:pointer}
     .reqrow input{width:16px;height:16px;accent-color:var(--ink)} .reqrow b{color:var(--ink);font-weight:600}
+    .odo{display:inline-flex;height:1em;overflow:hidden;vertical-align:-.03em;line-height:1}
+    .odo .od{display:inline-block;height:1em;overflow:hidden}
+    .odo .ods{display:block;transition:transform .55s cubic-bezier(.2,.7,.2,1)}
+    .odo .ods i{display:block;height:1em;line-height:1em;font-style:normal}
     .head2{display:flex;align-items:baseline;gap:10px;margin:0 2px 14px} .head2 h2{font-size:15px} .head2 .n{color:var(--faint);font-size:13px}
     .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px}
     .exam{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:18px;box-shadow:var(--shadow-sm);display:flex;flex-direction:column;gap:12px}
@@ -33,8 +37,6 @@
     .shareCard{position:relative;width:min(380px,100%);background:var(--card);border:1px solid var(--line);border-radius:24px;padding:28px 26px;box-shadow:var(--shadow);text-align:center;animation:pop .35s var(--spring)}
     @keyframes pop{from{opacity:0;transform:translateY(10px) scale(.98)}}
     .shareCard h3{font-size:19px;margin:6px 0 4px} .shareCard p{color:var(--muted);font-size:13px;margin-bottom:16px}
-    .shareCard .qr{width:200px;height:200px;margin:0 auto 14px;border:1px solid var(--line);border-radius:14px;padding:10px;background:#fff}
-    .shareCard .qr img{width:100%;height:100%;display:block}
     .bigcode{font-family:var(--display);font-size:30px;font-weight:700;letter-spacing:5px;margin-bottom:14px}
     .linkrow{display:flex;gap:8px} .linkrow input{flex:1;font-size:12.5px;padding:10px 12px;border:1px solid var(--line-strong);border-radius:10px;background:var(--soft);color:var(--ink-2);outline:none}
     .shareX{position:absolute;top:12px;right:12px;width:28px;height:28px;border-radius:50%;border:1px solid var(--line);background:var(--glass);cursor:pointer;color:var(--muted);font-size:14px}
@@ -69,17 +71,16 @@
       <button class="shareX" id="shareX" aria-label="Close">✕</button>
       <div class="eyebrow" style="font-family:var(--display);font-size:11.5px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:var(--muted)">Share this exam</div>
       <h3 id="shareTitle">Exam</h3>
-      <p>Students scan the code or open the link — then just enter their name.</p>
-      <div class="qr"><img id="qrImg" alt="Join QR code"></div>
+      <p>Send the link. It opens straight into this exam — students just enter their name.</p>
       <div class="bigcode" id="shareCode">——————</div>
-      <div class="linkrow"><input id="shareLink" readonly><button class="btn ink sm" id="copyLink">Copy</button></div>
+      <button class="btn ink block" id="copyLink" type="button" style="margin-top:16px">Copy join link</button>
+      <div class="linkrow"><input id="shareLink" readonly></div>
     </div>
   </div>
   <div class="toast" id="toast"></div>
 
   <script type="module">
     import { sb, esc } from "/exam/sb.js";
-    import QRCode from "https://esm.sh/qrcode@1.5.4";
     const $ = id => document.getElementById(id);
     const listEl = $("list"), countEl = $("count"), toastEl = $("toast");
     const toast = (m) => { toastEl.textContent=m; toastEl.classList.add("show"); clearTimeout(toast._t); toast._t=setTimeout(()=>toastEl.classList.remove("show"),1700); };
@@ -131,34 +132,80 @@
       return { total: count||0, flagged: flag||0 };
     }
 
+    // ── a number that rolls instead of blinking ─────────────────────────────
+    // The old refresh rebuilt every card, so each count flashed to an em dash and
+    // back. Now the digits stay put and roll to the new value.
+    function odo(el, n){
+      const str = String(n);
+      if (el.dataset.v === str) return;
+      if (el.dataset.v == null || el.dataset.v.length !== str.length){
+        el.innerHTML = str.split("").map(() =>
+          '<span class="od"><span class="ods">' + [0,1,2,3,4,5,6,7,8,9].map(d => '<i>'+d+'</i>').join("") + '</span></span>').join("");
+      }
+      el.dataset.v = str;
+      el.querySelectorAll(".ods").forEach((r, i) => {
+        r.style.transform = "translateY(-" + parseInt(str[i], 10) + "em)";
+      });
+    }
+    function statSlot(slot, p){
+      if (!slot.querySelector(".odo")){
+        slot.innerHTML = '<div><b><span class="odo" data-k="t"></span></b>joined</div>' +
+                         '<div><b><span class="odo" data-k="f"></span></b>flagged</div>';
+      }
+      odo(slot.querySelector('[data-k="t"]'), p.total);
+      odo(slot.querySelector('[data-k="f"]'), p.flagged);
+    }
+
     function card(x){
       const open = x.status === "open";
-      const el = document.createElement("div"); el.className = "exam";
+      const el = document.createElement("div"); el.className = "exam"; el.dataset.id = x.id;
       el.innerHTML =
         '<div class="top"><div class="title">'+esc(x.title)+'</div><span class="pill '+(open?"ok":"")+'">'+(open?"Open":"Ended")+'</span></div>'+
-        '<div class="code"><span class="big">'+esc(x.code)+'</span><span class="cp" data-share="'+esc(x.code)+'" data-title="'+esc(x.title)+'">Share ›</span></div>'+
-        '<div class="stat" data-p="'+esc(x.id)+'"><div><b>—</b>joined</div></div>'+
+        '<div class="code"><span class="big">'+esc(x.code)+'</span><span class="cp" data-share="'+esc(x.code)+'" data-title="'+esc(x.title)+'">Share \u203a</span></div>'+
+        '<div class="stat" data-p="'+esc(x.id)+'"><div><b><span class="odo" data-k="t"></span></b>joined</div><div><b><span class="odo" data-k="f"></span></b>flagged</div></div>'+
         '<div class="acts">'+
           (open
             ? '<a class="btn ink sm" href="/exam/live.html?e='+encodeURIComponent(x.id)+'">Live room</a>'+
               '<a class="btn ghost sm" href="/exam/findings.html?e='+encodeURIComponent(x.id)+'">Report</a>'+
               '<button class="btn ghost sm" data-close="'+esc(x.id)+'">Close</button>'
             : '<a class="btn ink sm" href="/exam/live.html?e='+encodeURIComponent(x.id)+'">Who joined</a>'+
-              '<a class="btn ghost sm" href="/exam/report.html?e='+encodeURIComponent(x.id)+'">Report</a>')+
+              '<a class="btn ghost sm" href="/exam/findings.html?e='+encodeURIComponent(x.id)+'">Report</a>')+
+          '<button class="btn ghost sm del" data-del="'+esc(x.id)+'" data-t="'+esc(x.title)+'" title="Delete this exam">Delete</button>'+
         '</div>';
       return el;
     }
 
+    // Reconcile, never rebuild — the list must not flicker, and an open card must
+    // not jump under the cursor while someone is joining.
+    const cards = new Map();
     async function refresh(){
       const { data, error } = await sb.from("exams").select("id,code,title,status").eq("owner", me.id).order("created_at",{ascending:false});
-      if (error) { return; }
+      if (error) return;
       const rows = data || [];
       countEl.textContent = rows.length ? rows.length + " total" : "";
-      if (!rows.length){ listEl.innerHTML = '<div class="empty"><b>No exams yet</b>Create your first room above — you\'ll get a code to share.</div>'; return; }
-      listEl.innerHTML = ""; rows.forEach(x => listEl.appendChild(card(x)));
+      if (!rows.length){
+        cards.clear();
+        listEl.innerHTML = '<div class="empty"><b>No exams yet</b>Create your first room above — you\'ll get a code to share.</div>';
+        return;
+      }
+      if (listEl.querySelector(".empty")) { listEl.innerHTML = ""; cards.clear(); }
+      for (const x of rows){
+        let el = cards.get(x.id);
+        if (!el){ el = card(x); cards.set(x.id, el); listEl.appendChild(el); }
+        else {
+          const openNow = x.status === "open";
+          const pill = el.querySelector(".pill");
+          if (pill.textContent !== (openNow ? "Open" : "Ended")){ const nw = card(x); el.replaceWith(nw); cards.set(x.id, nw); }
+        }
+      }
+      for (const [id, el] of cards) if (!rows.some(r => r.id === id)) { el.remove(); cards.delete(id); }
+      let want = listEl.firstChild;
+      for (const x of rows){ const el = cards.get(x.id); if (!el) continue;
+        if (el !== want) listEl.insertBefore(el, want); else want = el.nextSibling; }
       rows.forEach(async x => {
-        const p = await presence(x.id); const slot = listEl.querySelector('[data-p="'+CSS.escape(x.id)+'"]');
-        if (slot) slot.innerHTML = '<div><b>'+p.total+'</b>joined</div><div><b>'+p.flagged+'</b>flagged</div>';
+        const p = await presence(x.id);
+        const slot = listEl.querySelector('[data-p="'+CSS.escape(x.id)+'"]');
+        if (slot) statSlot(slot, p);
       });
     }
 
@@ -169,13 +216,18 @@
       $("shareTitle").textContent = title || "Exam";
       $("shareCode").textContent = code;
       $("shareLink").value = link;
-      try { $("qrImg").src = await QRCode.toDataURL(link, { margin: 1, width: 240, color: { dark: "#0c0d10", light: "#ffffff" } }); } catch (e) {}
       shareModal.classList.add("open");
     }
     $("shareX").onclick = () => shareModal.classList.remove("open");
     shareModal.addEventListener("click", (e) => { if (e.target === shareModal) shareModal.classList.remove("open"); });
     addEventListener("keydown", (e) => { if (e.key === "Escape") shareModal.classList.remove("open"); });
-    $("copyLink").onclick = async () => { try { await navigator.clipboard.writeText($("shareLink").value); toast("Link copied"); } catch (_) {} };
+    $("copyLink").onclick = async () => {
+      try { await navigator.clipboard.writeText($("shareLink").value); toast("Link copied"); }
+      catch (_) { $("shareLink").select(); toast("Press ⌘C to copy"); }
+    };
+
+    // coming back to this tab must never show a stale list
+    document.addEventListener("visibilitychange", () => { if (!document.hidden) refresh(); });
 
     listEl.addEventListener("click", async (e) => {
       const sh = e.target.closest("[data-share]");
@@ -183,7 +235,17 @@
       const cl = e.target.closest("[data-close]");
       if (cl){ if(!confirm("Close this exam? Students stop being monitored.")) return;
         await sb.from("exams").update({ status:"closed", closed_at:new Date().toISOString() }).eq("id", cl.getAttribute("data-close"));
-        toast("Exam closed"); refresh(); }
+        toast("Exam closed"); refresh(); return; }
+      // deleting takes the roster, the flags and the report with it — say so, and
+      // make them type nothing they can mistype, just confirm the title back
+      const dl = e.target.closest("[data-del]");
+      if (dl){
+        const title = dl.getAttribute("data-t") || "this exam";
+        if (!confirm("Delete \u201c" + title + "\u201d?\n\nThis removes the exam, everyone who joined, every flag and the report. It cannot be undone.")) return;
+        const { error } = await sb.from("exams").delete().eq("id", dl.getAttribute("data-del"));
+        toast(error ? "Could not delete that exam" : "Exam deleted");
+        refresh();
+      }
     });
   </script>
 </body>
