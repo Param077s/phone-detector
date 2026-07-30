@@ -76,6 +76,9 @@
     .rtile .rn{display:block;font-size:14px;font-weight:500;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
     .rtile .rs{display:block;font-size:12.5px;margin-top:4px;color:var(--faint);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
     .rtile.quiet{border-color:rgba(31,157,99,.45)} .rtile.quiet .rs{color:var(--ok)}
+    /* never sent a calibration record — we have no evidence either way, and that
+       must not look like a clean result */
+    .rtile.unver{border-style:dashed;border-color:var(--line-strong)} .rtile.unver .rs{color:var(--muted)}
     .rtile.warn{border-color:var(--warn)} .rtile.warn .rs{color:#854f0b}
     .rtile.alert,.rtile.serious{border-color:var(--alert)} .rtile.alert .rs,.rtile.serious .rs{color:#a32d2d}
     .roomline{display:flex;align-items:baseline;gap:10px;margin-top:22px;font-size:13.5px;color:var(--muted)}
@@ -208,11 +211,16 @@
         : '<div class="none-yet">Nothing was flagged. ' +
           '<span class="rest">' + word(read.roster.length) + ' student' + (read.roster.length === 1 ? "" : "s") + ' finished clear.</span></div>';
 
+      const unver = read.unverified.length
+        ? '<div class="clearlist"><span class="lab">No monitoring data</span>' +
+          read.unverified.map(x => esc(x.p.name)).join(", ") +
+          ' — these students never completed setup, so nothing was recorded about them ' +
+          'either way. This is not a clear result.</div>' : "";
       const clearList = (f.length && clear.length)
         ? '<div class="clearlist"><span class="lab">Finished clear</span>' +
           clear.map(s => esc(s.p.name)).join(", ") + '</div>' : "";
 
-      $("body").innerHTML = body + clearList +
+      $("body").innerHTML = body + clearList + unver +
         '<p class="privacy">No video, audio or images left any student’s device. Every finding above is an on-device ' +
         'detection, offered as an aid to human judgement and not as a conclusion.</p>' +
         '<div class="sign"><span>Reviewed by</span><span>Signature</span><span>Date</span></div>' +
@@ -261,7 +269,8 @@
           el.innerHTML = '<span class="rn"><i class="pd"></i><span class="nm"></span></span><span class="rs"></span>';
           rtiles.set(st.p.id, el); room.appendChild(el);
         }
-        el.classList.toggle("quiet", st.band === "quiet");
+        el.classList.toggle("quiet", st.band === "quiet" && !st.unverified);
+        el.classList.toggle("unver", !!st.unverified);
         el.classList.toggle("warn", st.band === "warn");
         el.classList.toggle("alert", st.band === "alert");
         el.classList.toggle("serious", !!st.serious);
@@ -271,7 +280,7 @@
         dot.classList.toggle("up", up);
         const nm = el.querySelector(".nm"); if (nm.textContent !== st.p.name) nm.textContent = st.p.name;
         const rs = el.querySelector(".rs");
-        const txt = st.score === 0 ? "clear" : (st.phrase || "flagged");
+        const txt = st.unverified ? "no data" : st.score === 0 ? "clear" : (st.phrase || "flagged");
         if (rs.textContent !== txt) rs.textContent = txt;
       }
       for (const [id, el] of rtiles) if (!rows.some(r => r.p.id === id)) { el.remove(); rtiles.delete(id); }
@@ -387,7 +396,7 @@
       $("popIn").innerHTML =
         '<div class="ptop"><span class="dot ' + (s.band === "quiet" ? "" : s.band) + '"></span>' +
         '<h2 id="popName">' + esc(s.p.name) + '</h2></div>' +
-        '<p class="pstat">' + presenceLine(s) + (s.score === 0 ? "Finished clear" :
+        '<p class="pstat">' + presenceLine(s) + (s.unverified ? "No monitoring data — setup never completed" : s.score === 0 ? "Finished clear" :
           s.live.length + " flag" + (s.live.length === 1 ? "" : "s") + " · " + esc(s.phrase)) + '</p>' +
         // the verdicts that belong to this student, decidable right here
         (mine.length ? '<div class="lab">Findings</div>' + mine.map(f =>

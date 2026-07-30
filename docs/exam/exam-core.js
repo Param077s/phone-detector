@@ -223,8 +223,13 @@ export function readExam(participants, events, opts = {}) {
     // walk over for. Looking away is not one of them — it would paint half the room
     // amber and teach the teacher to ignore colour entirely.
     const serious = own.some(e => e.review !== "dismissed" && SERIOUS_KINDS.has(e.kind));
+    // Every monitored student writes a `calibrated` event at setup. Its ABSENCE
+    // means setup never completed or nothing this laptop sent ever arrived —
+    // which is also exactly what blocking Vigil's writes looks like. Either way
+    // "clear" would be a lie: we have no evidence about them at all.
+    const unverified = !calib;
     return {
-      p, calib, events: evs, live, own, episodes: eps, counts, score, serious,
+      p, calib, unverified, events: evs, live, own, episodes: eps, counts, score, serious,
       band: score >= 10 ? "alert" : score >= FINDING_SCORE ? "warn" : "quiet",
       lastAt: evs.length ? t(evs[evs.length - 1].at) : null,
       phrase: top ? phrase(top[0], top[1]) : "",
@@ -267,11 +272,13 @@ export function readExam(participants, events, opts = {}) {
   const named = new Set(findings
     .filter(f => !f.room && f.student && f.review !== "dismissed")
     .map(f => f.student.p.id));
-  const clear = students.filter(s => !named.has(s.p.id) && s.score === 0);
+  const clear = students.filter(s => !named.has(s.p.id) && s.score === 0 && !s.unverified);
+  // said separately from "clear", because it is the opposite of a clean result
+  const unverified = students.filter(s => s.unverified);
 
   const allT = (events || []).map(e => t(e.at)).filter(Boolean);
   return {
-    roster, students, moments, findings, clear,
+    roster, students, moments, findings, clear, unverified,
     startT: allT.length ? Math.min(...allT) : null,
     endT: allT.length ? Math.max(...allT) : null,
   };
