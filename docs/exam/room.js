@@ -9,6 +9,12 @@ const CFG = {
   HEAD_ENTER: 0.14, HEAD_EXIT: 0.08, HEAD_HOLD_MS: 3500,
   // Eyes drift OUTSIDE the allowed circle around where they calibrated — any direction
   GAZE_RADIUS: 0.14, GAZE_HOLD_MS: 1200,
+  // A drift DOWN is usually the paper on the desk; a drift SIDEWAYS is usually a
+  // second screen or a neighbour. Same magnitude, very different meaning, and
+  // scoring them alike is what made a paper exam look suspicious. The threshold
+  // is unchanged — only the direction is now recorded — so this reclassifies
+  // flags rather than changing how many are raised.
+  GAZE_DOWN_RATIO: 1.2,
   BLINK_RATIO: 0.55,   // eye-openness below this fraction of the calibrated open = blink → ignore gaze
   // Phone (object detection — heavier, so it runs on a slower cadence)
   // A generic object detector calls a wallet, a calculator or any dark rectangle a
@@ -124,7 +130,7 @@ const sig = {
   head: { since: null, fired: false },
   absent: { since: null, fired: false },
   second: { since: null, lastFired: 0 },
-  away: { since: null, fired: false },
+  away: { since: null, fired: false, sumX: 0, sumY: 0, down: false },
   cam: { off: false },   // one camera_off event per off-episode, not one per heartbeat
   phone: { lastFired: 0, recent: [] },   // recent = detector score of the last few passes
   gap: { since: null },   // a measured stretch where no camera frame arrived at all
@@ -136,8 +142,10 @@ function doMonitor(mx, now) {
   // per-frame measurements (also feed the debug readout / recorder)
   const drop = (haveFace && mx.noseGap != null) ? (state.baseline - mx.noseGap) : null;
   const blink = state.baseOpen != null && mx.openness != null && mx.openness < CFG.BLINK_RATIO * state.baseOpen;
-  const off = (haveFace && !blink && mx.gazeX != null && state.baseGazeX != null)
-    ? Math.hypot(mx.gazeX - state.baseGazeX, mx.gazeY - state.baseGazeY) : null;   // radial eye drift, any direction
+  const canGaze = haveFace && !blink && mx.gazeX != null && state.baseGazeX != null;
+  const dx = canGaze ? mx.gazeX - state.baseGazeX : null;          // + right, - left
+  const dy = canGaze ? mx.gazeY - state.baseGazeY : null;          // + down (iris sits lower between the lids)
+  const off = canGaze ? Math.hypot(dx, dy) : null;                 // radial eye drift, any direction
   state.dropNow = drop; state.offNow = off;
   if (drop != null) state.dropPeak = Math.max(state.dropPeak * 0.985, drop);
   if (off  != null) state.offPeak  = Math.max(state.offPeak  * 0.985, off);
@@ -151,12 +159,21 @@ function doMonitor(mx, now) {
       if (now - sig.head.since > CFG.HEAD_HOLD_MS && !sig.head.fired) { emit("head_down", "warn"); sig.head.fired = true; }
     } else if (drop < CFG.HEAD_EXIT) { sig.head.since = null; sig.head.fired = false; }
   }
-  // LOOK AWAY — eyes drift outside the allowed circle around the calibrated centre (L/R/up/down)
+  // EYES OFF CENTRE — drift outside the allowed circle around the calibrated point.
+  // Which WAY they drifted decides which flag it is: sustained downward drift is
+  // eyes_down (the desk), anything else is look_away (a second screen, a neighbour).
   if (off != null) {
     if (off > CFG.GAZE_RADIUS) {
-      if (!sig.away.since) sig.away.since = now;
-      if (now - sig.away.since > CFG.GAZE_HOLD_MS && !sig.away.fired) { emit("look_away", "warn"); sig.away.fired = true; }
-    } else if (off < CFG.GAZE_RADIUS * 0.6) { sig.away.since = null; sig.away.fired = false; }
+      if (!sig.away.since) { sig.away.since = now; sig.away.sumX = 0; sig.away.sumY = 0; }
+      // accumulate across the hold, so one frame's noise can't decide the direction
+      sig.away.sumX += Math.abs(dx); sig.away.sumY += dy;
+      if (now - sig.away.since > CFG.GAZE_HOLD_MS && !sig.away.fired) {
+        const downward = sig.away.sumY > 0 && sig.away.sumY > sig.away.sumX * CFG.GAZE_DOWN_RATIO;
+        sig.away.down = downward;
+        emit(downward ? "eyes_down" : "look_away", "warn");
+        sig.away.fired = true;
+      }
+    } else if (off < CFG.GAZE_RADIUS * 0.6) { sig.away.since = null; sig.away.fired = false; sig.away.down = false; }
   }
   if (mx.faces === 0) {
     if (!sig.absent.since) sig.absent.since = now;
@@ -174,7 +191,7 @@ function paintStatus(mx, now) {
   if (mx.faces === 0) { cls = "warn"; label = "Face not visible"; }
   else if (mx.faces >= 2) { cls = "alert"; label = "More than one face"; }
   else if (sig.head.fired) { cls = "warn"; label = "Looking down"; }
-  else if (sig.away.fired) { cls = "warn"; label = "Looking away"; }
+  else if (sig.away.fired) { cls = "warn"; label = sig.away.down ? "Eyes on the desk" : "Looking away"; }
   $("mDot").className = "dot " + cls;
   // one status line: who you are + how long you've been in, and the live state
   const secs = Math.max(0, Math.floor((Date.now() - state.joinedAtMs) / 1000));

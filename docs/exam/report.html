@@ -129,10 +129,10 @@
     import { sb, esc } from "/exam/sb.js";
     const $ = id => document.getElementById(id);
     const examId = new URLSearchParams(location.search).get("e");
-    const LABELS = { head_down:"Looked down", look_away:"Looked away", face_absent:"Face not visible", second_face:"Second face detected", phone:"Phone detected", camera_off:"Camera off", monitor_hidden:"Camera not readable", left_exam:"Left the exam page", virtual_cam:"Virtual camera", calibrated:"Calibrated" };
+    const LABELS = { head_down:"Looked down", look_away:"Looked away", eyes_down:"Eyes on the desk", face_absent:"Face not visible", second_face:"Second face detected", phone:"Phone detected", camera_off:"Camera off", monitor_hidden:"Camera not readable", left_exam:"Left the exam page", virtual_cam:"Virtual camera", calibrated:"Calibrated" };
     const ALERT_KINDS = new Set(["second_face","phone","camera_off","monitor_hidden","left_exam","virtual_cam"]);
     // integrity weighting → a single risk score per student (dismissed flags count 0)
-    const WEIGHT = { second_face:5, phone:5, virtual_cam:5, left_exam:4, monitor_hidden:3, camera_off:3, face_absent:1.5, look_away:1, head_down:1 };
+    const WEIGHT = { second_face:5, phone:5, virtual_cam:5, left_exam:4, monitor_hidden:3, camera_off:3, face_absent:1.5, look_away:1, head_down:1, eyes_down:0.4 };
     const bandOf = (score) => score>=10 ? "high" : score>=4 ? "medium" : score>0 ? "low" : "clear";
     let reviewEnabled = false;   // teacher + the v6 review column exists
     const CAP = 8;   // episodes shown before a card collapses the rest

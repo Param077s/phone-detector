@@ -99,14 +99,15 @@ A separate, slower object-detection pass (every 700 ms) looks for a phone.
 
 ---
 
-## 4. The ten event kinds
+## 4. The eleven event kinds
 
 An event is only written when a condition has **held continuously** for a hold time.
 This is what stops a single noisy frame becoming a flag.
 
 | kind | label shown | severity | fires when | hold | cooldown |
 |---|---|---|---|---|---|
-| `look_away` | Looked away | warn | gaze drift `off > 0.14` (radial, from calibration) | 1.2 s | resets when `off < 0.084` |
+| `look_away` | Looked away | warn | gaze drift `off > 0.14`, sustained direction **not** downward | 1.2 s | resets when `off < 0.084` |
+| `eyes_down` | Eyes on the desk | warn | the same drift, but sustained **downward** | 1.2 s | resets when `off < 0.084` |
 | `head_down` | Looked down | warn | head pitch `drop > 0.14` | 3.5 s | resets when `drop < 0.08` |
 | `face_absent` | Face not visible | warn | `faces == 0` | 5 s | — |
 | `second_face` | Second face detected | alert | `faces >= 2` | 1.5 s | 15 s |
@@ -119,8 +120,12 @@ This is what stops a single noisy frame becoming a flag.
 
 Important nuances:
 
-- `look_away` and `head_down` are **edge-triggered**: one event per episode of drifting,
-  not one per frame. The student must return to baseline before it can fire again.
+- `look_away`, `eyes_down` and `head_down` are **edge-triggered**: one event per episode
+  of drifting, not one per frame. The student must return to baseline before it can fire
+  again.
+- `look_away` and `eyes_down` come from the **same** measurement at the same threshold —
+  only the direction differs (§4.5). Splitting them changed no sensitivity and no volume
+  of flags; it changed what each one is called and what it is worth.
 - `phone` and `second_face` re-fire at most every 15 s while the condition persists, so a
   phone held for 2 minutes produces ~8 events, not one.
 - `phone` requires **corroboration across passes**, not one confident frame (§4.4).
@@ -173,6 +178,27 @@ The event carries the detector's own numbers:
 This is the **only real confidence number anywhere in the system.** Every other kind is
 rule-based and has no confidence value; the report is required to say so rather than
 invent one (§5.6).
+
+### 4.5 Which way the eyes went
+
+`off` is a radial distance, so it says how far the eyes drifted but not where to. Those
+are very different facts. A drift **down** is, in almost every exam, the paper on the
+desk. A drift **sideways** is a second screen, a neighbour's script, or a phone propped
+beside the laptop.
+
+Scoring them alike is what made an ordinary paper exam look suspicious, since reading
+your own question sheet generated the same flag as staring at the next desk.
+
+The horizontal and vertical components are accumulated across the 1.2 s hold — one noisy
+frame must not decide it — and the flag is `eyes_down` when the downward component
+dominates the sideways one by `GAZE_DOWN_RATIO` (1.2), otherwise `look_away`.
+
+`eyes_down` carries weight **0.4**, the lowest in the set, against `look_away`'s 1. In a
+paper exam it is close to what reading looks like, so it should register without
+accumulating into an accusation. Both are ambient (§5.3), so both are scored as a rate.
+
+The threshold and the hold are **unchanged**. This reclassifies flags; it does not raise
+or lower how many are raised.
 
 ---
 

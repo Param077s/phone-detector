@@ -15,7 +15,8 @@ export function esc(s) {
 
 // ── vocabulary ──────────────────────────────────────────────────────────────
 export const LABELS = {
-  head_down: "Looked down", look_away: "Looked away", face_absent: "Face not visible",
+  head_down: "Looked down", look_away: "Looked away", eyes_down: "Eyes on the desk",
+  face_absent: "Face not visible",
   second_face: "Second face detected", phone: "Phone detected", camera_off: "Camera off",
   monitor_hidden: "Camera not readable", left_exam: "Left the exam page", virtual_cam: "Virtual camera",
   calibrated: "Calibrated",
@@ -26,6 +27,7 @@ export const PHRASES = {
   phone: "phone", second_face: "second face", virtual_cam: "virtual camera",
   camera_off: "camera off", monitor_hidden: "camera gap", left_exam: "left the page",
   face_absent: "face not visible", look_away: "eyes off screen", head_down: "head down",
+  eyes_down: "eyes on the desk",
 };
 
 // the headline a finding wears in the document — describes, never accuses
@@ -34,13 +36,14 @@ export const HEADLINES = {
   virtual_cam: "A virtual camera was in use", camera_off: "The camera was off",
   monitor_hidden: "Vigil could not read the camera", left_exam: "Left the exam page",
   face_absent: "Face out of view", look_away: "Eyes off screen, repeatedly",
-  head_down: "Head down, repeatedly",
+  head_down: "Head down, repeatedly", eyes_down: "Eyes on the desk, repeatedly",
 };
 
 // the same moment, when it belonged to the room rather than one student
 export const ROOM_HEADLINES = {
   look_away: "The room looked away at once", head_down: "The room looked down at once",
   face_absent: "The room dropped out of view at once", phone: "Phones in view across the room",
+  eyes_down: "The room looked at their desks at once",
   second_face: "Second faces across the room", monitor_hidden: "Cameras unreadable across the room",
   camera_off: "Cameras went off across the room",
 };
@@ -48,7 +51,7 @@ export const ROOM_HEADLINES = {
 export const ALERT_KINDS = new Set(["second_face", "phone", "camera_off", "monitor_hidden", "left_exam", "virtual_cam"]);
 // worth interrupting an invigilator mid-exam for — the live room shows only these
 export const SERIOUS_KINDS = new Set(["phone", "second_face", "virtual_cam"]);
-export const WEIGHT = { second_face: 5, phone: 5, virtual_cam: 5, left_exam: 4, monitor_hidden: 3, camera_off: 3, face_absent: 1.5, look_away: 1, head_down: 1 };
+export const WEIGHT = { second_face: 5, phone: 5, virtual_cam: 5, left_exam: 4, monitor_hidden: 3, camera_off: 3, face_absent: 1.5, look_away: 1, head_down: 1, eyes_down: 0.4 };
 
 // ── how a score is built ────────────────────────────────────────────────────
 // Two kinds of flag behave completely differently over time, and treating them
@@ -61,7 +64,7 @@ export const WEIGHT = { second_face: 5, phone: 5, virtual_cam: 5, left_exam: 4, 
 // Everything else is discrete. A phone is a phone whether the exam ran forty
 // minutes or three hours, so those are scored absolutely and never divided by
 // duration — that would quietly hide the most serious thing in the room.
-export const AMBIENT_KINDS = new Set(["look_away", "head_down", "face_absent"]);
+export const AMBIENT_KINDS = new Set(["look_away", "head_down", "face_absent", "eyes_down"]);
 // ambient weight-points per hour that read as ordinary; score counts the excess
 export const AMBIENT_BUDGET_PER_HOUR = 4;
 // nobody is judged on a rate measured over two minutes
