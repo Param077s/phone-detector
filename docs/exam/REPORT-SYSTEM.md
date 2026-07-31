@@ -110,7 +110,7 @@ This is what stops a single noisy frame becoming a flag.
 | `head_down` | Looked down | warn | head pitch `drop > 0.14` | 3.5 s | resets when `drop < 0.08` |
 | `face_absent` | Face not visible | warn | `faces == 0` | 5 s | — |
 | `second_face` | Second face detected | alert | `faces >= 2` | 1.5 s | 15 s |
-| `phone` | Phone detected | alert | object detector class matches /phone/ with score ≥ 0.45 | 0.7 s | 15 s |
+| `phone` | Phone detected | alert | ≥3 of the last 5 detection passes match /phone/ at ≥ 0.45, one of them ≥ 0.60 | ~1.4 s | 15 s |
 | `camera_off` | Camera off | alert | video track ends / disabled | — | once per off-episode |
 | `monitor_hidden` | Hid / left Vigil | alert | tab hidden ≥ 2 s (visibilitychange) | 2 s | 3 s |
 | `left_exam` | Closed Vigil | alert | `pagehide` (sent as a keepalive beacon) | — | — |
@@ -123,6 +123,7 @@ Important nuances:
   not one per frame. The student must return to baseline before it can fire again.
 - `phone` and `second_face` re-fire at most every 15 s while the condition persists, so a
   phone held for 2 minutes produces ~8 events, not one.
+- `phone` requires **corroboration across passes**, not one confident frame (§4.4).
 - Detection thresholds are **fixed constants**, identical for every student and room.
   (A debug tuning panel exists, but is available only to the exam's owner previewing
   their own room — students can never loosen detection.)
@@ -146,18 +147,29 @@ It still does **not affect scoring**. It is now surfaced in two places where it 
 how a reader should weigh a flag: as the caveat line in a live popup, and as the
 evidence-quality segment of a finding (§5.6).
 
-### 4.4 Phone detector confidence (`phone` event `meta`)
+### 4.4 Phone detection: corroboration and confidence
 
-`detectPhone()` keeps the **highest** detector score seen during the current episode and
-writes it with the event:
+The object detector is **generic** — it will call a wallet, a calculator or any dark
+rectangle a phone often enough that a single confident frame means very little. But a
+real phone in view is seen on pass after pass, while a false positive is sporadic. So a
+`phone` event needs agreement across time, not one lucky frame:
+
+- the detector runs every **700 ms**;
+- a rolling window holds the last **5** passes;
+- at least **3** of those must have matched at ≥ `0.45`;
+- and at least one of them must have cleared **0.60**.
+
+The window tolerates a dropped frame on a real phone without resetting the evidence, and
+denies a case to one lucky frame on a wallet. It costs about a second of latency — a
+phone is flagged after ~1.4 s of being visible rather than ~0.7 s.
+
+The event carries the detector's own numbers:
 
 ```json
-{ "score": 0.71 }
+{ "score": 0.71, "frames": 4 }
 ```
 
-`best` resets each time the event fires, so each of the ~15 s re-fires carries the best
-score since the previous one, not since the start of the episode.
-
+`score` is the strongest confidence in the window; `frames` is how many passes agreed.
 This is the **only real confidence number anywhere in the system.** Every other kind is
 rule-based and has no confidence value; the report is required to say so rather than
 invent one (§5.6).
@@ -487,10 +499,11 @@ now partly or wholly addressed and are marked as such.
    quality, no per-student normalisation. `FINDING_SCORE`, `ROOM_SHARE` and `ROOM_MIN`
    join the list.
 
-8. ~~Phone detection's confidence is discarded.~~ **Addressed** — it is persisted and
-   shown (§4.4). But the underlying weakness remains: it is a *generic* object detector at
-   0.45, so a wallet or a calculator can produce a confident-looking false positive, and
-   a high number now looks more authoritative than it deserves.
+8. ~~Phone detection's confidence is discarded / one frame is enough.~~ **Addressed** —
+   the score is persisted and a flag now needs 3 of the last 5 passes to agree, one of
+   them strong (§4.4). Still open: it remains a *generic* detector, so a phone-shaped
+   object held steadily for two seconds will still be called a phone. Corroboration
+   raises the bar; it does not make the model know what a phone is.
 
 9. **Scale.** The findings document is short by construction, but the full record still
    renders everything into one DOM with no virtualisation, search, or filtering by kind.

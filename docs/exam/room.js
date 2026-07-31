@@ -11,7 +11,13 @@ const CFG = {
   GAZE_RADIUS: 0.14, GAZE_HOLD_MS: 1200,
   BLINK_RATIO: 0.55,   // eye-openness below this fraction of the calibrated open = blink → ignore gaze
   // Phone (object detection — heavier, so it runs on a slower cadence)
-  PHONE_MS: 700, PHONE_SCORE: 0.45, PHONE_HOLD_MS: 700, PHONE_COOLDOWN_MS: 15000,
+  // A generic object detector calls a wallet, a calculator or any dark rectangle a
+  // phone often enough that one confident frame means very little. A real phone in
+  // view is seen on pass after pass; a false positive is sporadic. So: at least
+  // PHONE_CONFIRM hits inside the last PHONE_WINDOW passes, one of which cleared
+  // PHONE_STRONG. Costs about a second of latency and removes most of the noise.
+  PHONE_MS: 700, PHONE_SCORE: 0.45, PHONE_COOLDOWN_MS: 15000,
+  PHONE_WINDOW: 5, PHONE_CONFIRM: 3, PHONE_STRONG: 0.60,
   // Presence
   ABSENT_HOLD_MS: 5000, SECOND_HOLD_MS: 1500, SECOND_COOLDOWN_MS: 15000,
   HEARTBEAT_MS: 6000, STATUS_MIN_MS: 1500,
@@ -120,7 +126,7 @@ const sig = {
   second: { since: null, lastFired: 0 },
   away: { since: null, fired: false },
   cam: { off: false },   // one camera_off event per off-episode, not one per heartbeat
-  phone: { since: null, lastFired: 0, best: 0 },   // best = highest detector score this episode
+  phone: { lastFired: 0, recent: [] },   // recent = detector score of the last few passes
   gap: { since: null },   // a measured stretch where no camera frame arrived at all
 };
 
@@ -391,24 +397,26 @@ function loop() {
 function detectPhone(now) {
   let ts = now; if (ts <= state.lastTsPhone) ts = state.lastTsPhone + 1; state.lastTsPhone = ts;
   let res; try { res = state.phoneDetector.detectForVideo(state.video, ts); } catch { return; }
-  let seen = false, best = 0;
+  let best = 0;
   for (const d of (res.detections || [])) {
     const c = d.categories && d.categories[0];
-    if (c && /phone/i.test(c.categoryName || "") && c.score >= CFG.PHONE_SCORE) {
-      seen = true; if (c.score > best) best = c.score;
-    }
+    if (c && /phone/i.test(c.categoryName || "") && c.score >= CFG.PHONE_SCORE && c.score > best) best = c.score;
   }
-  if (seen) {
-    if (!sig.phone.since) { sig.phone.since = now; sig.phone.best = 0; }
-    if (best > sig.phone.best) sig.phone.best = best;
-    if (now - sig.phone.since > CFG.PHONE_HOLD_MS && now - sig.phone.lastFired > CFG.PHONE_COOLDOWN_MS) {
-      // the detector's own confidence, kept — it is the ONLY real one we have,
-      // and a report used in a hearing must never show a number we invented
-      emit("phone", "alert", { score: Math.round(sig.phone.best * 100) / 100 });
-      sig.phone.lastFired = now; sig.phone.best = 0;
-      showWarn && showWarn("A phone was detected in view — that was recorded.");
-    }
-  } else { sig.phone.since = null; }
+  // a rolling window of the last few passes, so one dropped frame on a real phone
+  // doesn't reset the evidence and one lucky frame on a wallet doesn't make a case
+  const win = sig.phone.recent;
+  win.push(best);
+  if (win.length > CFG.PHONE_WINDOW) win.shift();
+  const hits = win.filter(x => x > 0).length;
+  const strongest = Math.max(0, ...win);
+  if (hits < CFG.PHONE_CONFIRM || strongest < CFG.PHONE_STRONG) return;
+  if (now - sig.phone.lastFired <= CFG.PHONE_COOLDOWN_MS) return;
+  // the detector's own confidence, kept — it is the ONLY real one we have, and a
+  // report used in a hearing must never show a number we invented. `frames` says
+  // how much agreement is behind it.
+  emit("phone", "alert", { score: Math.round(strongest * 100) / 100, frames: hits });
+  sig.phone.lastFired = now;
+  showWarn && showWarn("A phone was detected in view — that was recorded.");
 }
 
 // Integrity: Vigil runs BESIDE the exam. Switching to another tab or app is normal
