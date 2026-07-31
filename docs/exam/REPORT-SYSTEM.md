@@ -308,9 +308,9 @@ actually is has never been measured, because Vigil has never run with a real
 class. It is one constant in `exam-core.js` and should be retuned against the
 first real exam's data.
 
-The full-record view (§5.9) keeps its own older four-band vocabulary
-(`high / medium / low / clear`) and its **own copy** of the weights, and it still
-sums them flat — see §7.12.
+The full-record view (§5.9) reads through the same core, so it inherits all of the
+above. It keeps only its own four-word *vocabulary* for the same number
+(`high / medium / low / clear` at 10, 4 and 0).
 
 ### 5.4 Findings — the document's unit
 
@@ -430,6 +430,7 @@ The pre-redesign report, kept as the underlying record and reachable from the do
 - per-student cards with risk bands, the shared **timeline strip** (whose axis is still
   first-flag → last-flag, padded, min 10 minutes — *not* the real exam duration),
 - the auto-written sentence per student (*"Mostly phone detected — 14 times…"*),
+- the three verdicts, though only Confirm/Dismiss can be *set* here (§5.10),
 - Confirm / Dismiss on each episode with keyboard triage (`↑`/`↓`/`j`/`k`, `C`, `X`) and
   an `N of M reviewed` progress bar,
 - invigilator notes as their own section,
@@ -541,14 +542,12 @@ now partly or wholly addressed and are marked as such.
 11. **Times render in the viewer's local timezone**, not the exam's — a teacher reviewing
     from another timezone sees shifted clock times.
 
-12. **The interpretation layer is duplicated.** `exam-core.js` is the shared reading, but
-    `report.html` still carries its own inline copies of `WEIGHT`, `episodesOf`, the band
-    thresholds and the labels. They agree today and can drift tomorrow. Folding the full
-    record onto `exam-core.js` is the obvious cleanup.
+12. ~~The interpretation layer is duplicated.~~ **Addressed** — `report.html` reads
+    through `exam-core.js` now. Only layout and its own clock formatting are local, so
+    the two surfaces can no longer disagree about a score, an episode or a label.
 
-13. **The full record can't see the third verdict.** It renders a `discuss` episode as
-    unreviewed and counts it as unreviewed in its progress bar, because its episode logic
-    only recognises `confirmed`/`dismissed`.
+13. ~~The full record can't see the third verdict.~~ **Addressed** with the same change —
+    it shows "to discuss" and counts it as reviewed.
 
 14. **The findings document isn't live.** It reads once on open. For an exam still in
     progress that is arguably right, but there is no indication that what you're reading

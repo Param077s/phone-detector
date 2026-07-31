@@ -74,6 +74,7 @@
     .eprow .cnt.alert{color:var(--alert)}
     .eprow.dismissed .when,.eprow.dismissed .what{text-decoration:line-through;opacity:.5}
     .eprow .cf{font-size:11px;color:var(--ok);font-weight:600;margin-left:6px}
+    .eprow .cf.ds{color:var(--warn)}
     .eprow.cur{outline:2px solid var(--ink);outline-offset:-1px;background:#faf9f7}
     /* review inbox — progress + keyboard triage */
     .inbox{position:sticky;top:10px;z-index:5;display:flex;align-items:center;gap:12px;background:var(--card);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow-sm);padding:11px 16px;margin:0 0 16px}
@@ -126,17 +127,17 @@
   </div>
 
   <script type="module">
-    import { sb, esc } from "/exam/sb.js";
+    import { sb } from "/exam/sb.js";
+    // This page used to carry its own labels, weights, bands and episode logic — a
+    // second opinion about the same events that could drift from the document's.
+    // It reads the exam through the shared core now; only the LAYOUT is local.
+    import { esc, label, ALERT_KINDS, episodesOf, readExam } from "/exam/exam-core.js";
     const $ = id => document.getElementById(id);
     const examId = new URLSearchParams(location.search).get("e");
-    const LABELS = { head_down:"Looked down", look_away:"Looked away", eyes_down:"Eyes on the desk", face_absent:"Face not visible", second_face:"Second face detected", phone:"Phone detected", camera_off:"Camera off", monitor_hidden:"Camera not readable", left_exam:"Left the exam page", virtual_cam:"Virtual camera", calibrated:"Calibrated" };
-    const ALERT_KINDS = new Set(["second_face","phone","camera_off","monitor_hidden","left_exam","virtual_cam"]);
-    // integrity weighting → a single risk score per student (dismissed flags count 0)
-    const WEIGHT = { second_face:5, phone:5, virtual_cam:5, left_exam:4, monitor_hidden:3, camera_off:3, face_absent:1.5, look_away:1, head_down:1, eyes_down:0.4 };
+    // this view's own four-word vocabulary for the same normalised score
     const bandOf = (score) => score>=10 ? "high" : score>=4 ? "medium" : score>0 ? "low" : "clear";
     let reviewEnabled = false;   // teacher + the v6 review column exists
     const CAP = 8;   // episodes shown before a card collapses the rest
-    const EP_GAP = 90_000;   // same-kind flags within 90s merge into one episode
     // compact clock — no AM/PM on every row (it wrapped onto two lines); the
     // meridiem lives once in the strip's axis and in "Generated …" above
     const fmt = (iso) => { const d = new Date(iso);
@@ -144,35 +145,21 @@
     const fmtHM = (iso) => { const d = new Date(iso); return d.toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"}); };
     const durTxt = (ms) => { const s = Math.max(1, Math.round(ms/1000)); if (s < 60) return s + " s"; const m = Math.floor(s/60); return m + " min" + (s%60 ? " " + (s%60) + " s" : ""); };
 
-    // consecutive same-kind flags collapse into episodes — one row, one decision
-    function episodesOf(evs) {
-      const eps = [];
-      for (const e of evs) {
-        const t = new Date(e.at).getTime();
-        const last = eps[eps.length-1];
-        if (last && last.kind === e.kind && t - last.endT <= EP_GAP) { last.events.push(e); last.endT = t; last.end = e.at; }
-        else eps.push({ kind:e.kind, start:e.at, end:e.at, startT:t, endT:t, events:[e] });
-      }
-      for (const ep of eps) {
-        ep.count = ep.events.length;
-        ep.ids = ep.events.map(e => e.id).filter(Boolean);
-        ep.alert = ALERT_KINDS.has(ep.kind);
-        ep.review = ep.events.every(e => e.review === "dismissed") ? "dismissed"
-                  : ep.events.every(e => e.review === "confirmed") ? "confirmed" : null;
-      }
-      return eps;
-    }
+    // the shared episodesOf works in timestamps; this view prints clock strings
+    const epStart = ep => new Date(ep.startT).toISOString();
+    const epEnd   = ep => new Date(ep.endT).toISOString();
+
     // one auto-written sentence per student — the report reads itself
     function narrative(eps) {
       if (!eps.length) return "";
       const byKind = {};
       eps.forEach(ep => { const b = byKind[ep.kind] = byKind[ep.kind] || { flags:0, eps:0 }; b.flags += ep.count; b.eps++; });
       const [topKind, top] = Object.entries(byKind).sort((a,b) => b[1].flags - a[1].flags)[0];
-      const label = (LABELS[topKind]||topKind).toLowerCase();
+      const top1 = label(topKind).toLowerCase();
       const big = eps.filter(e => e.kind === topKind).sort((a,b) => b.count - a.count)[0];
       // plain English — a sentence a teacher can read once and act on
-      let s = 'Mostly <b>'+esc(label)+'</b> — '+top.flags+' time'+(top.flags===1?"":"s")+'.';
-      if (big && big.count > 1) s += ' The worst run was around <b>'+fmtHM(big.start)+'</b>.';
+      let s = 'Mostly <b>'+esc(top1)+'</b> — '+top.flags+' time'+(top.flags===1?"":"s")+'.';
+      if (big && big.count > 1) s += ' The worst run was around <b>'+fmtHM(epStart(big))+'</b>.';
       else s += ' Spread out, with no single bad stretch.';
       return '<div class="story">'+s+'</div>';
     }
@@ -212,30 +199,25 @@
     // build the whole report body from a fresh (parts, events) pull — re-run live
     function draw(parts, events) {
       csvRows = [];
-      const byP = new Map();
-      (events||[]).forEach(e => { if(!byP.has(e.participant_id)) byP.set(e.participant_id, []); byP.get(e.participant_id).push(e); });
       const roster = (parts||[]).sort((a,b)=> new Date(a.joined_at)-new Date(b.joined_at));
       if (!roster.length){ $("summary").style.display="none";
         $("out").innerHTML = '<div class="empty">'+(teacher ? "No one has joined yet." : "No activity recorded yet.")+'</div>'; return; }
 
-      if (!teacher) { drawStudent(roster, byP); return; }   // personal "Your activity" view
+      if (!teacher) { drawStudent(roster, events || []); return; }   // personal "Your activity" view
 
-      const info = roster.map(p => {
-        const all = byP.get(p.id) || [];
-        // calibration-quality records ride the events table but are context, not flags
-        const calib = all.filter(e => e.kind === "calibrated").map(e => e.meta || {}).pop() || null;
-        const evs = all.filter(e => e.kind !== "calibrated");
-        const active = evs.filter(e => e.review !== "dismissed");   // dismissed flags don't count
-        const counts = {}; let alerts = 0, score = 0;
-        active.forEach(e => { counts[e.kind] = (counts[e.kind]||0)+1; if (ALERT_KINDS.has(e.kind)) alerts++; score += (WEIGHT[e.kind]||1); });
-        const eps = episodesOf(evs);
-        eps.forEach(ep => csvRows.push([p.name, LABELS[ep.kind]||ep.kind, ep.count, fmt(ep.start), fmt(ep.end), ep.review||""]));
-        return { p, evs, eps, calib, counts, alerts, flags: active.length, score, band: bandOf(score) };
+      // one shared reading — the same scores, episodes and room-wide handling the
+      // findings document uses, so the two can no longer tell different stories
+      const read = readExam(parts || [], events || []);
+      const info = read.students.map(st => {
+        st.episodes.forEach(ep => csvRows.push([st.p.name, label(ep.kind), ep.count,
+          fmt(epStart(ep)), fmt(epEnd(ep)), ep.review || ""]));
+        return { p: st.p, evs: st.events, eps: st.episodes, calib: st.calib, counts: st.counts,
+                 flags: st.live.length, score: st.score, band: bandOf(st.score), unverified: st.unverified };
       });
       const flagged = info.filter(i => i.flags > 0).sort((a,b) => b.score - a.score || a.p.name.localeCompare(b.p.name));
       const clear = info.filter(i => i.flags === 0);
 
-      const stat = (cls,n,label) => '<span class="stat '+cls+'"><b>'+n+'</b> '+label+'</span>';
+      const stat = (cls,n,txt) => '<span class="stat '+cls+'"><b>'+n+'</b> '+txt+'</span>';
       const bands = { high:0, medium:0, low:0 };
       flagged.forEach(i => bands[i.band]++);
       $("summary").style.display = "flex";
@@ -249,14 +231,16 @@
 
       // one clean line per episode: when · what · how much · decide
       const epHtml = ep => {
-        const dism = ep.review === "dismissed", conf = ep.review === "confirmed";
+        const dism = ep.review === "dismissed", conf = ep.review === "confirmed",
+              disc = ep.review === "discuss";
         const rev = (reviewEnabled && ep.ids.length)
           ? '<span class="rev"><button class="rb ok '+(conf?"on":"")+'" data-ids="'+ep.ids.join(",")+'" data-act="confirm" title="Confirm">✓</button>'+
             '<button class="rb no '+(dism?"on":"")+'" data-ids="'+ep.ids.join(",")+'" data-act="dismiss" title="Dismiss">✕</button></span>' : "";
         return '<div class="eprow'+(dism?" dismissed":"")+'" data-key="'+esc(String(ep.ids[0]||ep.startT))+'">'+
-          '<span class="when">'+fmt(ep.start)+'</span>'+
-          '<span class="what">'+esc(LABELS[ep.kind]||ep.kind)+
-          (conf ? ' <span class="cf">confirmed</span>' : '')+'</span>'+
+          '<span class="when">'+fmt(epStart(ep))+'</span>'+
+          '<span class="what">'+esc(label(ep.kind))+
+          (conf ? ' <span class="cf">upheld</span>' : '')+
+          (disc ? ' <span class="cf ds">to discuss</span>' : '')+'</span>'+
           (ep.count>1 ? '<span class="cnt'+(ep.alert?" alert":"")+'">'+ep.count+'&times; &middot; '+durTxt(ep.endT-ep.startT)+'</span>' : '')+
           rev+'</div>';
       };
@@ -311,24 +295,24 @@
     }
 
     // a student's own "Your activity" — the SAME episodes the teacher sees, nothing hidden
-    function drawStudent(roster, byP) {
+    function drawStudent(roster, events) {
       $("summary").style.display = "none";
-      const me = roster[0];
-      const all = byP.get(me.id) || [];
-      const calib = all.filter(e => e.kind === "calibrated").map(e => e.meta || {}).pop() || null;
-      const evs = all.filter(e => e.kind !== "calibrated");
-      const eps = episodesOf(evs);
-      const counts = {}; evs.forEach(e => counts[e.kind] = (counts[e.kind]||0)+1);
+      // the student sees exactly what the teacher sees about them — same reading,
+      // same episodes, same verdicts, no second opinion
+      const me = readExam(roster, events).students[0];
+      if (!me) { $("out").innerHTML = '<div class="empty">No activity recorded yet.</div>'; return; }
+      const calib = me.calib, evs = me.events, eps = me.episodes, counts = me.counts;
       const chips = evs.length
         ? Object.entries(counts).sort((a,b)=> b[1]-a[1])
-            .map(([k,n]) => '<span class="chip '+(ALERT_KINDS.has(k)?"alert":"warn")+'"><b>'+n+'</b> '+esc(LABELS[k]||k)+'</span>').join("")
+            .map(([k,n]) => '<span class="chip '+(ALERT_KINDS.has(k)?"alert":"warn")+'"><b>'+n+'</b> '+esc(label(k))+'</span>').join("")
         : '<span class="chip ok">No flags — you were clear throughout</span>';
       const epHtml = ep => {
-        const when = ep.count === 1 ? fmt(ep.start) : fmt(ep.start)+"&ndash;"+fmt(ep.end);
+        const when = ep.count === 1 ? fmt(epStart(ep)) : fmt(epStart(ep))+"&ndash;"+fmt(epEnd(ep));
         return '<div class="eprow'+(ep.review==="dismissed"?" dismissed":"")+'"><span class="when">'+when+'</span>'+
-          '<span class="what">'+esc(LABELS[ep.kind]||ep.kind)+
+          '<span class="what">'+esc(label(ep.kind))+
           (ep.count>1 ? ' <em>&middot; over '+durTxt(ep.endT-ep.startT)+'</em>' : '')+
-          (ep.review==="confirmed" ? ' <span class="cf">confirmed</span>' : '')+'</span>'+
+          (ep.review==="confirmed" ? ' <span class="cf">upheld</span>' : '')+
+          (ep.review==="discuss" ? ' <span class="cf ds">to discuss</span>' : '')+'</span>'+
           (ep.count>1 ? '<span class="cnt'+(ep.alert?" alert":"")+'">'+ep.count+'&times;</span>' : '')+'</div>';
       };
       const setup = calib && calib.grade && calib.grade !== "solid"
