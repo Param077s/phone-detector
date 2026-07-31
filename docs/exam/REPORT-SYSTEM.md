@@ -152,9 +152,34 @@ Reasons are derived from: average image brightness (`luma < 60` = low light,
 and how much the gaze wandered during calibration. `solid` = 0 reasons, `fair` = 1,
 `weak` = 2+.
 
-It still does **not affect scoring**. It is now surfaced in two places where it changes
-how a reader should weigh a flag: as the caveat line in a live popup, and as the
-evidence-quality segment of a finding (§5.6).
+It is used in three places now.
+
+**It discounts the evidence it undermines.** Saying "weak camera setup" beside a finding
+and then scoring it as though the camera were fine is half an answer. Gaze and face flags
+— the ones that depend on seeing someone clearly — are multiplied by a trust factor:
+
+```
+solid 1.0        fair 0.7        weak 0.45
+```
+
+Discrete kinds are untouched: a phone at 0.6 confidence is still a phone however poor the
+lighting. Worked example — 24 look-aways in an hour scores 10.5 (alert) on a solid setup,
+7.3 (warn) on fair, 4.7 (warn) on weak. Same behaviour, differently trustworthy evidence.
+
+A **missing** `calibrated` record returns trust 1.0, deliberately. If an absent record
+bought a discount, suppressing it would be the cheapest way to lower your own score; it is
+handled as "no data" (§5.4) instead, which is strictly worse for the student than a real
+calibration would have been.
+
+**It is shown before the exam starts**, in the room, as a line: *"2 cameras could be
+better before you start."* This is the only moment the problem can actually be fixed — a
+tilted screen or a closed blind costs a teacher thirty seconds and prevents every false
+flag that setup would have produced. Before, calibration quality surfaced only afterwards,
+as a caveat, which told the teacher something useful at the exact point they could no
+longer act on it.
+
+**And it caveats what is left**, as the evidence-quality segment of a finding (§5.6) and
+the note in a live popup.
 
 ### 4.4 Phone detection: corroboration and confidence
 
@@ -540,9 +565,10 @@ now partly or wholly addressed and are marked as such.
    (a slow ripple across three minutes won't trigger), and there is no notion of a room
    *baseline* — only of simultaneity.
 
-4. ~~Calibration quality is measured but unused.~~ **Partly addressed**: a weak setup is
-   now stated on the finding and caveated in the live popup. It still does **not**
-   discount the gaze-based flags numerically, which is arguably where it belongs.
+4. ~~Calibration quality is measured but unused.~~ **Addressed** (§4.3): it discounts the
+   gaze and face flags it undermines, and it is surfaced in the room before Start, when
+   the setup can still be fixed. Still open: the trust factors are three round numbers
+   chosen by judgement, not measured against real webcams.
 
 5. ~~The time axis isn't the exam.~~ **Addressed** by v12 (§5.12): an exam has a real
    start and end, pre-start flags are excluded, and each student's window is clipped to

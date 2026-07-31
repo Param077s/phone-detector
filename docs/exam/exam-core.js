@@ -85,11 +85,29 @@ export const episodePoints = (kind, count) => {
   return REFIRE_KINDS.has(kind) ? w * (1 + Math.log2(n)) : w * n;
 };
 
+// ── how much to trust what we saw ───────────────────────────────────────────
+// Calibration already grades the setup and the report already says "weak camera
+// setup" beside a finding. Saying it and then scoring as though it were solid is
+// half an answer: a student flagged twenty times for looking away on a setup we
+// admitted was poor is much weaker evidence than the same on a good one.
+//
+// Only the gaze and face flags are discounted — they are the ones that depend on
+// seeing someone clearly. A phone at 0.6 confidence is still a phone.
+//
+// NOTE the missing-record case returns 1, deliberately. If an absent `calibrated`
+// event bought a discount, suppressing it would become the cheapest way to lower
+// your own score. No record means no discount; it is handled as "no data" instead.
+export const CALIB_TRUST = { solid: 1, fair: 0.7, weak: 0.45 };
+export function trustOf(calib) {
+  if (!calib || !calib.grade) return 1;
+  return CALIB_TRUST[calib.grade] ?? 1;
+}
+
 // Score a set of episodes against how long that student was actually monitored.
 // Ambient flags are a rate; the rate used is the WORSE of the whole sitting and
 // the busiest stretch in it, so a frantic two minutes isn't averaged into
 // nothing by two calm hours around it.
-export function scoreEpisodes(eps, windowMs) {
+export function scoreEpisodes(eps, windowMs, trust = 1) {
   let discrete = 0;
   const amb = [];
   for (const ep of eps) {
@@ -107,7 +125,7 @@ export function scoreEpisodes(eps, windowMs) {
     for (let j = i; j < amb.length && amb[j].at - amb[i].at <= MIN_WINDOW_MS; j++) sum += amb[j].w;
     perHour = Math.max(perHour, sum / spanHours);
   }
-  return discrete + perHour / AMBIENT_BUDGET_PER_HOUR;
+  return discrete + (perHour * trust) / AMBIENT_BUDGET_PER_HOUR;
 }
 
 export const label = k => LABELS[k] || k;
@@ -334,7 +352,8 @@ export function readExam(participants, events, opts = {}) {
     if (examStartT) from = Math.max(from, examStartT);
     if (examEndT) to = Math.min(to, examEndT);
     const windowMs = Math.min(12 * 3600000, Math.max(0, to - from));
-    const score = scoreEpisodes(episodesOf(counted), windowMs);
+    const trust = trustOf(calib);
+    const score = scoreEpisodes(episodesOf(counted), windowMs, trust);
     const eps = episodesOf(evs);
     const top = Object.entries(counts).sort((a, b) => (WEIGHT[b[0]] || 1) * b[1] - (WEIGHT[a[0]] || 1) * a[1])[0];
     // The live room only ever shows red, and only for the things a teacher would
@@ -347,7 +366,7 @@ export function readExam(participants, events, opts = {}) {
     // "clear" would be a lie: we have no evidence about them at all.
     const unverified = !calib;
     return {
-      p, calib, unverified, events: evs, live, own, episodes: eps, counts, score, serious, windowMs,
+      p, calib, unverified, trust, events: evs, live, own, episodes: eps, counts, score, serious, windowMs,
       band: score >= 10 ? "alert" : score >= FINDING_SCORE ? "warn" : "quiet",
       lastAt: evs.length ? t(evs[evs.length - 1].at) : null,
       phrase: top ? phrase(top[0], top[1]) : "",
@@ -376,8 +395,8 @@ export function readExam(participants, events, opts = {}) {
     for (const [kind, evs] of byKind) {
       // the same scale the band uses, so "a finding" and "what moved the colour"
       // can never disagree
-      const score = scoreEpisodes(episodesOf(evs.filter(e => e.review !== "dismissed")), s.windowMs)
-        || scoreEpisodes(episodesOf(evs), s.windowMs);
+      const score = scoreEpisodes(episodesOf(evs.filter(e => e.review !== "dismissed")), s.windowMs, s.trust)
+        || scoreEpisodes(episodesOf(evs), s.windowMs, s.trust);
       if (score < FINDING_SCORE) continue;     // below the bar it is not a finding
       findings.push({
         kind, room: false, student: s, events: evs, ids: evs.map(e => e.id).filter(Boolean),
@@ -399,9 +418,14 @@ export function readExam(participants, events, opts = {}) {
   // said separately from "clear", because it is the opposite of a clean result
   const unverified = students.filter(s => s.unverified);
 
+  // setups worth walking over and fixing, while there is still time to fix them
+  const poorSetups = students
+    .filter(x => x.calib && x.calib.grade && x.calib.grade !== "solid")
+    .map(x => ({ p: x.p, grade: x.calib.grade, reason: (x.calib.reasons || [])[0] || "" }));
+
   const allT = (events || []).map(e => t(e.at)).filter(Boolean);
   return {
-    roster, students, moments, findings, clear, unverified,
+    roster, students, moments, findings, clear, unverified, poorSetups,
     startT: allT.length ? Math.min(...allT) : null,
     endT: allT.length ? Math.max(...allT) : null,
   };

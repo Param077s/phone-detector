@@ -91,6 +91,7 @@
     <div class="eyebrow" id="eyebrow">Live</div>
     <div class="head"><h1 id="h1">Your room</h1><span class="count" id="count"></span></div>
     <div id="out"><div class="empty"><b>Waiting for students…</b>Share the code — names appear here the moment they join.</div></div>
+    <div class="roomline hidden" id="setupline"><span id="setuptxt"></span><button class="see" id="setupsee" type="button">Who</button></div>
     <div class="roomline hidden" id="roomline"><span id="roomtxt"></span><button class="see" id="roomsee" type="button">See it</button></div>
   </div>
 
@@ -196,10 +197,36 @@
         if (el !== want) grid.insertBefore(el, want); else want = el.nextSibling;
       }
 
+      renderSetupLine();
       $("count").textContent = CLOSED
         ? rows.length + (rows.length === 1 ? " student" : " students")
         : on + " online" + (off_ ? " · " + off_ + " offline" : "") + (look ? " · " + look + " worth a look" : "");
       renderRoomLine();
+    }
+
+    // ── the one moment a bad camera can still be fixed ──────────────────────
+    // Calibration quality used to surface only in the report, as a caveat, which
+    // told the teacher something useful at the exact point they could no longer
+    // act on it. In the room — before Start — it is a thing you walk over and fix,
+    // and every false flag it would have caused simply never happens.
+    function renderSetupLine() {
+      const poor = (read && !CLOSED) ? read.poorSetups : [];
+      $("setupline").classList.toggle("hidden", !poor.length);
+      if (!poor.length) return;
+      $("setuptxt").textContent = poor.length === 1
+        ? "1 camera could be better before you start."
+        : poor.length + " cameras could be better before you start.";
+      $("setupsee").onclick = () => openSetups(poor, $("setupsee"));
+    }
+    function openSetups(poor, sourceEl) {
+      $("popIn").innerHTML =
+        '<div class="ptop"><span class="dot warn"></span><h2 id="popName">Worth a quick fix</h2></div>' +
+        '<p class="pstat">A better camera position now means fewer doubtful flags later.</p>' +
+        '<div class="lab">Cameras</div>' +
+        poor.map(x => '<div class="row"><span class="t">' + esc(x.grade) + '</span>' +
+          '<span class="w">' + esc(x.p.name) + (x.reason ? ' &middot; ' + esc(x.reason) : "") + '</span></div>').join("") +
+        '<div class="caveat">Flags from these students are already weighted lower, because we could not see them as clearly.</div>';
+      morphOpen(sourceEl);
     }
 
     // one line, only when the room itself did something
