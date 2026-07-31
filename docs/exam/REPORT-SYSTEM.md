@@ -37,7 +37,8 @@ hearing.
 
 ```
 exams          id, code, title, owner(teacher), status('open'|'closed'),
-               created_at, closed_at, require_signin(bool)
+               created_at, closed_at, require_signin(bool),
+               starts_at, ends_at, duration_min          -- the exam itself (v12)
 
 participants   id, exam_id, user_id, name,
                status('ok'|'warn'|'alert'|'offline'),   -- live presence only
@@ -58,9 +59,9 @@ Notes:
 - `review = 'discuss'` requires migration **v9**. Until it is applied the column only
   accepts `'confirmed'|'dismissed'`, and the findings document says so in place rather
   than failing silently.
-- There is **no exam start/end timestamp for the monitoring window itself**. We have
-  `created_at` and `closed_at` on the exam; the findings document uses those as its time
-  window, while the full-record view still derives its time axis from the events (§5.9).
+- `starts_at` / `ends_at` are **the exam**, as distinct from the room. `created_at` is
+  when the teacher made the room — often twenty minutes early — and using it as the exam
+  window meant settling-in fidgeting counted like exam-time behaviour. See §5.12.
 - `meta` now carries exactly two things: the calibration quality record on a `calibrated`
   event (§4.3) and the detector's confidence on a `phone` event (§4.4).
 
@@ -72,6 +73,9 @@ Notes:
 | v7 | `exam_notes` table | invigilator notes |
 | v8 | `exams` on the realtime publication | instant close/reopen |
 | v9 | widens `events_review_check` to allow `'discuss'` | the third verdict |
+| v10 | `exam_notes.participant_id` + a student read policy | a note reaching the student it's about |
+| v11 | **security**: splits `participants_student_write`, owner-only DELETE, identity trigger | stops a student erasing their own flags |
+| v12 | `starts_at`, `ends_at`, `duration_min` on exams | a real start and a real end |
 
 Every surface degrades gracefully when a migration hasn't been run — the note field
 simply doesn't appear, the third verdict reports that it isn't available, and so on.
@@ -472,6 +476,32 @@ freshness (a student is "present" if `last_seen` is under 15 s old) and to advan
 `… MINUTES IN` clock. Closing the exam from the console flips the room to its
 "Who was in" state with no reload.
 
+### 5.12 When an exam starts and ends
+
+Before v12 an exam had no beginning. `created_at` was when the room was made and
+`closed_at` was whenever someone remembered to press Close, and the report called that
+span "the exam". Three things followed from that: settling-in flags counted exactly like
+exam-time ones, an exam nobody closed monitored people forever, and no two exams were
+comparable because neither span meant the same thing.
+
+- A duration is chosen at creation (30 min … 3 hours, or no limit).
+- **Start exam** stamps `starts_at`, and `ends_at = starts_at + duration`.
+- Events before `starts_at` stay in the record but are **excluded from the reading** —
+  they are settling-in, not exam behaviour, and they no longer count against anyone.
+- Each student's scoring window (§5.3) is clipped to the exam, so twenty minutes of
+  sitting around before the start can no longer dilute a rate.
+
+**The end enforces itself.** This is a static site with no background job, so nothing can
+flip the row at the right moment. `examOver()` derives it from the clock — an exam is over
+when the teacher closed it *or* `ends_at` has passed — and whichever surface notices first
+writes `status='closed'` opportunistically. The student's room checks the same thing every
+4 s and stops monitoring on its own, so a teacher who walks away without pressing anything
+no longer leaves students monitored indefinitely.
+
+Exams recorded **before v12** have no `starts_at`, so every surface falls back to
+`created_at`/`closed_at` and reads exactly as it always did. Nothing already recorded is
+reinterpreted.
+
 ---
 
 ## 6. Design constraints (please don't propose breaking these)
@@ -514,9 +544,10 @@ now partly or wholly addressed and are marked as such.
    now stated on the finding and caveated in the live popup. It still does **not**
    discount the gaze-based flags numerically, which is arguably where it belongs.
 
-5. **The time axis isn't the exam** — in the full record. The findings document now uses
-   `created_at → closed_at`, but that is the exam room's lifetime, not each student's
-   monitored window; students join at arbitrary times.
+5. ~~The time axis isn't the exam.~~ **Addressed** by v12 (§5.12): an exam has a real
+   start and end, pre-start flags are excluded, and each student's window is clipped to
+   it. Still open: the full record's own strip is gone, but exams created before v12 keep
+   the old fuzzy window forever.
 
 6. **`confirm` does nothing numerically.** Upheld marks a flag as real but doesn't raise
    the score, so a reviewed report and an unreviewed one score the same. The same is now

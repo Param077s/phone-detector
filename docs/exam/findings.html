@@ -184,7 +184,8 @@
 
   <script type="module">
     import { sb } from "/exam/sb.js";
-    import { esc, label, clock, clockRange, dateLong, word, readExam, spanTxt, roomHeadline, isOnline, ago } from "/exam/exam-core.js";
+    import { esc, label, clock, clockRange, dateLong, word, readExam, spanTxt, roomHeadline, isOnline, ago,
+             examWindow } from "/exam/exam-core.js";
     const $ = id => document.getElementById(id);
     const examId = new URLSearchParams(location.search).get("e");
 
@@ -502,9 +503,11 @@
         }
         if (evs.length && evs[evs.length - 1].at) lastAt = evs[evs.length - 1].at;
 
-        read = readExam(pq.data || [], evs);
-        const from = exam.created_at ? new Date(exam.created_at).getTime() : read.startT;
-        const to = exam.closed_at ? new Date(exam.closed_at).getTime() : (read.endT || Date.now());
+        read = readExam(pq.data || [], evs, { startsAt: exam.starts_at, endsAt: exam.ends_at });
+        // the exam's own window once v12 is applied; created_at/closed_at before that
+        const w = examWindow(exam);
+        const from = w.startT || read.startT;
+        const to = w.endT || read.endT || Date.now();
         $("title").textContent = exam.title;
         $("context").textContent = [exam.code, dateLong(from), clockRange(from, to),
           read.roster.length + " student" + (read.roster.length === 1 ? "" : "s")].join(" · ");
@@ -515,7 +518,7 @@
     (async () => {
       const { data: { user } } = await sb.auth.getUser();
       if (!user || !examId) { location.replace("/exam/"); return; }
-      const { data: e } = await sb.from("exams").select("title,code,status,owner,created_at,closed_at").eq("id", examId).maybeSingle();
+      const { data: e } = await sb.from("exams").select("title,code,status,owner,created_at,closed_at,starts_at,ends_at,duration_min").eq("id", examId).maybeSingle();
       // the findings document is the teacher's record — a student reads their own activity instead
       if (!e || e.owner !== user.id) { location.replace("/exam/report.html?e=" + examId + "&as=student"); return; }
       exam = e;

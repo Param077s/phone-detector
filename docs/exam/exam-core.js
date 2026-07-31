@@ -159,6 +159,48 @@ export function isOnline(p) {
   return (Date.now() - t(p.last_seen)) < PRESENCE_MS;
 }
 
+// ── when an exam actually ran ───────────────────────────────────────────────
+// starts_at/ends_at arrive with migration v12. Everything here falls back to the
+// old created_at/closed_at behaviour when they are absent, so exams recorded
+// before v12 read exactly as they always did.
+export function examWindow(exam) {
+  if (!exam) return { startT: null, endT: null, planned: false };
+  const startT = exam.starts_at ? t(exam.starts_at) : (exam.created_at ? t(exam.created_at) : null);
+  const endT = exam.ends_at ? t(exam.ends_at)
+    : exam.closed_at ? t(exam.closed_at) : null;
+  return { startT, endT, planned: !!exam.starts_at };
+}
+// An exam is over when the teacher closed it OR its time simply ran out. This is
+// a static site with no background job, so nothing can flip the row at the right
+// moment — the end has to be derived from the clock, and persisted opportunistically
+// by whichever teacher surface happens to be open.
+export function examOver(exam) {
+  if (!exam) return false;
+  if (exam.status === "closed") return true;
+  return !!exam.ends_at && Date.now() >= t(exam.ends_at);
+}
+// "the exam is under way" — a real start that has passed. An exam with no
+// starts_at has not been started (or predates v12); examPending tells them apart
+// from a finished one. Both are false here, which is the safe answer for a caller
+// that just wants to know whether exam time is running.
+export function examStarted(exam) {
+  if (!exam || !exam.starts_at) return false;
+  return Date.now() >= t(exam.starts_at) && !examOver(exam);
+}
+// created, shared, waiting for the teacher to press Start
+export const examPending = exam => !!exam && exam.status === "open" && !exam.starts_at;
+export function msLeft(exam) {
+  if (!exam || !exam.ends_at) return null;
+  return Math.max(0, t(exam.ends_at) - Date.now());
+}
+export function countdown(ms) {
+  if (ms == null) return "";
+  const m = Math.floor(ms / 60000), h = Math.floor(m / 60);
+  if (h) return h + "h " + String(m % 60).padStart(2, "0") + "m left";
+  if (m) return m + (m === 1 ? " minute left" : " minutes left");
+  return Math.ceil(ms / 1000) + "s left";
+}
+
 // ── episodes: one student's consecutive same-kind flags ─────────────────────
 export const EP_GAP = 90_000;
 export function episodesOf(evs) {
@@ -250,6 +292,12 @@ export const FINDING_SCORE = 4;   // the report's existing "medium" bar
 
 export function readExam(participants, events, opts = {}) {
   const roster = (participants || []).slice().sort((a, b) => t(a.joined_at) - t(b.joined_at));
+  // Flags raised before the teacher pressed Start are settling-in, not exam
+  // behaviour. They stay in the record; they simply stop being held against
+  // anyone. (No starts_at — a pre-v12 exam — and nothing is excluded.)
+  const examStartT = opts.startsAt ? t(opts.startsAt) : null;
+  const examEndT = opts.endsAt ? t(opts.endsAt) : null;
+  if (examStartT) events = (events || []).filter(e => e.kind === "calibrated" || t(e.at) >= examStartT);
   const byP = new Map(roster.map(p => [p.id, []]));
   for (const e of (events || [])) {
     if (!byP.has(e.participant_id)) byP.set(e.participant_id, []);
@@ -280,8 +328,12 @@ export function readExam(participants, events, opts = {}) {
     // window across days for an old exam and quietly zero out every ambient
     // score, so the last thing we actually saw them do is a better end than now.
     const lastEvT = evs.length ? t(evs[evs.length - 1].at) : null;
-    const endT = p.last_seen ? t(p.last_seen) : (lastEvT || Date.now());
-    const windowMs = Math.min(12 * 3600000, Math.max(0, endT - t(p.joined_at)));
+    let from = t(p.joined_at), to = p.last_seen ? t(p.last_seen) : (lastEvT || Date.now());
+    // clip to the exam itself — sitting in the room for twenty minutes before it
+    // started is not monitored time, and counting it would dilute every rate
+    if (examStartT) from = Math.max(from, examStartT);
+    if (examEndT) to = Math.min(to, examEndT);
+    const windowMs = Math.min(12 * 3600000, Math.max(0, to - from));
     const score = scoreEpisodes(episodesOf(counted), windowMs);
     const eps = episodesOf(evs);
     const top = Object.entries(counts).sort((a, b) => (WEIGHT[b[0]] || 1) * b[1] - (WEIGHT[a[0]] || 1) * a[1])[0];

@@ -20,6 +20,7 @@
     .odo .od{display:inline-block;height:1em;overflow:hidden}
     .odo .ods{display:block;transition:transform .55s cubic-bezier(.2,.7,.2,1)}
     .odo .ods i{display:block;height:1em;line-height:1em;font-style:normal}
+    .create .dur{flex:0 0 auto;width:auto;min-width:104px;cursor:pointer}
     .head2{display:flex;align-items:baseline;gap:10px;margin:0 2px 14px} .head2 h2{font-size:15px} .head2 .n{color:var(--faint);font-size:13px}
     .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px}
     .exam{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:18px;box-shadow:var(--shadow-sm);display:flex;flex-direction:column;gap:12px}
@@ -57,6 +58,15 @@
       <p>Name it, share the code — students join from the website, no download. You'll see them arrive live.</p>
       <div class="row">
         <input class="input" id="title" placeholder="e.g. Physics · Period 3" maxlength="120">
+        <select class="input dur" id="dur" aria-label="How long the exam runs">
+          <option value="30">30 min</option>
+          <option value="45">45 min</option>
+          <option value="60" selected>1 hour</option>
+          <option value="90">1½ hours</option>
+          <option value="120">2 hours</option>
+          <option value="180">3 hours</option>
+          <option value="">No limit</option>
+        </select>
         <button class="btn ink" id="createBtn">Create exam</button>
       </div>
       <label class="reqrow"><input type="checkbox" id="reqSignin"> <span>Require students to <b>sign in</b> (no guest joins) — recommended for real exams</span></label>
@@ -81,6 +91,7 @@
 
   <script type="module">
     import { sb, esc } from "/exam/sb.js";
+    import { examOver, examStarted, examPending, msLeft, countdown } from "/exam/exam-core.js";
     const $ = id => document.getElementById(id);
     const listEl = $("list"), countEl = $("count"), toastEl = $("toast");
     const toast = (m) => { toastEl.textContent=m; toastEl.classList.add("show"); clearTimeout(toast._t); toast._t=setTimeout(()=>toastEl.classList.remove("show"),1700); };
@@ -114,6 +125,7 @@
     $("createBtn").onclick = async () => {
       const btn=$("createBtn"), title=$("title").value.trim() || "Exam";
       const requireSignin = $("reqSignin").checked;
+      const durMin = parseInt($("dur").value, 10) || null;
       btn.disabled = true;
       try {
         const code = await newCode();
@@ -121,6 +133,8 @@
         if (error) throw error;
         // set the flag separately so creation still works before the v5 migration is applied
         if (requireSignin && data) { try { await sb.from("exams").update({ require_signin: true }).eq("id", data.id); } catch (e) {} }
+        // duration set separately too, so creating still works before v12 is applied
+        if (durMin && data) { try { await sb.from("exams").update({ duration_min: durMin }).eq("id", data.id); } catch (e) {} }
         $("title").value = ""; $("reqSignin").checked = false; toast("Exam created · code " + code); await refresh();
       } catch (ex) { toast(ex.message || "Couldn't create exam"); }
       btn.disabled = false;
@@ -157,15 +171,19 @@
     }
 
     function card(x){
-      const open = x.status === "open";
+      const over = examOver(x), open = !over;
+      const running = examStarted(x);
+      const waiting = examPending(x);
       const el = document.createElement("div"); el.className = "exam"; el.dataset.id = x.id;
       el.innerHTML =
-        '<div class="top"><div class="title">'+esc(x.title)+'</div><span class="pill '+(open?"ok":"")+'">'+(open?"Open":"Ended")+'</span></div>'+
+        '<div class="top"><div class="title">'+esc(x.title)+'</div><span class="pill '+(open?"ok":"")+'">'+
+          (over ? "Ended" : running ? countdown(msLeft(x)) || "Running" : "Not started")+'</span></div>'+
         '<div class="code"><span class="big">'+esc(x.code)+'</span><span class="cp" data-share="'+esc(x.code)+'" data-title="'+esc(x.title)+'">Share \u203a</span></div>'+
         '<div class="stat" data-p="'+esc(x.id)+'"><div><b><span class="odo" data-k="t"></span></b>joined</div><div><b><span class="odo" data-k="f"></span></b>flagged</div></div>'+
         '<div class="acts">'+
           (open
-            ? '<a class="btn ink sm" href="/exam/live.html?e='+encodeURIComponent(x.id)+'">Live room</a>'+
+            ? (waiting ? '<button class="btn ink sm" data-start="'+esc(x.id)+'" data-d="'+(x.duration_min||"")+'">Start exam</button>' : "")+
+              '<a class="btn '+(waiting?"ghost":"ink")+' sm" href="/exam/live.html?e='+encodeURIComponent(x.id)+'">Live room</a>'+
               '<a class="btn ghost sm" href="/exam/findings.html?e='+encodeURIComponent(x.id)+'">Report</a>'+
               '<button class="btn ghost sm" data-close="'+esc(x.id)+'">Close</button>'
             : '<a class="btn ink sm" href="/exam/live.html?e='+encodeURIComponent(x.id)+'">Who joined</a>'+
@@ -179,7 +197,7 @@
     // not jump under the cursor while someone is joining.
     const cards = new Map();
     async function refresh(){
-      const { data, error } = await sb.from("exams").select("id,code,title,status").eq("owner", me.id).order("created_at",{ascending:false});
+      const { data, error } = await sb.from("exams").select("id,code,title,status,starts_at,ends_at,duration_min").eq("owner", me.id).order("created_at",{ascending:false});
       if (error) return;
       const rows = data || [];
       countEl.textContent = rows.length ? rows.length + " total" : "";
@@ -196,6 +214,13 @@
           const openNow = x.status === "open";
           const pill = el.querySelector(".pill");
           if (pill.textContent !== (openNow ? "Open" : "Ended")){ const nw = card(x); el.replaceWith(nw); cards.set(x.id, nw); }
+        }
+      }
+      // Nothing runs on a server here, so an exam whose time ran out is still
+      // 'open' in the row. Whichever teacher surface notices first writes it down.
+      for (const x of rows) {
+        if (x.status === "open" && x.ends_at && Date.now() >= new Date(x.ends_at).getTime()) {
+          sb.from("exams").update({ status: "closed", closed_at: x.ends_at }).eq("id", x.id).then(() => {}, () => {});
         }
       }
       for (const [id, el] of cards) if (!rows.some(r => r.id === id)) { el.remove(); cards.delete(id); }
@@ -232,6 +257,16 @@
     listEl.addEventListener("click", async (e) => {
       const sh = e.target.closest("[data-share]");
       if (sh){ openShare(sh.getAttribute("data-share"), sh.getAttribute("data-title")); return; }
+      const st = e.target.closest("[data-start]");
+      if (st){
+        const d = parseInt(st.getAttribute("data-d"), 10) || null;
+        const now = new Date();
+        const patch = { starts_at: now.toISOString() };
+        if (d) patch.ends_at = new Date(now.getTime() + d*60000).toISOString();
+        const { error } = await sb.from("exams").update(patch).eq("id", st.getAttribute("data-start"));
+        toast(error ? "Could not start (needs the v12 update)" : "Exam started");
+        refresh(); return;
+      }
       const cl = e.target.closest("[data-close]");
       if (cl){ if(!confirm("Close this exam? Students stop being monitored.")) return;
         await sb.from("exams").update({ status:"closed", closed_at:new Date().toISOString() }).eq("id", cl.getAttribute("data-close"));

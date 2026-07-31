@@ -578,8 +578,10 @@ function watchVision() {
 
 async function checkClosed() {
   try {
-    const { data, error } = await sb.from("exams").select("status").eq("id", examId).maybeSingle();
+    const { data, error } = await sb.from("exams").select("status,ends_at").eq("id", examId).maybeSingle();
     if (error) return;                         // transient failure — never end the exam on a network blip
+    // the exam's own clock ends it, so nobody has to remember to press Close
+    if (data && data.ends_at && Date.now() >= new Date(data.ends_at).getTime()) { endExam(); return; }
     // a student can only READ open exams (RLS), so the row vanishing IS the close
     // signal; an owner sitting in their own room reads it back as status:'closed'
     if (!data || data.status === "closed") endExam();

@@ -83,6 +83,7 @@
     <a class="backlink" href="/exam/console.html" aria-label="Back to console"><svg viewBox="0 0 24 24" fill="none"><path d="M15 18l-6-6 6-6" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg></a>
     <span class="code" id="code"></span>
     <span class="sp"></span>
+    <button class="btn ink sm hidden" id="startBtn" type="button">Start exam</button>
     <button class="quiet-btn hidden" id="roomNote" type="button">Note the room</button>
   </div>
 
@@ -100,7 +101,8 @@
 
   <script type="module">
     import { sb } from "/exam/sb.js";
-    import { esc, label, clock, ago, readExam, roomHeadline, ALERT_KINDS, t, isOnline } from "/exam/exam-core.js";
+    import { esc, label, clock, ago, readExam, roomHeadline, ALERT_KINDS, t, isOnline,
+             examOver, examStarted, examPending, msLeft, countdown } from "/exam/exam-core.js";
     const $ = id => document.getElementById(id);
     const examId = new URLSearchParams(location.search).get("e");
 
@@ -331,21 +333,33 @@
     // ── header ──────────────────────────────────────────────────────────────
     function renderHead() {
       const bits = [exam.title.toUpperCase()];
-      if (CLOSED) bits.push("CLOSED");
+      const started = examStarted(exam);
+      if (CLOSED) bits.push("ENDED");
+      else if (examPending(exam)) bits.push("NOT STARTED");
       else {
         bits.push("LIVE");
-        const mins = Math.max(0, Math.round((Date.now() - t(exam.created_at)) / 60000));
-        if (mins >= 1) bits.push(mins + (mins === 1 ? " MINUTE IN" : " MINUTES IN"));
+        const left = msLeft(exam);
+        if (left != null) bits.push(countdown(left).toUpperCase());
+        else {
+          const mins = Math.max(0, Math.round((Date.now() - t(exam.starts_at || exam.created_at)) / 60000));
+          if (mins >= 1) bits.push(mins + (mins === 1 ? " MINUTE IN" : " MINUTES IN"));
+        }
       }
+      $("startBtn").classList.toggle("hidden", CLOSED || exam.starts_at != null);
       $("eyebrow").textContent = bits.join(" · ");
       $("h1").textContent = CLOSED ? "Who was in" : "Your room";
+      // the clock ran out while nobody pressed anything — write it down once
+      if (!CLOSED && examOver(exam)) {
+        CLOSED = true;
+        sb.from("exams").update({ status: "closed", closed_at: exam.ends_at }).eq("id", examId).then(() => {}, () => {});
+      }
     }
 
     (async () => {
       const { data: { user } } = await sb.auth.getUser();
       if (!user) { location.replace("/exam/"); return; }
       if (!examId) { location.replace("/exam/console.html"); return; }
-      const { data: e } = await sb.from("exams").select("title,code,status,owner,created_at").eq("id", examId).maybeSingle();
+      const { data: e } = await sb.from("exams").select("title,code,status,owner,created_at,closed_at,starts_at,ends_at,duration_min").eq("id", examId).maybeSingle();
       // this page is the teacher's — only the exam's owner may watch its room
       if (!e || e.owner !== user.id) { location.replace("/exam/console.html"); return; }
       exam = e; CLOSED = exam.status === "closed";
@@ -358,6 +372,16 @@
       const nq = await sb.from("exam_notes").select("id").eq("exam_id", examId).limit(1);
       notesOn = !nq.error;
       $("roomNote").classList.toggle("hidden", !notesOn || CLOSED);
+
+      $("startBtn").onclick = async () => {
+        const now = new Date();
+        const patch = { starts_at: now.toISOString() };
+        if (exam.duration_min) patch.ends_at = new Date(now.getTime() + exam.duration_min * 60000).toISOString();
+        const { error } = await sb.from("exams").update(patch).eq("id", examId);
+        if (error) return;
+        Object.assign(exam, patch);
+        renderHead();
+      };
 
       function applyStatus(status) {
         CLOSED = status === "closed";
@@ -378,7 +402,7 @@
             render();
           })
         .on("postgres_changes", { event: "UPDATE", schema: "public", table: "exams", filter: "id=eq." + examId },
-          p => { if (p.new && p.new.status) applyStatus(p.new.status); })
+          p => { if (!p.new) return; Object.assign(exam, p.new); if (p.new.status) applyStatus(p.new.status); else renderHead(); })
         .subscribe();
 
       // Ask every 4 s regardless of the socket: this is what makes a student appear
