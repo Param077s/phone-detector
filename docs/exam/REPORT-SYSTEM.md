@@ -209,7 +209,7 @@ configurable per exam.
 
 ### 5.3 Risk score and bands
 
-Each counted event adds a fixed weight — unchanged:
+Each kind still carries a fixed weight:
 
 ```
 second_face 5   phone 5   virtual_cam 5
@@ -219,19 +219,60 @@ face_absent 1.5
 look_away   1   head_down 1
 ```
 
-Score is a **plain sum** over a student's own, non-dismissed events. Two things changed:
-events absorbed by a room-wide moment are excluded, and `discuss` scores exactly like an
-unreviewed flag (only `dismissed` removes a flag from the sum).
+What changed is that a score is no longer a plain sum, because a plain sum grows
+with the length of the exam. Eleven glances away across two hours is what ordinary
+people do; the same eleven in ten minutes is a pattern. With absolute bands at 4
+and 10, a long exam pushed an entire class into the top band.
 
-`exam-core.js` bands the sum into three states for the live tile:
+Flags are now split by how they behave over time:
+
+- **Ambient** — `look_away`, `head_down`, `face_absent`. Scored as a **rate**, and
+  the rate used is the *worse* of the whole sitting and the busiest 20 minutes in
+  it, so a frantic two minutes isn't averaged into nothing by two calm hours
+  around it. `AMBIENT_BUDGET_PER_HOUR = 4` weight-points per hour reads as
+  ordinary; the score counts the excess.
+- **Everything else** — scored absolutely, never divided by duration. A phone is a
+  phone whether the exam ran forty minutes or three hours, and dividing would
+  quietly hide the most serious thing in the room.
+
+Repeats compress only where repetition is an artefact of the cooldown.
+`phone` and `second_face` re-fire every 15 s for as long as the thing is visible,
+so eight events is one phone held for two minutes — those compress
+logarithmically. `look_away` and `head_down` are edge-triggered and must return to
+baseline before firing again, so eleven of those really are eleven separate
+drifts and they count linearly.
+
+The window is per **student** (`joined_at` → `last_seen`), floored at 20 minutes so
+nobody is judged on a rate measured over two, and capped at 12 hours so a missing
+`last_seen` can't stretch the window across days and silently zero the score.
+
+Bands are unchanged, and so is the meaning of the numbers at the edges:
 
 ```
 score >= 10 → alert      score >= 4 → warn      score < 4 → quiet
 ```
 
+Worked examples, all for one student:
+
+| behaviour | exam | score | band |
+|---|---|---|---|
+| 11 glances, spread out | 2 h | 2.3 | quiet |
+| 11 glances, spread out | 45 min | 4.5 | warn |
+| 25 glances, spread out | 2 h | 3.8 | quiet |
+| 11 glances in one 40 s burst | 2 h | 8.3 | warn |
+| one phone episode (8 events) | 40 min | 20.0 | alert |
+| one phone episode (8 events) | 3 h | 20.0 | alert |
+| a single second face | 3 h | 5.0 | warn |
+
+**`AMBIENT_BUDGET_PER_HOUR` is a guess.** The shape of the model is right — it is
+duration-aware and burst-sensitive — but what a *normal* student's glance rate
+actually is has never been measured, because Vigil has never run with a real
+class. It is one constant in `exam-core.js` and should be retuned against the
+first real exam's data.
+
 The full-record view (§5.9) keeps its own older four-band vocabulary
-(`high / medium / low / clear` at the same 10 and 4 thresholds) and its **own copy** of
-the weights — see §7.12.
+(`high / medium / low / clear`) and its **own copy** of the weights, and it still
+sums them flat — see §7.12.
 
 ### 5.4 Findings — the document's unit
 
@@ -416,12 +457,14 @@ freshness (a student is "present" if `last_seen` is under 15 s old) and to advan
 Where suggestions are most welcome. Items 3, 4 and 8 from the pre-redesign version are
 now partly or wholly addressed and are marked as such.
 
-1. **The risk score is an unnormalised sum.** A 3-hour exam accumulates far more points
-   than a 45-minute one, but the band thresholds (4, 10) are absolute. Long exams will
-   push everyone into the top band. Should score be per-hour? Per-event-type capped?
+1. ~~The risk score is an unnormalised sum.~~ **Addressed** (§5.3): ambient flags are
+   scored as a rate over the student's own monitored window, discrete ones absolutely.
+   Still open: the budget constant is an untested guess, and the full record has not
+   been moved onto the new scale.
 
-2. **Episodes are cosmetic; scoring is per-event.** Four glances in 40 seconds probably
-   means something different from four glances across an hour, but they score identically.
+2. ~~Episodes are cosmetic; scoring is per-event.~~ **Addressed** (§5.3), but only where
+   repetition is an artefact of the 15 s cooldown. Edge-triggered kinds still count
+   linearly, which is deliberate — compressing them let the worst behaviour score least.
 
 3. ~~No class-relative context.~~ **Addressed** by room-wide moments (§5.2). Still open:
    the 60 % / 5-student rule is a fixed guess, it only groups within a single minute

@@ -48,8 +48,64 @@ export const ROOM_HEADLINES = {
 export const ALERT_KINDS = new Set(["second_face", "phone", "camera_off", "monitor_hidden", "left_exam", "virtual_cam"]);
 // worth interrupting an invigilator mid-exam for — the live room shows only these
 export const SERIOUS_KINDS = new Set(["phone", "second_face", "virtual_cam"]);
-// unchanged from the live report — this is not a scoring redesign
 export const WEIGHT = { second_face: 5, phone: 5, virtual_cam: 5, left_exam: 4, monitor_hidden: 3, camera_off: 3, face_absent: 1.5, look_away: 1, head_down: 1 };
+
+// ── how a score is built ────────────────────────────────────────────────────
+// Two kinds of flag behave completely differently over time, and treating them
+// the same is what used to turn a long exam red.
+//
+// AMBIENT flags accumulate simply because a person sat there for two hours.
+// Eleven glances away across two hours is what ordinary people do; the same
+// eleven in ten minutes is a pattern. So ambient flags are scored as a RATE.
+//
+// Everything else is discrete. A phone is a phone whether the exam ran forty
+// minutes or three hours, so those are scored absolutely and never divided by
+// duration — that would quietly hide the most serious thing in the room.
+export const AMBIENT_KINDS = new Set(["look_away", "head_down", "face_absent"]);
+// ambient weight-points per hour that read as ordinary; score counts the excess
+export const AMBIENT_BUDGET_PER_HOUR = 4;
+// nobody is judged on a rate measured over two minutes
+export const MIN_WINDOW_MS = 20 * 60 * 1000;
+
+// Whether repeats should compress depends on WHY a kind repeats.
+//
+// `phone` and `second_face` re-fire every 15 s for as long as the thing is there,
+// so eight events is one phone held for two minutes — duration, not repetition,
+// and it must not score eight times over.
+//
+// `look_away` and `head_down` are edge-triggered: the student has to return to
+// baseline before another can fire. Eleven of those really are eleven separate
+// drifts, and compressing them would let the worst behaviour score the least.
+export const REFIRE_KINDS = new Set(["phone", "second_face"]);
+export const episodePoints = (kind, count) => {
+  const w = WEIGHT[kind] || 1, n = Math.max(1, count);
+  return REFIRE_KINDS.has(kind) ? w * (1 + Math.log2(n)) : w * n;
+};
+
+// Score a set of episodes against how long that student was actually monitored.
+// Ambient flags are a rate; the rate used is the WORSE of the whole sitting and
+// the busiest stretch in it, so a frantic two minutes isn't averaged into
+// nothing by two calm hours around it.
+export function scoreEpisodes(eps, windowMs) {
+  let discrete = 0;
+  const amb = [];
+  for (const ep of eps) {
+    if (!AMBIENT_KINDS.has(ep.kind)) { discrete += episodePoints(ep.kind, ep.count); continue; }
+    const w = WEIGHT[ep.kind] || 1;
+    for (const e of ep.events) amb.push({ at: t(e.at), w });
+  }
+  if (!amb.length) return discrete;
+  const hours = Math.max(MIN_WINDOW_MS, windowMs || 0) / 3600000;
+  let perHour = amb.reduce((sum, x) => sum + x.w, 0) / hours;
+  amb.sort((a, b) => a.at - b.at);
+  const spanHours = MIN_WINDOW_MS / 3600000;
+  for (let i = 0; i < amb.length; i++) {
+    let sum = 0;
+    for (let j = i; j < amb.length && amb[j].at - amb[i].at <= MIN_WINDOW_MS; j++) sum += amb[j].w;
+    perHour = Math.max(perHour, sum / spanHours);
+  }
+  return discrete + perHour / AMBIENT_BUDGET_PER_HOUR;
+}
 
 export const label = k => LABELS[k] || k;
 export const headline = k => HEADLINES[k] || label(k);
@@ -212,11 +268,18 @@ export function readExam(participants, events, opts = {}) {
     const evs = all.filter(e => e.kind !== "calibrated");
     const live = evs.filter(e => e.review !== "dismissed");   // set-aside flags stop counting
     const own = evs.filter(e => !inRoomMoment.has(e.id));     // what is theirs alone, verdict aside
-    let score = 0; const counts = {};
+    const counts = {};
     // the score — and so the tile's colour and the clear list — ignores set-aside flags
-    own.filter(e => e.review !== "dismissed").forEach(e => {
-      score += (WEIGHT[e.kind] || 1); counts[e.kind] = (counts[e.kind] || 0) + 1;
-    });
+    const counted = own.filter(e => e.review !== "dismissed");
+    counted.forEach(e => { counts[e.kind] = (counts[e.kind] || 0) + 1; });
+    // How long THIS student was actually monitored — their own window, not the
+    // room's. Falling back to "now" when last_seen is missing would stretch the
+    // window across days for an old exam and quietly zero out every ambient
+    // score, so the last thing we actually saw them do is a better end than now.
+    const lastEvT = evs.length ? t(evs[evs.length - 1].at) : null;
+    const endT = p.last_seen ? t(p.last_seen) : (lastEvT || Date.now());
+    const windowMs = Math.min(12 * 3600000, Math.max(0, endT - t(p.joined_at)));
+    const score = scoreEpisodes(episodesOf(counted), windowMs);
     const eps = episodesOf(evs);
     const top = Object.entries(counts).sort((a, b) => (WEIGHT[b[0]] || 1) * b[1] - (WEIGHT[a[0]] || 1) * a[1])[0];
     // The live room only ever shows red, and only for the things a teacher would
@@ -229,7 +292,7 @@ export function readExam(participants, events, opts = {}) {
     // "clear" would be a lie: we have no evidence about them at all.
     const unverified = !calib;
     return {
-      p, calib, unverified, events: evs, live, own, episodes: eps, counts, score, serious,
+      p, calib, unverified, events: evs, live, own, episodes: eps, counts, score, serious, windowMs,
       band: score >= 10 ? "alert" : score >= FINDING_SCORE ? "warn" : "quiet",
       lastAt: evs.length ? t(evs[evs.length - 1].at) : null,
       phrase: top ? phrase(top[0], top[1]) : "",
@@ -243,7 +306,9 @@ export function readExam(participants, events, opts = {}) {
     startT: m.startT, endT: m.endT, count: m.count, people: m.people,
     headline: roomHeadline(m.kind),
     who: m.people.size + " of " + roster.length + " students",
-    score: m.events.reduce((s, e) => s + (WEIGHT[e.kind] || 1), 0),
+    // a room-wide moment is one moment, however many students were in it — but a
+    // bigger share of the room is a stronger finding
+    score: episodePoints(m.kind, m.people.size),
     quality: evidenceQuality(m.events, null),
   }));
 
@@ -254,7 +319,10 @@ export function readExam(participants, events, opts = {}) {
       byKind.get(e.kind).push(e);
     }
     for (const [kind, evs] of byKind) {
-      const score = evs.length * (WEIGHT[kind] || 1);
+      // the same scale the band uses, so "a finding" and "what moved the colour"
+      // can never disagree
+      const score = scoreEpisodes(episodesOf(evs.filter(e => e.review !== "dismissed")), s.windowMs)
+        || scoreEpisodes(episodesOf(evs), s.windowMs);
       if (score < FINDING_SCORE) continue;     // below the bar it is not a finding
       findings.push({
         kind, room: false, student: s, events: evs, ids: evs.map(e => e.id).filter(Boolean),
