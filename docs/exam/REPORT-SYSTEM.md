@@ -555,6 +555,10 @@ comparable because neither span meant the same thing.
   they are settling-in, not exam behaviour, and they no longer count against anyone.
 - Each student's scoring window (§5.3) is clipped to the exam, so twenty minutes of
   sitting around before the start can no longer dilute a rate.
+- **Every teacher surface passes the same window.** The findings document, the full record
+  and a student's own view all hand `starts_at`/`ends_at` to `readExam`, and all fetch
+  `last_seen` so a window ends where the student actually left. Sharing the reading
+  function is not enough on its own — see §7.12.
 
 **The end enforces itself.** This is a static site with no background job, so nothing can
 flip the row at the right moment. `examOver()` derives it from the clock — an exam is over
@@ -672,6 +676,15 @@ now partly or wholly addressed and are marked as such.
 12. ~~The interpretation layer is duplicated.~~ **Addressed** — `report.html` reads
     through `exam-core.js` now. Only layout and its own clock formatting are local, so
     the two surfaces can no longer disagree about a score, an episode or a label.
+
+    **This claim was wrong for a while, and it is worth remembering why.** Sharing the
+    function was not enough: `report.html` called it with different *arguments* — no
+    `startsAt`/`endsAt`, and a roster fetched without `last_seen`. So it read the whole
+    sitting where the document read exam time, and it dated every window from the last
+    event instead of when the student actually left. On a room opened twenty minutes
+    early, one student came out **11.25 alert** on the full record and **1.5 quiet** on
+    the findings document — the exact disagreement this item claims is impossible, from
+    one shared function. One reading means one set of inputs too.
 
 13. ~~The full record can't see the third verdict.~~ **Addressed** with the same change —
     it shows "to discuss" and counts it as reviewed.
