@@ -66,6 +66,21 @@
     .setup.s-warn{color:var(--warn);background:var(--warn-soft);border-color:#f0dcb6}
     .story{font-size:13px;color:var(--ink-2);margin:2px 0 6px;line-height:1.5}
     .story b{color:var(--ink);font-weight:600}
+    /* the student's own account — the one place on any Vigil page where the person
+       being watched writes something, so it is given room rather than a tooltip */
+    .say{margin-top:20px;padding-top:16px;border-top:1px solid var(--line)}
+    .say h3{font-size:13.5px;font-weight:600;margin:0 0 4px}
+    .sayhint{font-size:12.5px;color:var(--muted);line-height:1.5;margin:0 0 12px}
+    /* flex-start, not baseline: once a textarea opens in .sv, a baseline row drags
+       the kind label down to the box's last line */
+    .sayrow{display:flex;gap:12px;align-items:flex-start;padding:9px 8px;margin:0 -8px;border-radius:8px;
+      cursor:text;transition:background .15s}
+    .sayrow:hover{background:var(--soft)}
+    .sayrow .sk{flex:0 0 128px;font-size:12.5px;font-weight:600;color:var(--muted);padding-top:2px}
+    .sayrow .sv{flex:1;font-size:13.5px;color:var(--ink);line-height:1.5}
+    .sayrow .sv.none{color:var(--faint)}
+    .sayrow textarea{width:100%;font:inherit;font-size:13.5px;color:var(--ink);background:#fff;
+      border:1px solid var(--line);border-radius:6px;padding:7px 9px;resize:vertical;min-height:54px}
     /* episodes — consecutive same-kind flags merged into one row, one decision */
     .eprow{display:flex;align-items:center;gap:12px;padding:11px 4px;border-top:1px solid var(--line);font-size:13.5px;border-radius:8px}
     .eprow .when{flex:0 0 74px;color:var(--muted);font-weight:600;font-variant-numeric:tabular-nums;font-size:12.5px;white-space:nowrap}
@@ -137,12 +152,13 @@
     // this view's own four-word vocabulary for the same normalised score
     const bandOf = (score) => score>=10 ? "high" : score>=4 ? "medium" : score>0 ? "low" : "clear";
     let reviewEnabled = false;   // teacher + the v6 review column exists
+    let findingNotes = [], notesOn = false;   // what the two of them said (v14)
     // WHICH EVENTS ARE THE EXAM. This page read the whole sitting while the findings
     // document read only exam time, so the same student could be 6.0 warn on one page
     // and 2.3 quiet on the other — the two surfaces disagreeing about the same events,
     // which reading through one core was supposed to make impossible. One helper, used
     // by both call sites here, so they cannot drift apart again either.
-    const readOpts = () => ({ startsAt: exam && exam.starts_at, endsAt: exam && exam.ends_at });
+    const readOpts = () => ({ startsAt: exam && exam.starts_at, endsAt: exam && exam.ends_at, notes: findingNotes });
     const CAP = 8;   // episodes shown before a card collapses the rest
     // compact clock — no AM/PM on every row (it wrapped onto two lines); the
     // meridiem lives once in the strip's axis and in "Generated …" above.
@@ -324,10 +340,66 @@
       };
       const setup = calib && calib.grade && calib.grade !== "solid"
         ? '<span class="setup s-warn" title="'+esc((calib.reasons||[]).join(", "))+'">setup '+esc(calib.grade)+'</span>' : '';
-      $("out").innerHTML = '<div class="student"><h2><span class="n">'+esc(me.name)+'</span>'+setup+
+      // Where the student gets to speak. One line per kind they were flagged for —
+      // the same unit the teacher reads as a finding, so what they write lands
+      // beside the thing it explains rather than in a pile at the end.
+      const say = (notesOn && evs.length)
+        ? '<div class="say"><h3>Anything we should know?</h3>' +
+          '<p class="sayhint">Your teacher reads this beside the flag it is about, and if that ' +
+          'flag reaches the report your words are on it too. Say what happened — a calculator on ' +
+          'the desk, the invigilator talking to you, a bad connection. Leave it empty to take it back.</p>' +
+          [...me.said.entries()].map(([kind, note]) =>
+            '<div class="sayrow" data-kind="'+esc(kind)+'"><span class="sk">'+esc(label(kind))+'</span>' +
+            '<span class="sv'+(note?'':' none')+'">'+(note ? esc(note.body) : 'Say what happened') +
+            '</span></div>').join("") + '</div>'
+        : '';
+      // me.name, not me.p.name, rendered an empty heading: readExam returns the
+      // participant row under `p`, and esc(undefined) is "" rather than a crash, so
+      // the student's own name has quietly been blank here.
+      $("out").innerHTML = '<div class="student"><h2><span class="n">'+esc(me.p.name)+'</span>'+setup+
         '<span class="ct">'+evs.length+' flag'+(evs.length===1?"":"s")+'</span></h2>'+
         '<div class="chips">'+chips+'</div>'+(eps.length?narrative(eps):'')+
-        (eps.length ? '<div class="eps">'+eps.map(epHtml).join("")+'</div>' : '')+'</div>';
+        (eps.length ? '<div class="eps">'+eps.map(epHtml).join("")+'</div>' : '')+say+'</div>';
+      myPid = me.p.id;
+    }
+
+    // Click a line, type, blur. maxlength matches the 400 the database enforces, so
+    // the limit is felt while typing rather than reported as a failure afterwards.
+    let myPid = null, editingSay = null;
+    document.addEventListener("click", e => {
+      const row = e.target.closest(".sayrow"); if (!row || editingSay || teacher) return;
+      const val = row.querySelector(".sv"), kind = row.getAttribute("data-kind");
+      const current = val.classList.contains("none") ? "" : val.textContent.trim();
+      editingSay = row;
+      val.innerHTML = '<textarea maxlength="400" placeholder="Say what happened"></textarea>';
+      const ta = val.querySelector("textarea");
+      ta.value = current; ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length);
+      const done = async () => {
+        const body = ta.value.trim(); editingSay = null;
+        if (body !== current) await saveSaid(kind, body);
+        await fetchAndDraw();
+      };
+      ta.addEventListener("blur", done, { once: true });
+      ta.addEventListener("keydown", ev => {
+        if (ev.key === "Escape") { ta.removeEventListener("blur", done); editingSay = null; fetchAndDraw(); }
+        if (ev.key === "Enter" && (ev.metaKey || ev.ctrlKey)) ta.blur();
+      });
+    });
+    async function saveSaid(kind, body) {
+      if (!myPid) return;
+      // Clearing it withdraws it. Someone who thinks better of what they wrote
+      // should not be held to a first draft — these are their own words, not
+      // evidence about them, which is why v14 grants this one delete.
+      if (!body) {
+        await sb.from("finding_notes").delete()
+          .eq("participant_id", myPid).eq("kind", kind).eq("author", "student");
+        return;
+      }
+      const { error } = await sb.from("finding_notes")
+        .upsert({ exam_id: examId, participant_id: myPid, kind, author: "student", body },
+                { onConflict: "participant_id,kind,author" });
+      if (error) $("out").insertAdjacentHTML("afterbegin",
+        '<div class="empty">That could not be saved. Try again in a moment.</div>');
     }
 
     async function fetchEvents() {
@@ -338,6 +410,14 @@
       else { reviewEnabled = teacher; }
       return q.data || [];
     }
+    // finding notes need v14. An error means the migration isn't in yet, and both
+    // the student's "say what happened" and the teacher's outcome simply don't appear.
+    async function fetchFindingNotes() {
+      const q = await sb.from("finding_notes").select("participant_id,kind,author,body,at").eq("exam_id", examId);
+      notesOn = !q.error;
+      findingNotes = q.data || [];
+      return findingNotes;
+    }
     async function fetchAndDraw() {
       // RLS scopes these; a student view also narrows to their own row (covers an owner who joined)
       // last_seen closes the student's monitored window. Without it every window ran to
@@ -345,7 +425,7 @@
       // out different here than on the findings document, for the same student.
       let pq = sb.from("participants").select("id,name,status,joined_at,last_seen").eq("exam_id", examId);
       if (!teacher && user) pq = pq.eq("user_id", user.id);
-      const [{ data:parts }, events, ns] = await Promise.all([ pq, fetchEvents(), fetchNotes() ]);
+      const [{ data:parts }, events, ns, fn] = await Promise.all([ pq, fetchEvents(), fetchNotes(), fetchFindingNotes() ]);
       notes = ns;
       draw(parts, events);
     }

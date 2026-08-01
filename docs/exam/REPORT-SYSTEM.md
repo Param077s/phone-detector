@@ -50,6 +50,10 @@ events         id, exam_id, participant_id,
                review('confirmed'|'dismissed'|'discuss'|null)
 
 exam_notes     id, exam_id, owner, at, text      -- teacher's own observations
+
+finding_notes  id, exam_id, participant_id, kind,
+               author('student'|'teacher'), body(<=400), at
+               -- one per (participant, kind, author): a statement and an outcome
 ```
 
 Notes:
@@ -77,6 +81,7 @@ Notes:
 | v11 | **security**: splits `participants_student_write`, owner-only DELETE, identity trigger | stops a student erasing their own flags |
 | v12 | `starts_at`, `ends_at`, `duration_min` on exams | a real start and a real end |
 | v13 | `exams.timezone` | the record reads the same hour to everyone (§5.13) |
+| v14 | `finding_notes` table | the student answers, and a discussion has an outcome (§5.14) |
 
 Every surface degrades gracefully when a migration hasn't been run — the note field
 simply doesn't appear, the third verdict reports that it isn't available, and so on.
@@ -596,6 +601,48 @@ record and disagree about when something happened.
 
 ---
 
+### 5.14 The other person in the exam
+
+Until v14 only one of them could write. A student could read every flag against them and
+had no way to say the phone was a calculator; and `discuss` — a verdict whose entire
+meaning is *"I need to talk to this person first"* — had nowhere to record what the
+conversation concluded, so a teacher could either leave it on `discuss` forever or flip it
+and lose the reason.
+
+One table answers both. A note hangs off **(participant, kind)** — the same unit a
+student-level finding is built from — so it lands beside the thing it is about.
+
+- **One note per finding per author**, enforced by a unique index. A student states their
+  case once and may edit or withdraw it; a teacher records one outcome. It is a record,
+  not a thread, and it cannot become an argument.
+- **The student writes** on their own activity page (`report.html?as=student`), one line
+  per kind they were flagged for. Their words are **printed under that finding in the
+  document, attributed** — if a report reaches a hearing, the person it is about has been
+  heard in it.
+- **A statement on a kind that never reached the findings bar** still surfaces, under
+  *Also said* in the teacher's student popup. Words written to be read must not disappear
+  because the machine scored them low.
+- **The teacher writes the outcome** from the same popup, and only once a verdict exists —
+  before that there is nothing to have concluded, and an empty box against every finding
+  would be exactly the chrome this document avoids.
+- **`author` is pinned by RLS in both directions.** A student cannot file a note as the
+  teacher, and the owner cannot author words in a student's name.
+- **A student may delete their own statement.** v11 stops them destroying *evidence*; this
+  is the opposite thing — their own voluntary words — and someone who thinks better of what
+  they wrote should not be held to a first draft.
+- **The outcome is not shown to the student.** It may name a next step or a conclusion not
+  yet delivered. v10's addressed `exam_notes` are the deliberate channel for anything a
+  teacher means them to read.
+- `at` is stamped by a database trigger, not accepted from the browser — backdating your
+  own statement is otherwise one line in a console.
+
+**Known limit:** students join as anonymous guests unless `require_signin` is on, so a
+statement can carry no verified identity into a filed document. The document attributes it
+to the name they typed. That is a property of guest join, not of this feature, but it is
+worth knowing before the report is relied on.
+
+---
+
 ## 6. Design constraints (please don't propose breaking these)
 
 1. **No video/images off-device, ever.** The report can never show footage or stills.
@@ -662,9 +709,13 @@ now partly or wholly addressed and are marked as such.
 9. **Scale.** The findings document is short by construction, but the full record still
    renders everything into one DOM with no virtualisation, search, or filtering by kind.
 
-10. **No student voice.** The student sees their activity but has no way to contest a
-    flag, and there is no field to record the outcome of a conversation — which is
-    precisely what "To discuss" leads to.
+10. ~~No student voice.~~ **Addressed** by v14 (§5.14). The student writes one line
+    against any kind they were flagged for, and it is printed under that finding in the
+    document, attributed. A verdict gains an outcome field, so "To discuss" stops leading
+    nowhere. Still open, and deliberate: a guest student's words carry no verified
+    identity into a filed record (`require_signin` is the only lever), and the teacher's
+    outcome is not shown to the student — v10's addressed `exam_notes` remain the channel
+    for anything meant for them to read.
 
 11. ~~Times render in the viewer's local timezone, not the exam's.~~ **Addressed** by v13
     (§5.13): the exam's zone is stamped at creation and every surface formats in it, with a
