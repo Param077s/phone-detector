@@ -46,7 +46,7 @@
 .ribbon__item strong { color: var(--text); font-weight: var(--w-semi); font-variant-numeric: tabular-nums; }
 .ribbon__item.is-attention strong { color: var(--warn); }
 .ribbon__item svg { width: 14px; height: 14px; opacity: .8; }
-.ribbon__sep { width: 3px; height: 3px; border-radius: 50%; background: var(--text-4); }
+.ribbon__sep { width: 3px; height: 3px; border-radius: 50%; corner-shape: round; background: var(--text-4); }
 
 /* The wall */
 .grid-cams {

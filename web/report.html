@@ -32,7 +32,7 @@
       background:linear-gradient(180deg,var(--ink),var(--faint));border-radius:2px;
       box-shadow:0 0 8px rgba(12,13,16,.18);transition:height .12s linear;pointer-events:none}
     .ev{position:relative;padding:8px 0;font-size:13.5px;display:flex;gap:12px}
-    .ev::before{content:"";position:absolute;left:-27px;top:14px;width:9px;height:9px;border-radius:50%;background:var(--faint);box-shadow:0 0 0 3px #fff}
+    .ev::before{content:"";position:absolute;left:-27px;top:14px;width:9px;height:9px;border-radius:50%; corner-shape: round;background:var(--faint);box-shadow:0 0 0 3px #fff}
     .ev.warn::before{background:var(--warn)} .ev.alert::before{background:var(--alert)} .ev.info::before{background:var(--accent)}
     .ev .time{color:var(--muted);font-variant-numeric:tabular-nums;flex:0 0 78px}
     .ev .what{color:var(--ink)}

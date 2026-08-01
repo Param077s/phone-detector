@@ -12,6 +12,22 @@
   --r:18px; --r-sm:12px; --spring:cubic-bezier(.2,.7,.2,1);
 }
 *{box-sizing:border-box;margin:0}
+
+/* ── the shape ────────────────────────────────────────────────────────────
+   Every corner in Vigil is a squircle: a superellipse, where the straight edge
+   eases into the curve instead of meeting a circular arc at a tangent. It is
+   the difference between a rounded rectangle and the shape of an iOS icon, and
+   at the sizes this app uses it reads as calm rather than as a decision.
+
+   `corner-shape` re-shapes whatever `border-radius` is already there, so this
+   one rule reaches every rounded element in the exam app — cards, tiles, chips,
+   inputs, popups, buttons — without touching a single radius. A browser that
+   does not know the property ignores it and keeps ordinary circular corners,
+   which is the same UI it has today. Nothing needs a fallback.
+
+   `*` carries no specificity, so any rule below can opt out with
+   `corner-shape:round` — which is exactly what every true circle does. */
+*,*::before,*::after{corner-shape:squircle}
 a{color:inherit;text-decoration:none}
 html,body{min-height:100%}
 body{background:var(--bg);color:var(--ink);font:15px/1.55 var(--font);-webkit-font-smoothing:antialiased;
@@ -52,7 +68,7 @@ h1,h2,h3,.brand b,.code,.big{font-family:var(--display);letter-spacing:-.02em}
 
 .pill{font-size:11.5px;font-weight:600;padding:4px 10px;border-radius:999px;background:var(--soft);color:var(--muted);white-space:nowrap}
 .pill.ok{background:var(--ok-soft);color:var(--ok)} .pill.alert{background:var(--alert-soft);color:var(--alert)}
-.dot{width:9px;height:9px;border-radius:50%;background:var(--faint);flex:0 0 auto}
+.dot{width:9px;height:9px;border-radius:50%;corner-shape:round;background:var(--faint);flex:0 0 auto}
 .dot.ok{background:var(--ok)} .dot.warn{background:var(--warn)} .dot.alert{background:var(--alert)}
 
 .toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%) translateY(10px);opacity:0;z-index:60;

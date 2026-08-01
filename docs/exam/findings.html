@@ -64,7 +64,7 @@
     /* the room, coloured by risk — green clear, amber flagged, red serious */
     .presence{font-size:13.5px;color:var(--muted);margin:28px 0 10px}
     .room{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:9px;margin:0}
-    .rtile .rn .pd{display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--faint);
+    .rtile .rn .pd{display:inline-block;width:7px;height:7px;border-radius:50%;corner-shape:round;background:var(--faint);
       margin-right:7px;vertical-align:.08em;transition:background .4s}
     .rtile .rn .pd.up{background:var(--ok)}
     .rtile.gone{opacity:.5}
@@ -95,7 +95,7 @@
       padding:22px 22px 18px;box-shadow:var(--shadow);transform-origin:0 0;pointer-events:auto;will-change:transform}
     .popIn{transition:opacity .2s ease}
     .pop .ptop{display:flex;align-items:center;gap:10px}
-    .pop .ptop .dot{width:9px;height:9px;border-radius:50%;background:var(--ok);flex:0 0 auto}
+    .pop .ptop .dot{width:9px;height:9px;border-radius:50%;corner-shape:round;background:var(--ok);flex:0 0 auto}
     .pop .ptop .dot.warn{background:var(--warn)} .pop .ptop .dot.alert{background:var(--alert)}
     .pop h2{font-size:21px;font-weight:500;letter-spacing:-.02em;margin:0}
     .pop .pstat{font-size:13.5px;color:var(--muted);margin:5px 0 0}

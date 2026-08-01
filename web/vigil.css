@@ -112,6 +112,22 @@
    RESET & BASE
    ========================================================================== */
 *, *::before, *::after { box-sizing: border-box; }
+
+/* ── the shape ──────────────────────────────────────────────────────────────
+   Every corner in Vigil is a squircle: a superellipse, where the straight edge
+   eases into the curve instead of meeting a circular arc at a tangent. The same
+   shape the exam app uses, so the two halves of Vigil read as one product.
+
+   `corner-shape` re-shapes whatever `border-radius` is already there, so this
+   single rule reaches every rounded element without touching one radius. A
+   browser that doesn't know the property ignores it and keeps ordinary circular
+   corners — today's UI exactly, so nothing needs a fallback.
+
+   `*` carries no specificity, so anything below opts out with
+   `corner-shape:round` — which is what every true circle does, because a
+   superellipse at a 50%% radius is a rounded square, not a dot. */
+*, *::before, *::after { corner-shape: squircle; }
+
 html, body { height: 100%; }
 body {
   margin: 0;
@@ -476,7 +492,7 @@ svg[viewBox="0 0 24 24"] { width: 16px; height: 16px; flex: none; }
 }
 .toggle__track::after {
   content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px;
-  background: var(--text-2); border-radius: 50%;
+  background: var(--text-2); border-radius: 50%; corner-shape: round;
   transition: transform var(--t) var(--spring), background var(--t) var(--ease);
 }
 .toggle input:checked + .toggle__track { background: var(--accent); border-color: transparent; }
@@ -619,7 +635,7 @@ svg[viewBox="0 0 24 24"] { width: 16px; height: 16px; flex: none; }
 .badge--info   { background: var(--info-quiet);  color: var(--info);   border-color: transparent; }
 .badge--accent { background: var(--accent-quiet);color: var(--accent); border-color: transparent; }
 
-.dot { width: 7px; height: 7px; border-radius: 50%; background: var(--text-4); flex: none; }
+.dot { width: 7px; height: 7px; border-radius: 50%; corner-shape: round; background: var(--text-4); flex: none; }
 .dot--ok { background: var(--ok); }
 .dot--warn { background: var(--warn); }
 .dot--danger { background: var(--danger); }
@@ -631,7 +647,7 @@ svg[viewBox="0 0 24 24"] { width: 16px; height: 16px; flex: none; }
 }
 
 .avatar {
-  width: 28px; height: 28px; border-radius: 50%; flex: none;
+  width: 28px; height: 28px; border-radius: 50%; corner-shape: round; flex: none;
   display: inline-flex; align-items: center; justify-content: center;
   font-size: var(--fs-sm); font-weight: var(--w-semi);
   background: linear-gradient(160deg, var(--surface-3), var(--surface-2));

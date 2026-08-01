@@ -140,7 +140,7 @@
     .dock{position:fixed;right:18px;top:50%;transform:translateY(-50%);z-index:45;
       display:flex;flex-direction:column;gap:15px;padding:6px}
     .dock a{position:relative;display:block;width:11px;height:11px}
-    .dock a span{position:absolute;inset:0;border-radius:50%;background:var(--line);
+    .dock a span{position:absolute;inset:0;border-radius:50%; corner-shape: round;background:var(--line);
       transition:transform .28s cubic-bezier(.2,.7,.2,1),background .28s}
     .dock a:hover span{background:var(--muted);transform:scale(1.25)}
     .dock a.active span{background:var(--ink);transform:scale(1.45)}

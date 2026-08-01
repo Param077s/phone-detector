@@ -23,7 +23,7 @@
     /* pre-flight check — catch bad light / angle BEFORE the exam, not in the report */
     .pf{margin:12px 0 2px;display:flex;flex-direction:column;gap:8px}
     .pfrow{display:flex;align-items:center;gap:11px;background:var(--soft);border:1px solid var(--line);border-radius:var(--r-sm);padding:10px 12px;transition:border-color .25s}
-    .pfrow .pfic{width:22px;height:22px;border-radius:50%;display:grid;place-items:center;font-size:12px;font-weight:700;flex:0 0 auto;background:#fff;border:1px solid var(--line-strong);color:var(--faint);transition:all .25s}
+    .pfrow .pfic{width:22px;height:22px;border-radius:50%;corner-shape:round;display:grid;place-items:center;font-size:12px;font-weight:700;flex:0 0 auto;background:#fff;border:1px solid var(--line-strong);color:var(--faint);transition:all .25s}
     .pfrow.ok .pfic{background:var(--ok);border-color:var(--ok);color:#fff}
     .pfrow.bad .pfic{background:var(--warn-soft);border-color:#f0dcb6;color:var(--warn)}
     .pfrow.bad{border-color:#f0dcb6}
