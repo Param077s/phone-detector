@@ -137,6 +137,12 @@
     // this view's own four-word vocabulary for the same normalised score
     const bandOf = (score) => score>=10 ? "high" : score>=4 ? "medium" : score>0 ? "low" : "clear";
     let reviewEnabled = false;   // teacher + the v6 review column exists
+    // WHICH EVENTS ARE THE EXAM. This page read the whole sitting while the findings
+    // document read only exam time, so the same student could be 6.0 warn on one page
+    // and 2.3 quiet on the other — the two surfaces disagreeing about the same events,
+    // which reading through one core was supposed to make impossible. One helper, used
+    // by both call sites here, so they cannot drift apart again either.
+    const readOpts = () => ({ startsAt: exam && exam.starts_at, endsAt: exam && exam.ends_at });
     const CAP = 8;   // episodes shown before a card collapses the rest
     // compact clock — no AM/PM on every row (it wrapped onto two lines); the
     // meridiem lives once in the strip's axis and in "Generated …" above.
@@ -208,7 +214,7 @@
 
       // one shared reading — the same scores, episodes and room-wide handling the
       // findings document uses, so the two can no longer tell different stories
-      const read = readExam(parts || [], events || []);
+      const read = readExam(parts || [], events || [], readOpts());
       const info = read.students.map(st => {
         st.episodes.forEach(ep => csvRows.push([st.p.name, label(ep.kind), ep.count,
           fmt(epStart(ep)), fmt(epEnd(ep)), ep.review || ""]));
@@ -300,7 +306,7 @@
       $("summary").style.display = "none";
       // the student sees exactly what the teacher sees about them — same reading,
       // same episodes, same verdicts, no second opinion
-      const me = readExam(roster, events).students[0];
+      const me = readExam(roster, events, readOpts()).students[0];
       if (!me) { $("out").innerHTML = '<div class="empty">No activity recorded yet.</div>'; return; }
       const calib = me.calib, evs = me.events, eps = me.episodes, counts = me.counts;
       const chips = evs.length
@@ -334,7 +340,10 @@
     }
     async function fetchAndDraw() {
       // RLS scopes these; a student view also narrows to their own row (covers an owner who joined)
-      let pq = sb.from("participants").select("id,name,status,joined_at").eq("exam_id", examId);
+      // last_seen closes the student's monitored window. Without it every window ran to
+      // the last event or to now, so the ambient RATE — and therefore the score — came
+      // out different here than on the findings document, for the same student.
+      let pq = sb.from("participants").select("id,name,status,joined_at,last_seen").eq("exam_id", examId);
       if (!teacher && user) pq = pq.eq("user_id", user.id);
       const [{ data:parts }, events, ns] = await Promise.all([ pq, fetchEvents(), fetchNotes() ]);
       notes = ns;
@@ -345,7 +354,7 @@
       const { data:{ user:u } } = await sb.auth.getUser();
       if (!u || !examId) { location.replace("/exam/"); return; }
       user = u;
-      const e = await fetchExam(examId, "title,code,status,created_at,owner");
+      const e = await fetchExam(examId, "title,code,status,created_at,closed_at,starts_at,ends_at,owner");
       exam = e;
       if (exam) useTimezone(exam.timezone);
       // Role by CONTEXT first (how you got here), then ownership. The room opens activity
