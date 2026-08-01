@@ -1,6 +1,7 @@
 // Vigil Exams · student monitor — MediaPipe runs entirely on this device.
 // Video/frames NEVER leave the laptop; only tiny events + presence go to Supabase.
 import { sb, SUPABASE_URL, SUPABASE_ANON } from "/exam/sb.js";
+import { ALERT_KINDS } from "/exam/exam-core.js";
 import { FaceLandmarker, ObjectDetector, FilesetResolver } from "/vendor/mediapipe/vision_bundle.mjs";
 
 const CFG = {
@@ -83,7 +84,18 @@ const state = {
 const capt = { normal: null, away: null };   // captured peaks used to auto-suggest the eye radius
 
 // ── Supabase writes (events + presence) ──────────────────────────────────────
-async function emit(kind, severity, meta) {
+// How serious a kind is was written down TWICE: a severity typed by hand at each
+// of the ten emit calls here, and ALERT_KINDS in the shared core, which is what
+// every reading surface actually uses. They agreed only because nobody had got
+// one wrong yet — and a new kind added in one place and forgotten in the other
+// would have shipped a row whose severity contradicted its own report.
+//
+// There is one list now. severity is derived, and a kind cannot be serious in the
+// database and ordinary in the report.
+const severityOf = kind => (kind === "calibrated" ? "info" : ALERT_KINDS.has(kind) ? "alert" : "warn");
+
+async function emit(kind, meta) {
+  const severity = severityOf(kind);
   try {
     await sb.from("events").insert({ exam_id: examId, participant_id: part.id, kind, severity, meta: meta || null });
   } catch (e) {}
@@ -156,7 +168,7 @@ function doMonitor(mx, now) {
   if (drop != null) {
     if (drop > CFG.HEAD_ENTER) {
       if (!sig.head.since) sig.head.since = now;
-      if (now - sig.head.since > CFG.HEAD_HOLD_MS && !sig.head.fired) { emit("head_down", "warn"); sig.head.fired = true; }
+      if (now - sig.head.since > CFG.HEAD_HOLD_MS && !sig.head.fired) { emit("head_down"); sig.head.fired = true; }
     } else if (drop < CFG.HEAD_EXIT) { sig.head.since = null; sig.head.fired = false; }
   }
   // EYES OFF CENTRE — drift outside the allowed circle around the calibrated point.
@@ -170,18 +182,18 @@ function doMonitor(mx, now) {
       if (now - sig.away.since > CFG.GAZE_HOLD_MS && !sig.away.fired) {
         const downward = sig.away.sumY > 0 && sig.away.sumY > sig.away.sumX * CFG.GAZE_DOWN_RATIO;
         sig.away.down = downward;
-        emit(downward ? "eyes_down" : "look_away", "warn");
+        emit(downward ? "eyes_down" : "look_away");
         sig.away.fired = true;
       }
     } else if (off < CFG.GAZE_RADIUS * 0.6) { sig.away.since = null; sig.away.fired = false; sig.away.down = false; }
   }
   if (mx.faces === 0) {
     if (!sig.absent.since) sig.absent.since = now;
-    if (now - sig.absent.since > CFG.ABSENT_HOLD_MS && !sig.absent.fired) { emit("face_absent", "warn"); sig.absent.fired = true; }
+    if (now - sig.absent.since > CFG.ABSENT_HOLD_MS && !sig.absent.fired) { emit("face_absent"); sig.absent.fired = true; }
   } else { sig.absent.since = null; sig.absent.fired = false; }
   if (mx.faces >= 2) {
     if (!sig.second.since) sig.second.since = now;
-    if (now - sig.second.since > CFG.SECOND_HOLD_MS && now - sig.second.lastFired > CFG.SECOND_COOLDOWN_MS) { emit("second_face", "alert"); sig.second.lastFired = now; }
+    if (now - sig.second.since > CFG.SECOND_HOLD_MS && now - sig.second.lastFired > CFG.SECOND_COOLDOWN_MS) { emit("second_face"); sig.second.lastFired = now; }
   } else { sig.second.since = null; }
   paintStatus(mx, now);
 }
@@ -353,7 +365,7 @@ async function recordCalib(q) {
   // direct insert (NOT emit) — a quality record must never push a warn status
   try {
     await sb.from("events").insert({ exam_id: examId, participant_id: part.id,
-      kind: "calibrated", severity: "info", meta: q });
+      kind: "calibrated", severity: severityOf("calibrated"), meta: q });
   } catch (e) {}
 }
 
@@ -431,7 +443,7 @@ function detectPhone(now) {
   // the detector's own confidence, kept — it is the ONLY real one we have, and a
   // report used in a hearing must never show a number we invented. `frames` says
   // how much agreement is behind it.
-  emit("phone", "alert", { score: Math.round(strongest * 100) / 100, frames: hits });
+  emit("phone", { score: Math.round(strongest * 100) / 100, frames: hits });
   sig.phone.lastFired = now;
   showWarn && showWarn("A phone was detected in view — that was recorded.");
 }
@@ -442,13 +454,13 @@ function detectPhone(now) {
 // wrong twice over: it accused students of "leaving" for a two-second tab switch,
 // and it said nothing about whether we could actually still see them. That job now
 // belongs to watchVision(), which measures the gap instead of inferring it.
-function beaconEvent(kind, severity) {   // best-effort write that survives the page unloading
+function beaconEvent(kind) {   // best-effort write that survives the page unloading
   if (!part || !state.token) return;
   try {
     fetch(SUPABASE_URL + "/rest/v1/events", {
       method: "POST", keepalive: true,
       headers: { "Content-Type": "application/json", apikey: SUPABASE_ANON, Authorization: "Bearer " + state.token },
-      body: JSON.stringify({ exam_id: examId, participant_id: part.id, kind, severity }),
+      body: JSON.stringify({ exam_id: examId, participant_id: part.id, kind, severity: severityOf(kind) }),
     });
   } catch (e) {}
 }
@@ -476,7 +488,7 @@ function onPageHide(e) {
   beaconOffline();
   if (state.leaving) return;
   if (e && e.persisted) return;
-  beaconEvent("left_exam", "alert");
+  beaconEvent("left_exam");
 }
 function setupIntegrity() {
   window.addEventListener("pagehide", onPageHide);
@@ -531,14 +543,14 @@ function startMonitoring(now) {
   show("s-monitor");   // mTitle/mSub are owned by paintStatus (live state + name · clock)
   pushStatus("ok", true);
   cacheToken();
-  if (state.suspiciousCam) emit("virtual_cam", "alert");
+  if (state.suspiciousCam) emit("virtual_cam");
   // heartbeat on the worker clock too, so "online" survives a backgrounded tab
   state.hbTimer = ticker(CFG.HEARTBEAT_MS, () => {
     const track = state.stream && state.stream.getVideoTracks()[0];
     const camOn = track && track.readyState === "live" && track.enabled;
     if (!camOn) {
       $("monTag").textContent = "🔴 Camera is off";
-      if (!sig.cam.off) { emit("camera_off", "alert"); sig.cam.off = true; }   // fire once, not every beat
+      if (!sig.cam.off) { emit("camera_off"); sig.cam.off = true; }   // fire once, not every beat
     } else if (sig.cam.off) {
       sig.cam.off = false; $("monTag").textContent = "🟢 Camera active";
     }
@@ -548,7 +560,7 @@ function startMonitoring(now) {
     cacheToken();   // keep the unload-beacon token fresh across a long exam
   });
   const track = state.stream.getVideoTracks()[0];
-  if (track) track.addEventListener("ended", () => { $("monTag").textContent = "🔴 Camera stopped"; if (!sig.cam.off) { emit("camera_off", "alert"); sig.cam.off = true; } });
+  if (track) track.addEventListener("ended", () => { $("monTag").textContent = "🔴 Camera stopped"; if (!sig.cam.off) { emit("camera_off"); sig.cam.off = true; } });
   state.closeTimer = ticker(4000, checkClosed);   // stop monitoring once the teacher ends the exam
   state.watchTimer = ticker(CFG.WATCHDOG_MS, watchVision);
   lastNoteAt = new Date().toISOString();   // only notes sent from now on
@@ -570,7 +582,7 @@ function watchVision() {
     const secs = Math.round((state.lastFrameAt - sig.gap.since) / 1000);
     sig.gap.since = null;
     if (secs >= CFG.VISION_GAP_MS / 1000) {
-      emit("monitor_hidden", "alert", { seconds: secs });
+      emit("monitor_hidden", { seconds: secs });
       showWarn("Vigil could not see the camera for " + secs + "s — that gap was recorded.");
     }
   }
