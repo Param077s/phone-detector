@@ -135,15 +135,57 @@ export const phrase = (k, n) => (PHRASES[k] || label(k).toLowerCase()) + (n > 1 
 
 // ── time ────────────────────────────────────────────────────────────────────
 export const t = iso => (iso instanceof Date ? iso : new Date(iso)).getTime();
-export const clock = x => new Date(x).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+
+// Every clock string on every surface is the EXAM's local time, not the reader's.
+//
+// A timestamp is an instant; the hour it reads as is a choice, and the browser
+// was quietly making that choice from wherever the reader happened to be. A
+// teacher marking from another timezone — or, more often, anyone opening the PDF
+// they were sent — saw "10:14" against an exam that ran at 15:44, with nothing on
+// the page saying so. Two people could read the same record and disagree about
+// when it happened, which is not a thing a record may do.
+//
+// The zone is stamped on the exam when it is created (v13). Without it we fall
+// back to the reader's own zone, which is exactly how this behaved before, so
+// exams created before the migration read as they always did.
+let TZ = null;
+export function useTimezone(tz) {
+  TZ = tz && (() => { try { new Intl.DateTimeFormat([], { timeZone: tz }); return true; } catch { return false; } })()
+    ? tz : null;
+  return TZ;
+}
+export const timezone = () => TZ;
+const zoned = o => (TZ ? { ...o, timeZone: TZ } : o);
+
+// "GMT+5:30" — said only when the reader would otherwise misread the clock.
+// Stating the obvious on every report would be chrome; saying nothing when the
+// times have shifted under someone is the bug.
+//
+// The test is whether the two zones show the same wall clock for this instant,
+// NOT whether they have the same name: a browser reporting Asia/Calcutta and an
+// exam stamped Asia/Kolkata are the same place, and captioning that would be a
+// warning about nothing. Comparing the rendered time also gets DST right for
+// free, since it asks about the moment rather than the rule.
+export function tzNote(at) {
+  if (!TZ) return "";
+  const when = new Date(at == null ? Date.now() : at);
+  const shown = o => new Intl.DateTimeFormat([], o).format(when);
+  const opts = { dateStyle: "short", timeStyle: "short" };
+  if (shown(opts) === shown({ ...opts, timeZone: TZ })) return "";
+  const part = new Intl.DateTimeFormat([], { timeZone: TZ, timeZoneName: "short" })
+    .formatToParts(when).find(p => p.type === "timeZoneName");
+  return "times in " + (part ? part.value : TZ);
+}
+
+export const clock = x => new Date(x).toLocaleTimeString([], zoned({ hour: "2-digit", minute: "2-digit" }));
 // 11:01–11:42 PM — the meridiem, where the locale has one, is said once
 export function clockRange(a, b) {
   const A = clock(a), B = clock(b);
   const m = A.match(/\s?([AP]\.?M\.?)$/i);
   return (m && B.toUpperCase().endsWith(m[1].toUpperCase()) ? A.slice(0, m.index) : A) + "–" + B;
 }
-export const clockSec = x => new Date(x).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
-export const dateLong = x => new Date(x).toLocaleDateString([], { day: "numeric", month: "long", year: "numeric" });
+export const clockSec = x => new Date(x).toLocaleTimeString([], zoned({ hour: "2-digit", minute: "2-digit", second: "2-digit" }));
+export const dateLong = x => new Date(x).toLocaleDateString([], zoned({ day: "numeric", month: "long", year: "numeric" }));
 export function ago(x) {
   const s = Math.max(0, Math.round((Date.now() - t(x)) / 1000));
   if (s < 45) return "a moment ago";

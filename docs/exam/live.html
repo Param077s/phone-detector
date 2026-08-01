@@ -101,9 +101,9 @@
   </div>
 
   <script type="module">
-    import { sb } from "/exam/sb.js";
+    import { sb, fetchExam } from "/exam/sb.js";
     import { esc, label, clock, ago, readExam, roomHeadline, ALERT_KINDS, t, isOnline,
-             examOver, examStarted, examPending, msLeft, countdown } from "/exam/exam-core.js";
+             examOver, examStarted, examPending, msLeft, countdown, useTimezone } from "/exam/exam-core.js";
     const $ = id => document.getElementById(id);
     const examId = new URLSearchParams(location.search).get("e");
 
@@ -386,10 +386,11 @@
       const { data: { user } } = await sb.auth.getUser();
       if (!user) { location.replace("/exam/"); return; }
       if (!examId) { location.replace("/exam/console.html"); return; }
-      const { data: e } = await sb.from("exams").select("title,code,status,owner,created_at,closed_at,starts_at,ends_at,duration_min").eq("id", examId).maybeSingle();
+      const e = await fetchExam(examId, "title,code,status,owner,created_at,closed_at,starts_at,ends_at,duration_min");
       // this page is the teacher's — only the exam's owner may watch its room
       if (!e || e.owner !== user.id) { location.replace("/exam/console.html"); return; }
       exam = e; CLOSED = exam.status === "closed";
+      useTimezone(exam.timezone);       // the room's clock is the room's, not the watcher's
       $("code").textContent = exam.code; document.title = "Vigil · " + exam.title;
       renderHead();
 

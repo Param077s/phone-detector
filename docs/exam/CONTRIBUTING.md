@@ -37,13 +37,18 @@ Then open **http://localhost:8534/exam/**.
 |---|---|
 | `index.html` | Landing / role picker + **join** flow (student Google or guest; teacher sign-in). |
 | `console.html` | **Teacher console** — create / list / close exams, "require sign-in" toggle, share QR. |
-| `live.html` | **Teacher live room** — presence grid + live **alerts feed** + click-a-tile drill-down. |
-| `report.html` | **Report** — risk score per student, Confirm/Dismiss review, CSV / PDF. |
+| `live.html` | **Teacher live room** — the tile grid, Start/Close, live alerts + click-a-tile drill-down. |
+| `findings.html` | **The findings document** — the one page a teacher reads and files. Verdicts are set here. |
+| `report.html` | **The full record** — every flag for every student, CSV / PDF. Also the student's own view. |
 | `room.html` + `room.js` | **Student monitor** — all the MediaPipe detection lives in `room.js`. |
 | `history.html` | "Your exams" — everything you ran or took. |
-| `sb.js` | Shared Supabase client + helpers (`esc`, etc.). |
+| `exam-core.js` | **The shared reading** — labels, weights, episodes, scoring, room moments, time. Both teacher surfaces read through this; nothing here touches the network. |
+| `sb.js` | Shared Supabase client + helpers (`fetchExam`, `esc`, …). |
 | `style.css` | Shared design tokens + components. **Edit here to reskin everything.** |
 | `/vendor/mediapipe/` | Vendored ML runtime + models (face landmarker, object/phone detector). Offline-safe. |
+
+`REPORT-SYSTEM.md` is the long-form account of how events become a report — read it
+before changing anything about scoring, findings or verdicts.
 
 The database lives in **`../../supabase/schema*.sql`** (see §4).
 
@@ -72,10 +77,16 @@ loosen detection — that's deliberate anti-tamper; don't undo it).
   a student can only read/write their own rows. Two tables never reference each other's RLS
   directly — we use `SECURITY DEFINER` helper functions (`is_in_exam`, `find_open_exam`) to
   avoid infinite-recursion policy errors.
-- Schema + migrations are in **`supabase/schema.sql` → `schema_v6.sql`**, applied **by hand**
-  in the Supabase SQL editor. **Never auto-apply DB changes** — write a new `schema_vN.sql`,
-  hand it over as copy-paste SQL, and it gets run manually. Make code degrade gracefully so a
-  page still works before its migration is applied.
+- Schema + migrations are in **`supabase/schema.sql` → `schema_v13.sql`**, applied **by hand**
+  in the Supabase SQL editor, in order. **Never auto-apply DB changes** — write a new
+  `schema_vN.sql`, hand it over as copy-paste SQL, and it gets run manually. A file existing
+  in `supabase/` never means it has been run.
+- **Make code degrade gracefully so a page still works before its migration is applied.**
+  Postgres rejects an entire `select` for one unknown column, so a new column can white-screen
+  every page until the SQL is pasted in. Two patterns already in use: read through
+  `fetchExam()` in `sb.js` (asks for the optional columns, retries without them), and write
+  new columns in their own `update` after the insert, wrapped in `try {} catch {}`
+  (see `console.html`'s create flow — `require_signin`, `duration_min`, `timezone`).
 
 ---
 
@@ -83,13 +94,25 @@ loosen detection — that's deliberate anti-tamper; don't undo it).
 
 - **Plain modules.** Each page has one `<script type="module">`; `room.js` is the only
   standalone module. No bundler, no npm install.
-- **Syntax-check before you commit.** For `room.js`: `node --check docs/exam/room.js`. For an
-  inline page script, extract the `<script type="module">` body and `node --check` it (strip
-  the `import` lines first, since Node can't resolve the CDN/vendor URLs).
+- **Check before you commit — one command:**
+
+  ```bash
+  node tools/check-exam.mjs
+  ```
+
+  It parses every page's `<script type="module">` body *and* resolves every
+  `exam-core.js` / `sb.js` name a page uses against the names it actually imports, in both
+  directions (used-but-not-imported, imported-but-unused). `node --check` alone cannot do the
+  second half: it only parses, so a page that calls `examOver()` without importing it passes
+  cleanly and then throws in front of a teacher. That has already happened — a string
+  replacement missed the import line in two files and `--check` said yes twice.
 - **Role = ownership/context, never auth type.** Teacher vs student is decided by who owns the
   exam (`exam.owner === uid`) and how you arrived (`?as=student` / `vg_role`). Don't bring back
   `is_anonymous`/has-email role checks — that was the bug that dumped students on the console.
 - **Stay self-contained.** Everything is vendored (no runtime CDN calls); keep it offline-safe.
+- **One fact, one place.** Anything both a page and the core could know — a label, a weight,
+  how serious a kind is, what an exam's clock reads — belongs in `exam-core.js` and is derived
+  everywhere else. Two surfaces that can disagree about the same exam eventually will.
 - **Match the surrounding style** — same naming, same terse comment density.
 
 ---
@@ -115,10 +138,17 @@ After it merges + deploys, verify against the live URL
 
 Two browser windows — **normal = teacher**, **incognito = student** (separate identity):
 
-1. Teacher: create an exam, copy the code. Student: `…/exam/?code=CODE` → Join as guest → let calibration finish.
-2. Student: look far to the side, look down, wave a **phone**, get a **second face** in frame, minimise the window.
-3. Teacher **Live room**: tiles change colour + the **alerts feed** fills; click a tile → drill-down.
-4. Teacher **Report**: risk bands (low/med/high), Confirm/Dismiss a flag → watch the score change.
+1. Teacher: create an exam (give it a duration), copy the code. Student: `…/exam/?code=CODE` →
+   Join as guest → let calibration finish.
+2. Teacher: press **Start exam**. Flags raised before this point stay in the record but leave
+   the reading, so raise a couple either side of it and check they land differently.
+3. Student: look far to the side, look **down** (that's `eyes_down`, not `look_away`), wave a
+   **phone** for a few seconds, get a **second face** in frame, minimise the window.
+4. Teacher **Live room**: tiles change colour + the **alerts feed** fills; click a tile → drill-down.
+5. Teacher **Findings**: set a verdict → the score and the clear list move. While the exam is
+   running the header says "still running" rather than printing an end that hasn't happened.
+6. Teacher **Full record**: the same bands and the same episodes as the findings document — if
+   those two ever disagree, that's the bug.
 
 ---
 
