@@ -45,7 +45,7 @@ participants   id, exam_id, user_id, name,
                joined_at, last_seen
 
 events         id, exam_id, participant_id,
-               kind(text), severity('info'|'warn'|'alert'),
+               kind(text), severity('info'|'warn'|'alert'),   -- derived from ALERT_KINDS, never typed
                at(timestamptz), meta(jsonb),
                review('confirmed'|'dismissed'|'discuss'|null)
 
@@ -76,6 +76,7 @@ Notes:
 | v10 | `exam_notes.participant_id` + a student read policy | a note reaching the student it's about |
 | v11 | **security**: splits `participants_student_write`, owner-only DELETE, identity trigger | stops a student erasing their own flags |
 | v12 | `starts_at`, `ends_at`, `duration_min` on exams | a real start and a real end |
+| v13 | `exams.timezone` | the record reads the same hour to everyone (§5.13) |
 
 Every surface degrades gracefully when a migration hasn't been run — the note field
 simply doesn't appear, the third verdict reports that it isn't available, and so on.
@@ -527,6 +528,29 @@ Exams recorded **before v12** have no `starts_at`, so every surface falls back t
 `created_at`/`closed_at` and reads exactly as it always did. Nothing already recorded is
 reinterpreted.
 
+While an exam is still running, the findings document says so — `from 14:05, still running`
+— instead of printing `14:05–16:05`. The planned end is a fact about the future, and a
+document that states it as though it had happened is not a record of anything.
+
+### 5.13 What hour it says
+
+A `timestamptz` is an instant; the hour it *displays* as is a choice, and the browser was
+making that choice from wherever the reader happened to be sitting. A teacher marking from
+another timezone — or, far more often, whoever the PDF was forwarded to — read every flag
+shifted by hours with nothing on the page saying so. Two people could look at the same
+record and disagree about when something happened.
+
+- The teacher's IANA zone (`Asia/Kolkata`) is stamped on the exam at creation (v13).
+- `useTimezone()` is called once per page after the exam loads; `clock`, `clockRange`,
+  `clockSec` and `dateLong` all format in it. There is no other clock in the app —
+  `report.html`'s compact rows go through `clockSec` too.
+- A short zone label (`times in BST`) is appended **only when the reader's own zone shows a
+  different wall clock for that instant**. The test is the rendered time, not the zone's
+  name, so `Asia/Calcutta` reading an `Asia/Kolkata` exam says nothing — they are the same
+  place — and DST is handled by asking about the moment rather than the rule.
+- No `timezone` (every exam before v13, or a name the browser doesn't know) falls back to
+  the reader's own zone, which is exactly how this behaved before.
+
 ---
 
 ## 6. Design constraints (please don't propose breaking these)
@@ -596,8 +620,12 @@ now partly or wholly addressed and are marked as such.
     flag, and there is no field to record the outcome of a conversation — which is
     precisely what "To discuss" leads to.
 
-11. **Times render in the viewer's local timezone**, not the exam's — a teacher reviewing
-    from another timezone sees shifted clock times.
+11. ~~Times render in the viewer's local timezone, not the exam's.~~ **Addressed** by v13
+    (§5.13): the exam's zone is stamped at creation and every surface formats in it, with a
+    zone label shown only when the reader would otherwise misread the clock. Still open:
+    exams created before v13 have no zone and keep reading in the viewer's, and
+    `history.html`'s list of exams is still viewer-local (it spans many exams, so there is
+    no single right zone for it).
 
 12. ~~The interpretation layer is duplicated.~~ **Addressed** — `report.html` reads
     through `exam-core.js` now. Only layout and its own clock formatting are local, so
@@ -606,12 +634,18 @@ now partly or wholly addressed and are marked as such.
 13. ~~The full record can't see the third verdict.~~ **Addressed** with the same change —
     it shows "to discuss" and counts it as reviewed.
 
-14. **The findings document isn't live.** It reads once on open. For an exam still in
-    progress that is arguably right, but there is no indication that what you're reading
-    is a snapshot.
+14. ~~The findings document isn't live.~~ **Wrong when written, and fixed since.** All three
+    surfaces poll (live 2 s, findings 2 s, full record 5 s) and refresh on `visibilitychange`.
+    What was actually missing was any sign that a *running* exam hadn't finished — the header
+    printed its planned end as a completed range. It now says `still running` (§5.12).
 
-15. **Severity vs weight are two parallel concepts** (`severity` on the row, `WEIGHT` in
-    the client) that can drift apart.
+15. ~~Severity vs weight are two parallel concepts.~~ **Addressed** — `severity` was typed by
+    hand at each of `room.js`'s ten emit calls while `ALERT_KINDS` in the core decided what
+    every reading surface treated as serious. They agreed only because nobody had got one
+    wrong yet. `severity` is derived from `ALERT_KINDS` now, so a kind cannot be serious in
+    the database and ordinary in the report. Verified against the old hand-written table:
+    zero rows change. Still open: rows written before this keep whatever they were given —
+    which, since nothing had drifted yet, is the same answer.
 
 ---
 

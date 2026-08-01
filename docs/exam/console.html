@@ -135,6 +135,14 @@
         if (requireSignin && data) { try { await sb.from("exams").update({ require_signin: true }).eq("id", data.id); } catch (e) {} }
         // duration set separately too, so creating still works before v12 is applied
         if (durMin && data) { try { await sb.from("exams").update({ duration_min: durMin }).eq("id", data.id); } catch (e) {} }
+        // Where the exam is. Every clock string in the room, the findings and the
+        // report is read back in THIS zone, so the record says the same hour to
+        // whoever opens it — the teacher marking from a hotel, or whoever they
+        // forwarded the PDF to. Separately again, for v13.
+        try {
+          const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
+          if (tz && data) await sb.from("exams").update({ timezone: tz }).eq("id", data.id);
+        } catch (e) {}
         $("title").value = ""; $("reqSignin").checked = false; toast("Exam created · code " + code); await refresh();
       } catch (ex) { toast(ex.message || "Couldn't create exam"); }
       btn.disabled = false;

@@ -183,9 +183,9 @@
   </div>
 
   <script type="module">
-    import { sb } from "/exam/sb.js";
+    import { sb, fetchExam } from "/exam/sb.js";
     import { esc, label, clock, clockRange, dateLong, word, readExam, spanTxt, roomHeadline, isOnline, ago,
-             examWindow } from "/exam/exam-core.js";
+             examWindow, examOver, useTimezone, tzNote } from "/exam/exam-core.js";
     const $ = id => document.getElementById(id);
     const examId = new URLSearchParams(location.search).get("e");
 
@@ -509,8 +509,13 @@
         const from = w.startT || read.startT;
         const to = w.endT || read.endT || Date.now();
         $("title").textContent = exam.title;
-        $("context").textContent = [exam.code, dateLong(from), clockRange(from, to),
-          read.roster.length + " student" + (read.roster.length === 1 ? "" : "s")].join(" · ");
+        // A running exam has an end that HASN'T HAPPENED. Printing "11:00–13:00"
+        // over an exam it is currently 11:20 in states a fact about the future as
+        // though it were on the record; the document says it is still going instead.
+        const span = examOver(exam) ? clockRange(from, to) : "from " + clock(from) + ", still running";
+        $("context").textContent = [exam.code, dateLong(from), span,
+          read.roster.length + " student" + (read.roster.length === 1 ? "" : "s"),
+          tzNote(from)].filter(Boolean).join(" · ");
         drawIfChanged();
       } finally { loading = false; }
     }
@@ -518,10 +523,11 @@
     (async () => {
       const { data: { user } } = await sb.auth.getUser();
       if (!user || !examId) { location.replace("/exam/"); return; }
-      const { data: e } = await sb.from("exams").select("title,code,status,owner,created_at,closed_at,starts_at,ends_at,duration_min").eq("id", examId).maybeSingle();
+      const e = await fetchExam(examId, "title,code,status,owner,created_at,closed_at,starts_at,ends_at,duration_min");
       // the findings document is the teacher's record — a student reads their own activity instead
       if (!e || e.owner !== user.id) { location.replace("/exam/report.html?e=" + examId + "&as=student"); return; }
       exam = e;
+      useTimezone(e.timezone);          // read this exam in the room's own hours
       document.title = "Vigil · " + e.title;
       $("fullLink").href = "/exam/report.html?e=" + examId;
       $("dl").onclick = () => window.print();

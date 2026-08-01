@@ -127,11 +127,11 @@
   </div>
 
   <script type="module">
-    import { sb } from "/exam/sb.js";
+    import { sb, fetchExam } from "/exam/sb.js";
     // This page used to carry its own labels, weights, bands and episode logic — a
     // second opinion about the same events that could drift from the document's.
     // It reads the exam through the shared core now; only the LAYOUT is local.
-    import { esc, label, ALERT_KINDS, episodesOf, readExam } from "/exam/exam-core.js";
+    import { esc, label, ALERT_KINDS, readExam, clock, clockSec, useTimezone, tzNote } from "/exam/exam-core.js";
     const $ = id => document.getElementById(id);
     const examId = new URLSearchParams(location.search).get("e");
     // this view's own four-word vocabulary for the same normalised score
@@ -139,10 +139,11 @@
     let reviewEnabled = false;   // teacher + the v6 review column exists
     const CAP = 8;   // episodes shown before a card collapses the rest
     // compact clock — no AM/PM on every row (it wrapped onto two lines); the
-    // meridiem lives once in the strip's axis and in "Generated …" above
-    const fmt = (iso) => { const d = new Date(iso);
-      return String(d.getHours()%12||12).padStart(2,"0")+":"+String(d.getMinutes()).padStart(2,"0")+":"+String(d.getSeconds()).padStart(2,"0"); };
-    const fmtHM = (iso) => { const d = new Date(iso); return d.toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"}); };
+    // meridiem lives once in the strip's axis and in "Generated …" above.
+    // Both read the EXAM's zone, via the core, rather than pulling the hour off a
+    // local Date — a record that says a different hour to each reader isn't one.
+    const fmt = (iso) => clockSec(iso).replace(/\s*[AP]\.?M\.?$/i, "");
+    const fmtHM = (iso) => clock(iso);
     const durTxt = (ms) => { const s = Math.max(1, Math.round(ms/1000)); if (s < 60) return s + " s"; const m = Math.floor(s/60); return m + " min" + (s%60 ? " " + (s%60) + " s" : ""); };
 
     // the shared episodesOf works in timestamps; this view prints clock strings
@@ -344,8 +345,9 @@
       const { data:{ user:u } } = await sb.auth.getUser();
       if (!u || !examId) { location.replace("/exam/"); return; }
       user = u;
-      const { data:e } = await sb.from("exams").select("title,code,status,created_at,owner").eq("id", examId).maybeSingle();
+      const e = await fetchExam(examId, "title,code,status,created_at,owner");
       exam = e;
+      if (exam) useTimezone(exam.timezone);
       // Role by CONTEXT first (how you got here), then ownership. The room opens activity
       // with ?as=student and remembers vg_role=student, so the exam's OWNER who joined their
       // own room stays in the student view — 'back' returns to the room, never the console.
@@ -361,7 +363,8 @@
       $("title").textContent = teacher ? "Exam report" : "Your activity";
       if (exam){ $("sub").textContent = exam.title + " · code " + exam.code + " · " + exam.status;
         document.title = "Vigil · " + exam.title; }
-      $("gen").textContent = "Generated " + new Date().toLocaleString();
+      $("gen").textContent = ["Generated " + new Date().toLocaleDateString() + " " + clockSec(Date.now()), tzNote()]
+        .filter(Boolean).join(" · ");
       if (open) $("livePill").style.display = "";
 
       if (teacher){
