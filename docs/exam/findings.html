@@ -193,11 +193,30 @@
     let exam = null, read = null, canReview = false;
 
     // ── the page ────────────────────────────────────────────────────────────
+    // How much of this a person has stood behind. A signature at the bottom of a
+    // document nobody has read means something different from one at the bottom of
+    // a document read end to end and agreed with, and until now the page looked
+    // identical either way.
+    function reviewSentence(rv) {
+      if (!rv.total) return "";
+      if (rv.unread === rv.total) return "None reviewed yet.";
+      const parts = [];
+      if (rv.upheld) parts.push(word(rv.upheld).toLowerCase() + " upheld");
+      if (rv.aside) parts.push(word(rv.aside).toLowerCase() + " set aside");
+      if (rv.discuss) parts.push(word(rv.discuss).toLowerCase() + " to discuss");
+      if (rv.unread) parts.push(word(rv.unread).toLowerCase() + " still to review");
+      const last = parts.pop();
+      const s = parts.length ? parts.join(", ") + " and " + last : last;
+      return s.charAt(0).toUpperCase() + s.slice(1) + ".";
+    }
+
     function draw() {
       const f = read.findings, clear = read.clear;
+      const rev = reviewSentence(read.review);
       const stand = f.length
         ? '<span>' + word(f.length) + (f.length === 1 ? " finding." : " findings.") + '</span> ' +
-          '<span class="rest">' + word(clear.length) + ' student' + (clear.length === 1 ? "" : "s") + ' finished clear.</span>'
+          '<span class="rest">' + (rev ? esc(rev) + " " : "") +
+          word(clear.length) + ' student' + (clear.length === 1 ? "" : "s") + ' finished clear.</span>'
         : "";
 
       const findingHtml = x =>

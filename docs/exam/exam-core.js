@@ -103,17 +103,42 @@ export function trustOf(calib) {
   return CALIB_TRUST[calib.grade] ?? 1;
 }
 
+// ── what upholding a flag is worth ──────────────────────────────────────────
+// Setting a flag aside removed it from the score. Upholding one did nothing at
+// all, so a report a teacher had read end to end scored exactly like one nobody
+// had opened. Agreeing with the machine was the only verdict with no consequence.
+//
+// It could not simply add weight: a person saying "yes, that happened" does not
+// make it a worse thing to have done, and a score that climbed because someone
+// pressed a button would be an accusation the evidence never supported.
+//
+// What a person CAN answer is the machine's own doubt. The trust discount exists
+// because a weak camera makes gaze and face flags unreliable evidence — we can
+// see something happened but not well enough to be sure. A teacher upholding that
+// finding has looked at exactly that question and answered it. So an upheld event
+// is scored at full weight, and the discount stays on everything still unread.
+//
+// This can only ever restore what uncertainty took away. Full weight is the
+// ceiling; there is no multiplier above 1, and a solid setup — nothing discounted
+// — is unmoved by review. Confirmation resolves doubt; it cannot manufacture it.
+export const upheld = e => e && e.review === "confirmed";
+
 // Score a set of episodes against how long that student was actually monitored.
 // Ambient flags are a rate; the rate used is the WORSE of the whole sitting and
 // the busiest stretch in it, so a frantic two minutes isn't averaged into
 // nothing by two calm hours around it.
+//
+// `trust` is folded into each event's weight rather than multiplied over the
+// total, so that an upheld event can carry a different one. With nothing upheld
+// the two are identical — every term scales by the same constant — so this is the
+// same arithmetic it has always been until somebody reviews something.
 export function scoreEpisodes(eps, windowMs, trust = 1) {
   let discrete = 0;
   const amb = [];
   for (const ep of eps) {
     if (!AMBIENT_KINDS.has(ep.kind)) { discrete += episodePoints(ep.kind, ep.count); continue; }
     const w = WEIGHT[ep.kind] || 1;
-    for (const e of ep.events) amb.push({ at: t(e.at), w });
+    for (const e of ep.events) amb.push({ at: t(e.at), w: w * (upheld(e) ? 1 : trust) });
   }
   if (!amb.length) return discrete;
   const hours = Math.max(MIN_WINDOW_MS, windowMs || 0) / 3600000;
@@ -125,7 +150,7 @@ export function scoreEpisodes(eps, windowMs, trust = 1) {
     for (let j = i; j < amb.length && amb[j].at - amb[i].at <= MIN_WINDOW_MS; j++) sum += amb[j].w;
     perHour = Math.max(perHour, sum / spanHours);
   }
-  return discrete + (perHour * trust) / AMBIENT_BUDGET_PER_HOUR;
+  return discrete + perHour / AMBIENT_BUDGET_PER_HOUR;
 }
 
 export const label = k => LABELS[k] || k;
@@ -465,9 +490,22 @@ export function readExam(participants, events, opts = {}) {
     .filter(x => x.calib && x.calib.grade && x.calib.grade !== "solid")
     .map(x => ({ p: x.p, grade: x.calib.grade, reason: (x.calib.reasons || [])[0] || "" }));
 
+  // How much of this document a person has actually stood behind. The findings and
+  // the score alone can't say it: an unread report and one read end to end and
+  // agreed with look identical on the page, and it is the second that a signature
+  // at the bottom is supposed to mean.
+  const review = {
+    total: findings.length,
+    upheld: findings.filter(f => f.review === "confirmed").length,
+    aside: findings.filter(f => f.review === "dismissed").length,
+    discuss: findings.filter(f => f.review === "discuss").length,
+  };
+  review.unread = review.total - review.upheld - review.aside - review.discuss;
+  review.read = review.total - review.unread;
+
   const allT = (events || []).map(e => t(e.at)).filter(Boolean);
   return {
-    roster, students, moments, findings, clear, unverified, poorSetups,
+    roster, students, moments, findings, clear, unverified, poorSetups, review,
     startT: allT.length ? Math.min(...allT) : null,
     endT: allT.length ? Math.max(...allT) : null,
   };
