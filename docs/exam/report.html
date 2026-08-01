@@ -16,7 +16,7 @@
     .backlink{color:var(--ink);font-size:13.5px;font-weight:600;display:inline-flex;align-items:center;gap:5px}
     .backlink svg{width:15px;height:15px}
     .livepill{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);font-weight:600}
-    .livepill i{width:8px;height:8px;border-radius:50%;background:var(--ok);animation:lp 1.6s infinite}
+    .livepill i{width:8px;height:8px;border-radius:50%;corner-shape:round;background:var(--ok);animation:lp 1.6s infinite}
     @keyframes lp{0%,100%{opacity:1}50%{opacity:.25}}
     .summary{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:0 0 18px}
     .stat{font-size:13px;font-weight:600;padding:6px 12px;border-radius:999px;background:var(--soft);border:1px solid var(--line);color:var(--muted)}
@@ -31,7 +31,7 @@
     .student.hide{display:none}
     .student.pri{border-color:#f3c9ca} .student.pri-w{border-color:#f0dcb6}
     .student h2{font-size:17px;margin:0 0 14px;display:flex;align-items:center;gap:10px}
-    .student h2 .sd{width:9px;height:9px;border-radius:50%;flex:0 0 9px;background:var(--faint)}
+    .student h2 .sd{width:9px;height:9px;border-radius:50%;corner-shape:round;flex:0 0 9px;background:var(--faint)}
     .student h2 .sd.warn{background:var(--warn)} .student h2 .sd.alert{background:var(--alert)}
     .student h2 .n{flex:1} .student h2 .ct{font-size:12.5px;font-weight:600;color:var(--muted)}
     .chips{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 16px}
@@ -39,7 +39,7 @@
     .clearbox{background:var(--card);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow-sm);margin-bottom:16px}
     .clearbox>summary{list-style:none;cursor:pointer;padding:15px 20px;font-size:14px;font-weight:600;display:flex;align-items:center;gap:10px}
     .clearbox>summary::-webkit-details-marker{display:none}
-    .clearbox>summary .sd{width:9px;height:9px;border-radius:50%;background:var(--ok)}
+    .clearbox>summary .sd{width:9px;height:9px;border-radius:50%;corner-shape:round;background:var(--ok)}
     .clearbox>summary .cv{margin-left:auto;color:var(--faint);font-size:12px;font-weight:600}
     .clearbox .names{display:flex;flex-wrap:wrap;gap:8px;padding:0 20px 18px}
     .clearbox .names span{font-size:13px;padding:5px 11px;border-radius:999px;background:var(--soft);border:1px solid var(--line);color:var(--muted)}
@@ -52,7 +52,7 @@
     .chip.ok{color:var(--ok);background:var(--ok-soft);border-color:#c3e6d5}
     .tl{position:relative;margin-left:5px;padding-left:20px;border-left:2px solid var(--line)}
     .ev{position:relative;padding:8px 0;font-size:13.5px;display:flex;gap:12px}
-    .ev::before{content:"";position:absolute;left:-27px;top:14px;width:9px;height:9px;border-radius:50%;background:var(--faint);box-shadow:0 0 0 3px #fff}
+    .ev::before{content:"";position:absolute;left:-27px;top:14px;width:9px;height:9px;border-radius:50%;corner-shape:round;background:var(--faint);box-shadow:0 0 0 3px #fff}
     .ev.warn::before{background:var(--warn)} .ev.alert::before{background:var(--alert)}
     .ev .time{color:var(--muted);font-variant-numeric:tabular-nums;flex:0 0 78px}
     .ev .what{flex:1}

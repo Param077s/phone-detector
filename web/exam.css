@@ -22,6 +22,22 @@
 @font-face{font-family:"Space Grotesk";src:url("/app/vendor/fonts/space-grotesk.woff2") format("woff2");
   font-weight:300 700;font-style:normal;font-display:swap}
 *{box-sizing:border-box}
+
+/* ── the shape ──────────────────────────────────────────────────────────────
+   Every corner in Vigil is a squircle: a superellipse, where the straight edge
+   eases into the curve instead of meeting a circular arc at a tangent. The same
+   shape the exam app uses, so the two halves of Vigil read as one product.
+
+   `corner-shape` re-shapes whatever `border-radius` is already there, so this
+   single rule reaches every rounded element without touching one radius. A
+   browser that doesn't know the property ignores it and keeps ordinary circular
+   corners — today's UI exactly, so nothing needs a fallback.
+
+   `*` carries no specificity, so anything below opts out with
+   `corner-shape:round` — which is what every true circle does, because a
+   superellipse at a 50%% radius is a rounded square, not a dot. */
+*, *::before, *::after { corner-shape: squircle; }
+
 html,body{height:100%}
 body{
   margin:0;color:var(--ink);font:15px/1.55 var(--font);-webkit-font-smoothing:antialiased;
@@ -77,7 +93,7 @@ h1,h2,h3,.brand b,.status-lg .t,.name{font-family:var(--display);letter-spacing:
 /* Atoms */
 .pill{font-size:12px;font-weight:600;padding:5px 11px;border-radius:999px;
   background:var(--glass);border:1px solid var(--line);color:var(--muted);backdrop-filter:blur(6px)}
-.dot{width:10px;height:10px;border-radius:50%;flex:0 0 auto;background:var(--faint)}
+.dot{width:10px;height:10px;border-radius:50%; corner-shape: round;flex:0 0 auto;background:var(--faint)}
 .dot.ok{background:var(--ok)} .dot.warn{background:var(--warn)} .dot.alert{background:var(--alert)}
 .hidden{display:none !important}
 .muted{color:var(--muted)}

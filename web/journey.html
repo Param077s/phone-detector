@@ -49,7 +49,7 @@
     .cta .btn:hover::after,.doors .btn:hover::after{opacity:1;transform:translateY(-50%) translateX(0)}
 
     /* custom cursor — a smooth circle that inverts whatever it's over (text included) */
-    .cursor{position:fixed;top:0;left:0;width:20px;height:20px;border-radius:50%;background:#fff;
+    .cursor{position:fixed;top:0;left:0;width:20px;height:20px;border-radius:50%; corner-shape: round;background:#fff;
       mix-blend-mode:difference;pointer-events:none;z-index:100000;opacity:0;
       transform:translate(-50%,-50%);transition:opacity .3s,width .22s var(--spring),height .22s var(--spring)}
     .cursor.big{width:54px;height:54px}
@@ -70,7 +70,7 @@
     .rail{position:fixed;right:20px;top:50%;transform:translateY(-50%);z-index:45;
       display:flex;flex-direction:column;gap:16px;padding:8px}
     .rail button{position:relative;display:block;width:12px;height:12px;border:0;background:none;padding:0;cursor:pointer}
-    .rail button span{position:absolute;inset:0;border-radius:50%;background:var(--line);
+    .rail button span{position:absolute;inset:0;border-radius:50%; corner-shape: round;background:var(--line);
       transition:transform .3s var(--spring),background .3s}
     .rail button:hover span{background:var(--muted);transform:scale(1.25)}
     .rail button.active span{background:var(--ink);transform:scale(1.5)}
@@ -80,7 +80,7 @@
       padding:4px 11px;border-radius:999px;white-space:nowrap;box-shadow:var(--shadow-sm);
       transition:opacity .2s,transform .2s var(--spring)}
     .rail button:hover em,.rail button:focus-visible em{opacity:1;transform:translateY(-50%) translateX(0)}
-    .rail button:focus-visible{outline:2px solid var(--ink);outline-offset:4px;border-radius:50%}
+    .rail button:focus-visible{outline:2px solid var(--ink);outline-offset:4px;border-radius:50%; corner-shape: round}
 
     /* a soft "continue" cue on the very first scene */
     .cue{position:fixed;left:50%;bottom:26px;transform:translateX(-50%);z-index:45;
@@ -104,7 +104,7 @@
     .vf .br.tr{transform:translate(calc(-50% + var(--fx)), calc(-50% - var(--fy))) rotate(90deg)}
     .vf .br.brr{transform:translate(calc(-50% + var(--fx)), calc(-50% + var(--fy))) rotate(180deg)}
     .vf .br.bl{transform:translate(calc(-50% - var(--fx)), calc(-50% + var(--fy))) rotate(270deg)}
-    .vf .dot{position:absolute;left:50%;top:50%;width:12px;height:12px;border-radius:50%;background:var(--ink);
+    .vf .dot{position:absolute;left:50%;top:50%;width:12px;height:12px;border-radius:50%; corner-shape: round;background:var(--ink);
       opacity:var(--dot-op,0);transform:translate(-50%,-50%) scale(var(--ds));box-shadow:0 0 0 6px rgba(12,13,16,.06)}
 
     /* ── the deck: full-screen scenes, one shown at a time ── */
@@ -171,7 +171,7 @@
     #s4 .checks li{display:flex;align-items:center;gap:11px;font-family:var(--display);font-size:15.5px;
       font-weight:600;color:var(--ink-2);opacity:0;transform:translateY(10px);
       transition:opacity .55s var(--spring),transform .55s var(--spring)}
-    #s4 .checks .ck{width:22px;height:22px;border-radius:50%;background:var(--ink);color:#fff;display:grid;place-items:center;flex:0 0 auto}
+    #s4 .checks .ck{width:22px;height:22px;border-radius:50%; corner-shape: round;background:var(--ink);color:#fff;display:grid;place-items:center;flex:0 0 auto}
     #s4 .checks .ck svg{width:12px;height:12px}
     #s4 h2{font-size:clamp(30px,5vw,60px);max-width:18ch;margin:0 auto;
       opacity:0;transform:translateY(12px);transition:opacity .6s var(--spring),transform .6s var(--spring)}
