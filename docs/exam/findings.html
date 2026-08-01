@@ -41,6 +41,14 @@
     .fl1 .n{font-size:13px;color:var(--faint);font-variant-numeric:tabular-nums;flex:0 0 auto}
     .fl1 .h{font-size:17px;font-weight:500;flex:1;letter-spacing:-.01em}
     .fl2{font-size:14px;color:var(--muted);margin:5px 0 0 30px}
+    /* what the two of them said. Serif, because it is the only speech on the page —
+       everything above it is the machine's account, and these are people's words. */
+    .said{font-family:var(--voice);font-size:14.5px;color:var(--ink);margin:9px 0 0 30px;
+      padding-left:11px;border-left:2px solid var(--line);line-height:1.45}
+    .said .by{font-family:var(--font);font-size:12px;color:var(--faint);white-space:nowrap}
+    .outcome{font-size:13.5px;color:var(--muted);margin:8px 0 0 30px;line-height:1.45}
+    .outcome .lb{font-size:10.5px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;
+      color:var(--faint);margin-right:7px}
 
     .chip{flex:0 0 auto;font-size:11.5px;font-weight:600;padding:3px 10px;border-radius:999px;
       border:1px solid var(--line);background:var(--soft);color:var(--muted);cursor:pointer;
@@ -106,6 +114,17 @@
     .pop .row.alert .w{color:#a32d2d}
     .pop .fnd{display:flex;align-items:baseline;gap:10px;padding:8px 0;border-top:1px solid var(--line)}
     .pop .fnd .fh{flex:1;font-size:14px;font-weight:500}
+    .pop .psaid{font-family:var(--voice);font-size:13.5px;color:var(--ink-2);line-height:1.45;
+      padding:0 0 6px 11px;border-left:2px solid var(--line);margin:2px 0 0}
+    .pop .psaid .by{font-family:var(--font);font-size:11.5px;color:var(--faint)}
+    .pop .pout{font-size:13px;color:var(--ink-2);line-height:1.45;padding:5px 0 9px}
+    .pop .pout .lb{font-size:10px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;
+      color:var(--faint);margin-right:7px}
+    .pop .pout[data-outcome]{cursor:text;border-radius:5px;margin:0 -6px;padding:5px 6px 9px}
+    .pop .pout[data-outcome]:hover{background:var(--soft)}
+    .pop .pout.empty{color:var(--faint)}
+    .pop .pout textarea{width:100%;font:inherit;font-size:13px;color:var(--ink);background:#fff;
+      border:1px solid var(--line);border-radius:6px;padding:7px 8px;resize:vertical;min-height:56px;margin-top:5px}
     .pop .caveat{font-size:12.5px;color:var(--warn);margin-top:14px}
     .pop .who{font-size:13.5px;color:var(--ink-2);line-height:1.6;margin:0}
 
@@ -191,6 +210,7 @@
 
     const VERDICT = { confirmed: ["Upheld", "upheld"], dismissed: ["Set aside", "aside"], discuss: ["To discuss", "discuss"] };
     let exam = null, read = null, canReview = false;
+    let notes = [], notesOn = false;   // finding notes, and whether v14 is applied
 
     // ── the page ────────────────────────────────────────────────────────────
     // How much of this a person has stood behind. A signature at the bottom of a
@@ -219,11 +239,21 @@
           word(clear.length) + ' student' + (clear.length === 1 ? "" : "s") + ' finished clear.</span>'
         : "";
 
+      // The student's own account of a finding, printed under it and attributed.
+      // If this document ever reaches a hearing, the person it is about has been
+      // heard in it — which is the only reason to have asked them.
+      const saidHtml = x => x.said
+        ? '<div class="said">“' + esc(x.said.body) + '” <span class="by">— ' + esc(x.who) + '</span></div>' : "";
+      // and what the conversation concluded, which is where "To discuss" was leading
+      const outcomeHtml = x => x.outcome
+        ? '<div class="outcome"><span class="lb">Outcome</span> ' + esc(x.outcome.body) + '</div>' : "";
+
       const findingHtml = x =>
         '<div class="finding">' +
           '<div class="fl1"><span class="n">' + x.n + '</span><span class="h">' + esc(x.headline) + '</span>' + chipHtml(x) + '</div>' +
           '<div class="fl2">' + esc(x.who) + ' · ' + clock(x.startT) + ' · ' + x.count + ' flag' + (x.count === 1 ? "" : "s") +
             ' · ' + esc(x.quality) + '</div>' +
+          saidHtml(x) + outcomeHtml(x) +
         '</div>';
 
       const body = f.length
@@ -406,6 +436,17 @@
       if (!exam || exam.status !== "open") return "";
       return isOnline(s.p) ? "Online · " : "Offline since " + ago(s.p.last_seen) + " · ";
     }
+    // Where a conversation gets written down. It appears once a verdict has been
+    // given — before that there is nothing to have concluded, and an empty box
+    // against every finding would be exactly the chrome this document avoids.
+    function outcomeFieldHtml(f) {
+      if (!notesOn || !f.review) return f.outcome
+        ? '<div class="pout"><span class="lb">Outcome</span> ' + esc(f.outcome.body) + '</div>' : "";
+      const key = f.student.p.id + "|" + f.kind;
+      return '<div class="pout' + (f.outcome ? "" : " empty") + '" data-outcome="' + esc(key) + '">' +
+        '<span class="lb">Outcome</span> ' +
+        (f.outcome ? esc(f.outcome.body) : "What did the conversation conclude?") + '</div>';
+    }
     function studentHtml(pid) {
       const s = read.students.find(x => x.p.id === pid); if (!s) return false;
       const mine = read.findings.filter(f => !f.room && f.student && f.student.p.id === pid);
@@ -418,9 +459,24 @@
         '<h2 id="popName">' + esc(s.p.name) + '</h2></div>' +
         '<p class="pstat">' + presenceLine(s) + (s.unverified ? "No monitoring data — setup never completed" : s.score === 0 ? "Finished clear" :
           s.live.length + " flag" + (s.live.length === 1 ? "" : "s") + " · " + esc(s.phrase)) + '</p>' +
-        // the verdicts that belong to this student, decidable right here
+        // the verdicts that belong to this student, decidable right here — and
+        // beneath each, what they said about it and what the conversation concluded
         (mine.length ? '<div class="lab">Findings</div>' + mine.map(f =>
-          '<div class="fnd"><span class="fh">' + esc(f.headline) + '</span>' + chipHtml(f) + '</div>').join("") : "") +
+          '<div class="fnd"><span class="fh">' + esc(f.headline) + '</span>' + chipHtml(f) + '</div>' +
+          (f.said ? '<div class="psaid">“' + esc(f.said.body) + '” <span class="by">— ' +
+            esc(s.p.name) + ', ' + clock(f.said.at) + '</span></div>' : "") +
+          outcomeFieldHtml(f)).join("") : "") +
+        // A student may write against ANY kind they were flagged for, including ones
+        // that never reached the findings bar. Those have no finding to sit under, and
+        // words written to be read must not disappear because the machine scored them
+        // low — the person had something to say about being flagged at all.
+        (() => {
+          const spare = [...s.said.entries()]
+            .filter(([kind, note]) => note && !mine.some(f => f.kind === kind));
+          return spare.length ? '<div class="lab">Also said</div>' + spare.map(([kind, note]) =>
+            '<div class="psaid">“' + esc(note.body) + '” <span class="by">— on ' +
+            esc(label(kind).toLowerCase()) + ', ' + clock(note.at) + '</span></div>').join("") : "";
+        })() +
         (eps.length ? '<div class="lab">Every flag</div>' + eps.map(ep =>
           '<div class="row ' + (ep.alert ? "alert" : "") + '"><span class="t">' + clock(ep.startT) +
           (ep.count > 1 ? "–" + clock(ep.endT) : "") + '</span><span class="w">' + esc(label(ep.kind)) +
@@ -471,7 +527,52 @@
     }
     const closePick = () => { $("pick").classList.remove("on"); pickFor = null; };
 
+    // ── the outcome of a conversation ───────────────────────────────────────
+    // Click the line, type, blur. No Save button and no dialog: this is one
+    // sentence written after talking to someone, not a form.
+    let editingOutcome = null;
+    function openOutcome(el) {
+      if (editingOutcome) return;
+      editingOutcome = el;
+      const key = el.getAttribute("data-outcome");
+      const current = el.classList.contains("empty") ? "" : el.textContent.replace(/^\s*Outcome\s*/i, "").trim();
+      el.innerHTML = '<span class="lb">Outcome</span><textarea maxlength="400" ' +
+        'placeholder="What did the conversation conclude?"></textarea>';
+      const ta = el.querySelector("textarea");
+      ta.value = current;
+      ta.focus(); ta.setSelectionRange(ta.value.length, ta.value.length);
+      const done = async () => {
+        const body = ta.value.trim();
+        editingOutcome = null;
+        const [pid, kind] = key.split("|");
+        if (body !== current) await saveOutcome(pid, kind, body);
+        await load(true);
+        if ($("popWrap").classList.contains("on")) reopen();
+      };
+      ta.addEventListener("blur", done, { once: true });
+      ta.addEventListener("keydown", ev => {
+        if (ev.key === "Escape") { ev.stopPropagation(); ta.removeEventListener("blur", done); editingOutcome = null; reopen(); }
+        if (ev.key === "Enter" && (ev.metaKey || ev.ctrlKey)) ta.blur();
+      });
+    }
+    async function saveOutcome(pid, kind, body) {
+      // Empty means "there is no outcome after all" — the row goes rather than
+      // sitting there as an empty quotation in a filed document.
+      if (!body) {
+        await sb.from("finding_notes").delete()
+          .eq("participant_id", pid).eq("kind", kind).eq("author", "teacher");
+        return;
+      }
+      const { error } = await sb.from("finding_notes")
+        .upsert({ exam_id: examId, participant_id: pid, kind, author: "teacher", body },
+                { onConflict: "participant_id,kind,author" });
+      if (error) $("msg").textContent = "That outcome could not be saved.";
+    }
+
     document.addEventListener("click", async e => {
+      const out = e.target.closest(".pout[data-outcome]");
+      if (out && !e.target.closest("textarea")) { e.stopPropagation(); openOutcome(out); return; }
+      if (editingOutcome) return;                 // a blur is already committing it
       const chip = e.target.closest(".chip");
       if (chip) { e.stopPropagation(); (pickFor === chip ? closePick : () => openPick(chip))(); return; }
       const opt = e.target.closest(".pick button");
@@ -506,10 +607,15 @@
         const full = force || !lastAt || (Date.now() - fullAt > 30000);
         let eq = sb.from("events").select("id,participant_id,kind,severity,at,meta,review").eq("exam_id", examId);
         if (!full) eq = eq.gt("at", lastAt);
-        const [pq, er] = await Promise.all([
+        const [pq, er, nq] = await Promise.all([
           sb.from("participants").select("id,name,status,joined_at,last_seen").eq("exam_id", examId),
           eq.order("at", { ascending: true }),
+          // finding notes need v14 — an error here means the migration isn't in yet,
+          // and the document simply carries no speech, exactly as it did before
+          sb.from("finding_notes").select("participant_id,kind,author,body,at").eq("exam_id", examId),
         ]);
+        notesOn = !nq.error;
+        notes = nq.data || [];
         if (er.error && full) {
           // pre-v6: no review column. Fall back once, and stay on full reads.
           const fb = await sb.from("events").select("participant_id,kind,severity,at,meta")
@@ -522,7 +628,7 @@
         }
         if (evs.length && evs[evs.length - 1].at) lastAt = evs[evs.length - 1].at;
 
-        read = readExam(pq.data || [], evs, { startsAt: exam.starts_at, endsAt: exam.ends_at });
+        read = readExam(pq.data || [], evs, { startsAt: exam.starts_at, endsAt: exam.ends_at, notes });
         // the exam's own window once v12 is applied; created_at/closed_at before that
         const w = examWindow(exam);
         const from = w.startT || read.startT;

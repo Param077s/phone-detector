@@ -39,7 +39,7 @@ Then open **http://localhost:8534/exam/**.
 | `console.html` | **Teacher console** — create / list / close exams, "require sign-in" toggle, share QR. |
 | `live.html` | **Teacher live room** — the tile grid, Start/Close, live alerts + click-a-tile drill-down. |
 | `findings.html` | **The findings document** — the one page a teacher reads and files. Verdicts are set here. |
-| `report.html` | **The full record** — every flag for every student, CSV / PDF. Also the student's own view. |
+| `report.html` | **The full record** — every flag for every student, CSV / PDF. Also the student's own view, and the one page where a student writes. |
 | `room.html` + `room.js` | **Student monitor** — all the MediaPipe detection lives in `room.js`. |
 | `history.html` | "Your exams" — everything you ran or took. |
 | `exam-core.js` | **The shared reading** — labels, weights, episodes, scoring, room moments, time. Both teacher surfaces read through this; nothing here touches the network. |
@@ -77,7 +77,7 @@ loosen detection — that's deliberate anti-tamper; don't undo it).
   a student can only read/write their own rows. Two tables never reference each other's RLS
   directly — we use `SECURITY DEFINER` helper functions (`is_in_exam`, `find_open_exam`) to
   avoid infinite-recursion policy errors.
-- Schema + migrations are in **`supabase/schema.sql` → `schema_v13.sql`**, applied **by hand**
+- Schema + migrations are in **`supabase/schema.sql` → `schema_v14.sql`**, applied **by hand**
   in the Supabase SQL editor, in order. **Never auto-apply DB changes** — write a new
   `schema_vN.sql`, hand it over as copy-paste SQL, and it gets run manually. A file existing
   in `supabase/` never means it has been run.
@@ -149,6 +149,9 @@ Two browser windows — **normal = teacher**, **incognito = student** (separate 
    running the header says "still running" rather than printing an end that hasn't happened.
 6. Teacher **Full record**: the same bands and the same episodes as the findings document — if
    those two ever disagree, that's the bug.
+7. Student, on their own activity page: add a line under **Anything we should know?**, then
+   check it appears under that finding on the teacher's document. Teacher: give the finding a
+   verdict, then write an **Outcome** in the student popup.
 
 ---
 

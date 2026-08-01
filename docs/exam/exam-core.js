@@ -375,7 +375,24 @@ export function evidenceQuality(events, calib) {
 // episodes, plus the room-wide moments and the findings that come out of them.
 export const FINDING_SCORE = 4;   // the report's existing "medium" bar
 
+// ── what the two of them said about a finding ───────────────────────────────
+// A note hangs off (participant, kind) — the same unit a student-level finding is
+// built from — so it lands beside the thing it is about rather than in a pile at
+// the end. One per author (v14 enforces it): the student states their case once
+// and may edit it, the teacher records one outcome. A record, not a thread.
+export const noteKey = (pid, kind) => pid + "|" + kind;
+export function notesByFinding(notes) {
+  const m = new Map();
+  for (const n of (notes || [])) {
+    const k = noteKey(n.participant_id, n.kind);
+    if (!m.has(k)) m.set(k, {});
+    m.get(k)[n.author] = n;
+  }
+  return m;
+}
+
 export function readExam(participants, events, opts = {}) {
+  const notes = notesByFinding(opts.notes);
   const roster = (participants || []).slice().sort((a, b) => t(a.joined_at) - t(b.joined_at));
   // Flags raised before the teacher pressed Start are settling-in, not exam
   // behaviour. They stay in the record; they simply stop being held against
@@ -432,8 +449,14 @@ export function readExam(participants, events, opts = {}) {
     // which is also exactly what blocking Vigil's writes looks like. Either way
     // "clear" would be a lie: we have no evidence about them at all.
     const unverified = !calib;
+    // every kind they were flagged for, with whatever they have said about it —
+    // the student's own view offers a line against each of these, whether or not
+    // it ever reached the findings bar
+    const said = new Map();
+    for (const kind of new Set(evs.map(e => e.kind)))
+      said.set(kind, (notes.get(noteKey(p.id, kind)) || {}).student || null);
     return {
-      p, calib, unverified, trust, events: evs, live, own, episodes: eps, counts, score, serious, windowMs,
+      p, calib, unverified, trust, events: evs, live, own, episodes: eps, counts, score, serious, windowMs, said,
       band: score >= 10 ? "alert" : score >= FINDING_SCORE ? "warn" : "quiet",
       lastAt: evs.length ? t(evs[evs.length - 1].at) : null,
       phrase: top ? phrase(top[0], top[1]) : "",
@@ -465,11 +488,14 @@ export function readExam(participants, events, opts = {}) {
       const score = scoreEpisodes(episodesOf(evs.filter(e => e.review !== "dismissed")), s.windowMs, s.trust)
         || scoreEpisodes(episodesOf(evs), s.windowMs, s.trust);
       if (score < FINDING_SCORE) continue;     // below the bar it is not a finding
+      const said = notes.get(noteKey(s.p.id, kind)) || {};
       findings.push({
         kind, room: false, student: s, events: evs, ids: evs.map(e => e.id).filter(Boolean),
         review: verdictOf(evs), startT: t(evs[0].at), endT: t(evs[evs.length - 1].at),
         count: evs.length, headline: headline(kind), who: s.p.name, score,
         quality: evidenceQuality(evs, s.calib),
+        // what the student said about it, and what the conversation concluded
+        said: said.student || null, outcome: said.teacher || null,
       });
     }
   }
