@@ -153,7 +153,7 @@ Reasons are derived from: average image brightness (`luma < 60` = low light,
 and how much the gaze wandered during calibration. `solid` = 0 reasons, `fair` = 1,
 `weak` = 2+.
 
-It is used in three places now.
+It is used in four places now.
 
 **It discounts the evidence it undermines.** Saying "weak camera setup" beside a finding
 and then scoring it as though the camera were fine is half an answer. Gaze and face flags
@@ -181,6 +181,11 @@ longer act on it.
 
 **And it caveats what is left**, as the evidence-quality segment of a finding (§5.6) and
 the note in a live popup.
+
+**A teacher can answer it.** The discount is the machine saying it isn't sure it saw
+clearly; upholding a finding is a person answering exactly that, so upheld events are
+scored at full weight and the discount stays on everything still unread (§5.10). It only
+ever restores — full weight is the ceiling.
 
 ### 4.4 Phone detection: corroboration and confidence
 
@@ -435,7 +440,11 @@ Structure, in order, and nothing else:
 2. Exam title, then one grey line: `UXY2TE · 28 July 2026 · 11:01–11:42 PM · 24 students`.
    The window comes from `exams.created_at` → `closed_at`, so it is the real monitoring
    window; the meridiem is said once across the range.
-3. Standfirst: `Five findings.` + muted `Twenty students finished clear.`
+3. Standfirst: `Five findings.` + muted `Two upheld and three still to review. Twenty
+   students finished clear.` The middle sentence is how much of this document a person has
+   stood behind — `None reviewed yet.` before anyone has, and absent when nothing was
+   flagged. A signature under a document nobody has read means something different from one
+   under a document read end to end, and the page used to look identical either way.
 4. **Findings**, each exactly two lines: number · headline · verdict chip, then one grey
    line of `who · when · how many · evidence quality`.
 5. A compact list of the students who finished clear.
@@ -479,9 +488,39 @@ Three verdicts, mapped onto the `review` column:
 
 | verdict | stored | effect on the score |
 |---|---|---|
-| **Upheld** | `confirmed` | none — a visual mark only |
+| **Upheld** | `confirmed` | the events are scored at **full weight** — the calibration discount (§4.3) comes off, because a person has answered the question it hedges |
 | **Set aside** | `dismissed` | the events stop counting; the student can return to the clear list |
 | **To discuss** | `discuss` | none — scores exactly like an unreviewed flag |
+
+**What upholding is worth.** Setting a flag aside removed it from the score; upholding one
+used to do nothing at all, so a report read end to end scored exactly like one nobody had
+opened. Agreeing with the machine was the only verdict with no consequence.
+
+It could not simply *add* weight. A person saying "yes, that happened" does not make it a
+worse thing to have done, and a score that climbed because someone pressed a button would
+be an accusation the evidence never supported (design constraint 4).
+
+What a person **can** answer is the machine's own doubt. The trust discount exists because
+a weak camera makes gaze and face flags unreliable — we can see that something happened,
+but not well enough to be sure. A teacher upholding that finding has looked at precisely
+that question. So an upheld event is scored at full weight and the discount stays on
+everything still unread.
+
+This can only ever **restore what uncertainty took away**. Full weight is the ceiling;
+there is no multiplier above 1. Three consequences follow, all intended:
+
+- a **solid** setup is unmoved by review — nothing was discounted, so there is nothing to
+  give back;
+- **discrete** kinds (phone, second face, …) are never trust-discounted, so upholding a
+  phone finding changes no number. What it changes is the document's account of itself;
+- upholding can **promote something into the document**. A weak-setup student's gaze flags
+  can sit below `FINDING_SCORE` and appear only in the full record; confirming them there
+  can carry them over the bar and onto the findings page. That is the right way round — a
+  human said the poor camera didn't change what they saw.
+
+`trust` is folded into each event's weight rather than multiplied over the total, so
+different events in one score can carry different trust. With nothing upheld every term
+scales by the same constant, so the arithmetic is identical to before any review.
 
 Set from the findings document by pressing a finding's chip, which writes the verdict to
 **every event behind that finding** in one action — including all of a room-wide moment.
@@ -599,9 +638,12 @@ now partly or wholly addressed and are marked as such.
    it. Still open: the full record's own strip is gone, but exams created before v12 keep
    the old fuzzy window forever.
 
-6. **`confirm` does nothing numerically.** Upheld marks a flag as real but doesn't raise
-   the score, so a reviewed report and an unreviewed one score the same. The same is now
-   true of "To discuss" by design.
+6. ~~`confirm` does nothing numerically.~~ **Addressed** (§5.10): upholding takes the
+   calibration discount off the events behind a finding, and the standfirst says how much of
+   the document a person has stood behind. Still open: it moves nothing on a solid setup or
+   on a discrete kind, because there was no doubt to resolve in either — for those, review
+   changes only what the page *says*. Whether that is enough is a question for the first
+   real exam. "To discuss" still scores as unreviewed, by design.
 
 7. **Thresholds are global constants.** No per-exam sensitivity, no adaptation to webcam
    quality, no per-student normalisation. `FINDING_SCORE`, `ROOM_SHARE` and `ROOM_MIN`
