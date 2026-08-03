@@ -201,19 +201,22 @@
       // a band that has emptied out since it was chosen stops being a filter,
       // rather than leaving the page showing nothing and no way back
       if (bandFilter && !counts[bandFilter]) bandFilter = null;
-      const bands = RISK_BANDS.filter(b => counts[b.key] > 0);
-      const sel = b => bandFilter === b.key ? " sel" : "";
-      const seg = b => '<button type="button" class="cseg '+b.key+sel(b)+'" data-band="'+b.key+'"'+
-        ' style="flex-grow:'+counts[b.key]+'" title="'+counts[b.key]+' '+b.label+'"'+
-        ' aria-pressed="'+(bandFilter===b.key)+'" aria-label="'+counts[b.key]+' '+b.label+'"></button>';
-      const key = b => '<button type="button" class="ckey '+b.key+sel(b)+'" data-band="'+b.key+'"'+
-        ' aria-pressed="'+(bandFilter===b.key)+'"><i></i><b>'+counts[b.key]+'</b> '+b.label+'</button>';
+      // the four bands are always drawn, even at zero — see RISK_BANDS
+      const bands = RISK_BANDS.filter(b => b.always || counts[b.key] > 0);
+      const max = Math.max(1, ...bands.map(b => counts[b.key]));
+      const bar = b => '<button type="button" class="bcol'+(bandFilter===b.key?" sel":"")+'"'+
+        ' data-band="'+b.key+'" aria-pressed="'+(bandFilter===b.key)+'"'+
+        ' aria-label="'+counts[b.key]+' '+b.label+'">'+
+        '<span class="bn">'+counts[b.key]+'</span>'+
+        '<span class="bplot"><span class="bbar '+b.key+'" style="height:'+
+          Math.round(counts[b.key]/max*100)+'%"></span></span>'+
+        '<span class="blab">'+b.short+'</span></button>';
       const hint = bandFilter
         ? "showing " + bandLabel(bandFilter) + " — press again for everyone"
-        : total + " student" + (total===1?"":"s") + " · press a band to see only those";
+        : total + " student" + (total===1?"":"s") + " · press a bar to see only those";
       $("chart").style.display = "";
-      $("chart").innerHTML = '<div class="cbar">'+bands.map(seg).join("")+'</div>'+
-        '<div class="ckeys">'+bands.map(key).join("")+'<span class="chint">'+hint+'</span></div>';
+      $("chart").innerHTML = '<div class="bars">'+bands.map(bar).join("")+'</div>'+
+        '<span class="chint">'+hint+'</span>';
       applyBandFilter();
     }
 

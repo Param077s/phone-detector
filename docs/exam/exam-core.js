@@ -388,13 +388,23 @@ export const FINDING_SCORE = 4;   // the report's existing "medium" bar
 // `unverified` is tested LAST but matters most: a student who never completed
 // setup scores zero for the same reason an absent one does, and letting that
 // read as "clear" is the one thing this summary could say that isn't true.
+// `short` is what a bar wears under it; `label` is the same thing said inline
+// in a sentence. Four of these are drawn even at zero — "0 high risk" is the
+// best news a report can carry and a chart that hid it would only ever show
+// bad news. `unverified` appears only when it happened, because a column
+// labelled "no data" reading zero is a question nobody asked.
 export const RISK_BANDS = [
-  { key: "high", label: "high risk" },
-  { key: "medium", label: "medium risk" },
-  { key: "low", label: "low risk" },
-  { key: "clear", label: "clear" },
-  { key: "unverified", label: "no data" },
+  { key: "high", label: "high risk", short: "High risk", always: true },
+  { key: "medium", label: "medium risk", short: "Medium", always: true },
+  { key: "low", label: "low risk", short: "Low", always: true },
+  { key: "clear", label: "clear", short: "Clear", always: true },
+  { key: "unverified", label: "no data", short: "No data" },
 ];
+// what the four words actually mean, for a reader who is not the invigilator
+export const BAND_KEY =
+  "High risk — a phone, a second face, or a pattern serious enough to sit down with the student. " +
+  "Medium — repeated flags worth a look. Low — a handful of glances. " +
+  "Clear — nothing was recorded against them.";
 export const riskBand = s =>
   s.score >= 10 ? "high" : s.score >= FINDING_SCORE ? "medium" : s.score > 0 ? "low"
     : s.unverified ? "unverified" : "clear";

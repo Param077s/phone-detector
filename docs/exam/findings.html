@@ -22,6 +22,12 @@
     .opt{font-size:12.5px;color:var(--muted);font-weight:600;display:inline-flex;align-items:center;gap:6px;
       cursor:pointer;user-select:none;white-space:nowrap}
     .opt input{accent-color:var(--ink);width:14px;height:14px}
+    /* Room / Document — the second one IS the download, shown before you take it */
+    .views{display:inline-flex;background:var(--soft);border-radius:999px;padding:3px;gap:2px}
+    .views button{border:0;background:none;border-radius:999px;padding:6px 14px;cursor:pointer;
+      font:600 12.5px var(--font);color:var(--muted);transition:background .18s,color .18s}
+    .views button.on{background:var(--card);color:var(--ink);box-shadow:var(--shadow-sm)}
+    .views button:hover:not(.on){color:var(--ink)}
     .backlink{color:var(--muted);display:inline-flex;align-items:center}
     .backlink svg{width:17px;height:17px} .backlink:hover{color:var(--ink)}
 
@@ -166,8 +172,13 @@
     .msg{font-size:13px;color:var(--warn);margin-top:8px}
     .loading{color:var(--muted);padding:40px 0}
 
-    /* on screen the room is the working surface; the document is what prints */
+    /* On screen the room is the working surface and the document is what prints.
+       "Document" swaps them, so what you are looking at is exactly what Download
+       gives you — previewing an export by exporting it is not a preview. */
     #body{display:none}
+    body.showdoc .screenonly{display:none}
+    body.showdoc #body{display:block}
+    body.showdoc .sheet{padding-bottom:90px}
     @media(max-width:860px){ .room{grid-template-columns:repeat(3,minmax(0,1fr))} }
     @media(max-width:560px){ .room{grid-template-columns:repeat(2,minmax(0,1fr))} }
     @media(prefers-reduced-motion:reduce){ .pop,.popIn,.rtile{transition-duration:.01ms !important} }
@@ -191,6 +202,10 @@
     <div class="tools">
       <a class="backlink" id="back" href="/exam/console.html" aria-label="Back"><svg viewBox="0 0 24 24" fill="none"><path d="M15 18l-6-6 6-6" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg></a>
       <span class="sp"></span>
+      <div class="views" role="tablist" aria-label="View">
+        <button type="button" id="vRoom" class="on" role="tab" aria-selected="true">Room</button>
+        <button type="button" id="vDoc" role="tab" aria-selected="false">Document</button>
+      </div>
       <label class="opt" title="By default the download carries the serious findings in full and the rest in one line each."><input type="checkbox" id="fullDoc"> Every finding</label>
       <a class="btn ghost sm" id="fullLink" href="#">Full record</a>
       <button class="btn ink sm" id="dl" type="button">Download</button>
@@ -225,7 +240,7 @@
     import { sb, fetchExam } from "/exam/sb.js";
     import { esc, label, clock, clockRange, dateLong, word, readExam, spanTxt, roomHeadline, isOnline, ago,
              examWindow, examOver, useTimezone, tzNote,
-             RISK_BANDS, bandCounts, bandLabel, keyFinding } from "/exam/exam-core.js";
+             RISK_BANDS, bandCounts, bandLabel, keyFinding, BAND_KEY } from "/exam/exam-core.js";
     const $ = id => document.getElementById(id);
     const examId = new URLSearchParams(location.search).get("e");
 
@@ -262,22 +277,27 @@
       const counts = bandCounts(read.students), total = read.students.length;
       if (!total) return "";
       if (interactive && bandFilter && !counts[bandFilter]) bandFilter = null;
-      const bands = RISK_BANDS.filter(b => counts[b.key] > 0);
-      const el = (cls, band, attrs, inner) => interactive
-        ? '<button type="button" class="' + cls + (bandFilter === band ? " sel" : "") + '" data-band="' + band +
-          '" aria-pressed="' + (bandFilter === band) + '" ' + attrs + '>' + inner + '</button>'
-        : '<span class="' + cls + '" ' + attrs + '>' + inner + '</span>';
-      const seg = b => el("cseg " + b.key, b.key,
-        'style="flex-grow:' + counts[b.key] + '" title="' + counts[b.key] + ' ' + b.label + '"' +
-        ' aria-label="' + counts[b.key] + ' ' + b.label + '"', "");
-      const key = b => el("ckey " + b.key, b.key, "", '<i></i><b>' + counts[b.key] + '</b> ' + b.label);
-      const hint = interactive
+      const bands = RISK_BANDS.filter(b => b.always || counts[b.key] > 0);
+      const max = Math.max(1, ...bands.map(b => counts[b.key]));
+      const bar = b => {
+        const inner = '<span class="bn">' + counts[b.key] + '</span>' +
+          '<span class="bplot"><span class="bbar ' + b.key + '" style="height:' +
+            Math.round(counts[b.key] / max * 100) + '%"></span></span>' +
+          '<span class="blab">' + b.short + '</span>';
+        return interactive
+          ? '<button type="button" class="bcol' + (bandFilter === b.key ? " sel" : "") + '" data-band="' + b.key +
+            '" aria-pressed="' + (bandFilter === b.key) + '" aria-label="' + counts[b.key] + ' ' + b.label + '">' +
+            inner + '</button>'
+          : '<span class="bcol">' + inner + '</span>';
+      };
+      // On screen: how to use it. On paper: what the four words mean, because
+      // the reader of a filed document is often not the person who ran the exam.
+      const foot = interactive
         ? '<span class="chint">' + (bandFilter
             ? "showing " + bandLabel(bandFilter) + " — press again for the whole room"
-            : total + " student" + (total === 1 ? "" : "s") + " · press a band to see only those") + '</span>'
-        : "";
-      return '<div class="cbar">' + bands.map(seg).join("") + '</div>' +
-        '<div class="ckeys">' + bands.map(key).join("") + hint + '</div>';
+            : total + " student" + (total === 1 ? "" : "s") + " · press a bar to see only those") + '</span>'
+        : '<p class="bkey">' + BAND_KEY + '</p>';
+      return '<div class="bars">' + bands.map(bar).join("") + '</div>' + foot;
     }
     // redrawn only when it would actually change — this page repaints every 2 s,
     // and replacing the bar each time would kill any hover mid-press
@@ -762,7 +782,19 @@
       $("fullDoc").onchange = () => {
         localStorage.setItem("vg_fulldoc", $("fullDoc").checked ? "1" : "");
         drawIfChanged();
+        setView(true);   // you changed how much it carries — show what that looks like
       };
+      // Room / Document. Ticking "Every finding" or pressing Download from the
+      // Room view used to be an act of faith; this is the same page the printer
+      // gets, so nothing about the export is a surprise.
+      const setView = doc => {
+        document.body.classList.toggle("showdoc", doc);
+        $("vDoc").classList.toggle("on", doc); $("vRoom").classList.toggle("on", !doc);
+        $("vDoc").setAttribute("aria-selected", String(doc));
+        $("vRoom").setAttribute("aria-selected", String(!doc));
+      };
+      $("vRoom").onclick = () => setView(false);
+      $("vDoc").onclick = () => setView(true);
       $("dl").onclick = () => window.print();
       await load();
       // 2 s while an exam is running: this page is what the teacher watches during
