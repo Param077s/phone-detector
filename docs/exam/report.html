@@ -140,7 +140,7 @@
   </div>
 
   <script type="module">
-    import { sb, fetchExam } from "/exam/sb.js";
+    import { sb, fetchExam, selectAll, orderedEvents } from "/exam/sb.js";
     // This page used to carry its own labels, weights, bands and episode logic — a
     // second opinion about the same events that could drift from the document's.
     // It reads the exam through the shared core now; only the LAYOUT is local.
@@ -252,7 +252,8 @@
     let notes = [], notesEnabled = false;   // invigilator notes (needs migration v7; darkens gracefully)
     async function fetchNotes() {
       if (!teacher) return [];
-      const q = await sb.from("exam_notes").select("at,text").eq("exam_id", examId).order("at",{ascending:true});
+      const q = await selectAll(() => sb.from("exam_notes").select("at,text").eq("exam_id", examId)
+        .order("at",{ascending:true}).order("text",{ascending:true}));
       notesEnabled = !q.error;
       return q.error ? [] : (q.data || []);
     }
@@ -460,18 +461,25 @@
         '<div class="empty">That could not be saved. Try again in a moment.</div>');
     }
 
+    // Every read here PAGES. PostgREST caps a select at its max-rows setting
+    // (1000 by default), and this page fetched an exam's whole event log in one
+    // query — so a big enough exam would quietly lose the tail of its own record
+    // and report confident, wrong numbers about the class. Nothing about a
+    // truncated read looks wrong on screen, which is what makes it worth fixing.
+    const evQuery = cols => orderedEvents(sb.from("events").select(cols).eq("exam_id", examId));
     async function fetchEvents() {
       // prefer the reviewable shape (needs the v6 column); fall back so the report works pre-migration
-      let q = await sb.from("events").select("id,participant_id,kind,severity,at,review,meta").eq("exam_id", examId).order("at",{ascending:true});
+      let q = await selectAll(() => evQuery("id,participant_id,kind,severity,at,review,meta"));
       if (q.error) { reviewEnabled = false;
-        q = await sb.from("events").select("participant_id,kind,severity,at,meta").eq("exam_id", examId).order("at",{ascending:true}); }
+        q = await selectAll(() => evQuery("participant_id,kind,severity,at,meta")); }
       else { reviewEnabled = teacher; }
       return q.data || [];
     }
     // finding notes need v14. An error means the migration isn't in yet, and both
     // the student's "say what happened" and the teacher's outcome simply don't appear.
     async function fetchFindingNotes() {
-      const q = await sb.from("finding_notes").select("participant_id,kind,author,body,at").eq("exam_id", examId);
+      const q = await selectAll(() => sb.from("finding_notes").select("participant_id,kind,author,body,at")
+        .eq("exam_id", examId).order("at", { ascending: true }).order("participant_id", { ascending: true }));
       notesOn = !q.error;
       findingNotes = q.data || [];
       return findingNotes;
@@ -481,8 +489,11 @@
       // last_seen closes the student's monitored window. Without it every window ran to
       // the last event or to now, so the ambient RATE — and therefore the score — came
       // out different here than on the findings document, for the same student.
-      let pq = sb.from("participants").select("id,name,status,joined_at,last_seen").eq("exam_id", examId);
-      if (!teacher && user) pq = pq.eq("user_id", user.id);
+      const pq = selectAll(() => {
+        let q = sb.from("participants").select("id,name,status,joined_at,last_seen").eq("exam_id", examId);
+        if (!teacher && user) q = q.eq("user_id", user.id);
+        return q.order("id", { ascending: true });
+      });
       const [{ data:parts }, events, ns, fn] = await Promise.all([ pq, fetchEvents(), fetchNotes(), fetchFindingNotes() ]);
       notes = ns;
       draw(parts, events);

@@ -33,8 +33,13 @@ export async function fetchExam(id, cols) {
 // It PAGES. PostgREST caps a select at its max-rows setting, and a silently
 // truncated event list yields confident, wrong counts. Asking three times is
 // cheap; being quietly wrong about who cheated is not.
+// `build` must return a query with a TOTAL order — one no two rows can tie on.
+// Paging is offset-based, so a tie is not a cosmetic detail: rows that sort
+// arbitrarily can land on both sides of a page boundary, and the reader then
+// sees one event twice and another not at all. Every caller here orders by
+// `at` and then by the primary key, which no two rows share.
 const PAGE = 1000;
-async function allRows(build) {
+export async function allRows(build) {
   const out = [];
   for (let from = 0; ; from += PAGE) {
     const { data, error } = await build().range(from, from + PAGE - 1);
@@ -43,15 +48,21 @@ async function allRows(build) {
     if (!data || data.length < PAGE) return out;
   }
 }
+// The {data, error} shape a single select returns, so a caller that already
+// branches on `error` (to detect a migration that hasn't been run) keeps doing
+// exactly that and only the fetching underneath it changes.
+export async function selectAll(build) {
+  try { return { data: await allRows(build), error: null }; }
+  catch (error) { return { data: null, error }; }
+}
+export const orderedEvents = q => q.order("at", { ascending: true }).order("id", { ascending: true });
 export async function fetchExamBands(exam) {
-  const EVENT_COLS = "id,participant_id,kind,severity,at,meta,review";
-  const events = await allRows(() => sb.from("events").select(EVENT_COLS)
-      .eq("exam_id", exam.id).order("at", { ascending: true }))
+  const ev = cols => orderedEvents(sb.from("events").select(cols).eq("exam_id", exam.id));
+  const events = await allRows(() => ev("id,participant_id,kind,severity,at,meta,review"))
     // pre-v6 has no `review` column, and Postgres rejects the whole select for it
-    .catch(() => allRows(() => sb.from("events").select("id,participant_id,kind,severity,at,meta")
-      .eq("exam_id", exam.id).order("at", { ascending: true })));
+    .catch(() => allRows(() => ev("id,participant_id,kind,severity,at,meta")));
   const parts = await allRows(() => sb.from("participants")
-    .select("id,name,status,joined_at,last_seen").eq("exam_id", exam.id));
+    .select("id,name,status,joined_at,last_seen").eq("exam_id", exam.id).order("id", { ascending: true }));
   const read = readExam(parts, events, { startsAt: exam.starts_at, endsAt: exam.ends_at });
   return { counts: bandCounts(read.students), total: read.students.length };
 }

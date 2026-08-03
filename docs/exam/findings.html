@@ -237,7 +237,7 @@
   </div>
 
   <script type="module">
-    import { sb, fetchExam } from "/exam/sb.js";
+    import { sb, fetchExam, selectAll, orderedEvents } from "/exam/sb.js";
     import { esc, label, clock, clockRange, dateLong, word, readExam, spanTxt, roomHeadline, isOnline, ago,
              examWindow, examOver, useTimezone, tzNote,
              RISK_BANDS, bandCounts, bandLabel, keyFinding, BAND_KEY } from "/exam/exam-core.js";
@@ -725,21 +725,31 @@
       if (loading) return; loading = true;
       try {
         const full = force || !lastAt || (Date.now() - fullAt > 30000);
-        let eq = sb.from("events").select("id,participant_id,kind,severity,at,meta,review").eq("exam_id", examId);
-        if (!full) eq = eq.gt("at", lastAt);
+        // Every read PAGES. PostgREST caps a select at its max-rows setting, and
+        // the full re-read below asks for an exam's ENTIRE event log — so past a
+        // certain class size this page was quietly dropping the tail of the
+        // record it exists to be. A short document and a truncated one look
+        // identical on screen, which is exactly the problem.
+        const evQuery = cols => {
+          let q = sb.from("events").select(cols).eq("exam_id", examId);
+          if (!full) q = q.gt("at", lastAt);
+          return orderedEvents(q);
+        };
         const [pq, er, nq] = await Promise.all([
-          sb.from("participants").select("id,name,status,joined_at,last_seen").eq("exam_id", examId),
-          eq.order("at", { ascending: true }),
+          selectAll(() => sb.from("participants").select("id,name,status,joined_at,last_seen")
+            .eq("exam_id", examId).order("id", { ascending: true })),
+          selectAll(() => evQuery("id,participant_id,kind,severity,at,meta,review")),
           // finding notes need v14 — an error here means the migration isn't in yet,
           // and the document simply carries no speech, exactly as it did before
-          sb.from("finding_notes").select("participant_id,kind,author,body,at").eq("exam_id", examId),
+          selectAll(() => sb.from("finding_notes").select("participant_id,kind,author,body,at")
+            .eq("exam_id", examId).order("at", { ascending: true }).order("participant_id", { ascending: true })),
         ]);
         notesOn = !nq.error;
         notes = nq.data || [];
         if (er.error && full) {
           // pre-v6: no review column. Fall back once, and stay on full reads.
-          const fb = await sb.from("events").select("participant_id,kind,severity,at,meta")
-            .eq("exam_id", examId).order("at", { ascending: true });
+          const fb = await selectAll(() => orderedEvents(
+            sb.from("events").select("participant_id,kind,severity,at,meta").eq("exam_id", examId)));
           canReview = false; evs = fb.data || []; seenIds = new Set(); fullAt = Date.now();
         } else if (!er.error) {
           canReview = true;

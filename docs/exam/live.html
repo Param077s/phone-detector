@@ -101,7 +101,7 @@
   </div>
 
   <script type="module">
-    import { sb, fetchExam } from "/exam/sb.js";
+    import { sb, fetchExam, selectAll, orderedEvents } from "/exam/sb.js";
     import { esc, label, clock, ago, readExam, roomHeadline, ALERT_KINDS, t, isOnline,
              examOver, examStarted, examPending, msLeft, countdown, useTimezone } from "/exam/exam-core.js";
     const $ = id => document.getElementById(id);
@@ -132,10 +132,20 @@
     async function refresh() {
       if (polling) return; polling = true;
       try {
-        const pq = sb.from("participants").select("*").eq("exam_id", examId);
-        let eq = sb.from("events").select("id,participant_id,kind,severity,at,meta,review").eq("exam_id", examId);
-        if (lastEventAt) eq = eq.gt("at", lastEventAt);
-        const [pr, er] = await Promise.all([pq, eq.order("at", { ascending: true })]);
+        // Both reads PAGE. The first pass here asks for the whole event log, and
+        // PostgREST caps a select at its max-rows setting — so a big room would
+        // silently start mid-exam, and the tiles would be calm about students
+        // whose flags were simply never delivered. This is the one surface where
+        // being quietly out of date is worst: it is watched while it matters.
+        const pq = selectAll(() => sb.from("participants").select("*")
+          .eq("exam_id", examId).order("id", { ascending: true }));
+        const eq = selectAll(() => orderedEvents(
+          lastEventAt
+            ? sb.from("events").select("id,participant_id,kind,severity,at,meta,review")
+                .eq("exam_id", examId).gt("at", lastEventAt)
+            : sb.from("events").select("id,participant_id,kind,severity,at,meta,review")
+                .eq("exam_id", examId)));
+        const [pr, er] = await Promise.all([pq, eq]);
         if (pr.data) {
           const seen = new Set(pr.data.map(r => r.id));
           pr.data.forEach(r => parts.set(r.id, r));
