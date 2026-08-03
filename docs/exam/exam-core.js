@@ -515,6 +515,20 @@ export function readExam(participants, events, opts = {}) {
     };
   });
 
+  // ── exams recorded before calibration existed ─────────────────────────────
+  // "No data" means we watched for a setup record and never got one. On an exam
+  // run before Vigil wrote calibration records at all, that is true of everyone
+  // — so it distinguishes nobody, and it turns every old report into a wall of
+  // "no data" where it used to say "clear". It would be reporting the age of the
+  // build as a fact about the students.
+  //
+  // The test is deliberately narrow. Nobody calibrated AND somebody's flags did
+  // arrive: writes plainly worked, so the missing records are the build's, not a
+  // student blocking us. An exam where nothing arrived at all keeps its "no
+  // data", because there we genuinely have none.
+  if (!students.some(s => s.calib) && students.some(s => s.events.length))
+    for (const s of students) s.unverified = false;
+
   // The band a student is counted under, decided once so the chart, the tiles and
   // the document can never put the same person in two places.
   for (const s of students) s.risk = riskBand(s);
