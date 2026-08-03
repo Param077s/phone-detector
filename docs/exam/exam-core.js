@@ -409,6 +409,20 @@ export const riskBand = s =>
   s.score >= 10 ? "high" : s.score >= FINDING_SCORE ? "medium" : s.score > 0 ? "low"
     : s.unverified ? "unverified" : "clear";
 export const bandLabel = k => (RISK_BANDS.find(b => b.key === k) || {}).label || k;
+
+// The counts as a row of chips, for a list where a bar chart will not fit.
+// Zero bands are dropped here, unlike the graph: a list row is scanned, not
+// studied, and "0 high · 0 medium · 0 low · 12 clear" makes a teacher read four
+// things to learn one. When nothing was flagged it says so in as many words.
+export function bandChips(counts, opts = {}) {
+  const shown = RISK_BANDS.filter(b => counts[b.key] > 0);
+  if (!shown.length) return "";
+  if (shown.length === 1 && shown[0].key === "clear")
+    return '<span class="bd none">' + counts.clear + ' student' +
+      (counts.clear === 1 ? "" : "s") + ' · nothing flagged</span>';
+  return shown.map(b => '<span class="bd ' + b.key + '"><i></i><b>' + counts[b.key] + '</b> ' +
+    (opts.short ? b.short.toLowerCase() : b.label) + '</span>').join("");
+}
 export function bandCounts(students) {
   const c = { high: 0, medium: 0, low: 0, clear: 0, unverified: 0 };
   for (const s of students || []) c[riskBand(s)]++;

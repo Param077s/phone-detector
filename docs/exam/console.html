@@ -29,6 +29,8 @@
     .code .big{font-size:22px;font-weight:700;letter-spacing:3px} .code .cp{margin-left:auto;font-size:12px;color:var(--muted);cursor:pointer;font-weight:600}
     .code .cp:hover{color:var(--ink)}
     .stat{display:flex;gap:16px;font-size:13px;color:var(--muted)} .stat b{font-family:var(--display);font-size:18px;color:var(--ink);display:block;line-height:1.1}
+    .exam .bands{margin-top:2px}
+    .exam .bands.pending{font-size:12.5px;color:var(--faint)}
     .exam .acts{display:flex;gap:8px;flex-wrap:wrap;margin-top:auto}
     .empty{color:var(--muted);text-align:center;padding:44px 20px;border:1px dashed var(--line-strong);border-radius:var(--r)}
     .empty b{color:var(--ink);font-weight:600;display:block;margin-bottom:4px;font-family:var(--display)}
@@ -90,8 +92,8 @@
   <div class="toast" id="toast"></div>
 
   <script type="module">
-    import { sb, esc } from "/exam/sb.js";
-    import { examOver, examStarted, examPending, msLeft, countdown } from "/exam/exam-core.js";
+    import { sb, esc, fetchExamBands } from "/exam/sb.js";
+    import { examOver, examStarted, examPending, msLeft, countdown, bandChips } from "/exam/exam-core.js";
     const $ = id => document.getElementById(id);
     const listEl = $("list"), countEl = $("count"), toastEl = $("toast");
     const toast = (m) => { toastEl.textContent=m; toastEl.classList.add("show"); clearTimeout(toast._t); toast._t=setTimeout(()=>toastEl.classList.remove("show"),1700); };
@@ -188,6 +190,9 @@
           (over ? "Ended" : running ? countdown(msLeft(x)) || "Running" : "Not started")+'</span></div>'+
         '<div class="code"><span class="big">'+esc(x.code)+'</span><span class="cp" data-share="'+esc(x.code)+'" data-title="'+esc(x.title)+'">Share \u203a</span></div>'+
         '<div class="stat" data-p="'+esc(x.id)+'"><div><b><span class="odo" data-k="t"></span></b>joined</div><div><b><span class="odo" data-k="f"></span></b>flagged</div></div>'+
+        // how it went, once it is over. A running exam has the live room for this,
+        // and a band that moves while you read it is noise rather than an answer.
+        (over ? '<div class="bands pending" data-b="'+esc(x.id)+'">reading the exam…</div>' : "")+
         '<div class="acts">'+
           (open
             ? (waiting ? '<button class="btn ink sm" data-start="'+esc(x.id)+'" data-d="'+(x.duration_min||"")+'">Start exam</button>' : "")+
@@ -240,6 +245,40 @@
         const slot = listEl.querySelector('[data-p="'+CSS.escape(x.id)+'"]');
         if (slot) statSlot(slot, p);
       });
+      fillBands(rows.filter(examOver));
+    }
+
+    // ── how each finished exam went ─────────────────────────────────────────
+    // Reading an exam means pulling its events, so this happens once per exam
+    // per page load and is then remembered — refresh() runs on a poll and on
+    // every realtime nudge, and re-reading a closed exam's whole event log each
+    // time would be a lot of traffic to re-learn a number that cannot change.
+    //
+    // Two at a time: a teacher with thirty terms of exams should not open thirty
+    // connections at once, and the cards fill in as they land anyway.
+    const bandCache = new Map();
+    let bandQueue = Promise.resolve();
+    function fillBands(exams){
+      for (const x of exams){
+        const slot = () => listEl.querySelector('[data-b="'+CSS.escape(x.id)+'"]');
+        if (bandCache.has(x.id)){ paintBands(slot(), bandCache.get(x.id)); continue; }
+        if (bandCache.get(x.id) === null) continue;
+        bandCache.set(x.id, null);                       // claimed, in flight
+        bandQueue = bandQueue.then(async () => {
+          try {
+            const r = await fetchExamBands(x);
+            bandCache.set(x.id, r);
+            paintBands(slot(), r);
+          } catch (e) { bandCache.delete(x.id); paintBands(slot(), null); }
+        });
+      }
+    }
+    function paintBands(el, r){
+      if (!el) return;
+      el.classList.remove("pending");
+      if (!r){ el.textContent = ""; return; }            // couldn't read it — say nothing
+      if (!r.total){ el.innerHTML = '<span class="bd none">Nobody joined</span>'; return; }
+      el.innerHTML = bandChips(r.counts, { short: true });
     }
 
     // ---- share modal (QR + join link) ----

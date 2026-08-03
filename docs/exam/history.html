@@ -19,6 +19,8 @@
     .row .meta{flex:1;min-width:0}
     .row .title{font-weight:600;font-size:15.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
     .row .info{color:var(--muted);font-size:12.5px;margin-top:2px}
+    .row .bands{margin-top:8px}
+    .row .bands.pending{font-size:12.5px;color:var(--faint)}
     .row .acts{display:flex;gap:8px;flex-shrink:0}
     .empty{color:var(--muted);text-align:center;padding:34px 20px;border:1px dashed var(--line-strong);border-radius:var(--r)}
     .empty b{color:var(--ink);font-weight:600;display:block;margin-bottom:4px;font-family:var(--display)}
@@ -42,7 +44,8 @@
   </div>
 
   <script type="module">
-    import { sb, esc } from "/exam/sb.js";
+    import { sb, esc, fetchExamBands } from "/exam/sb.js";
+    import { bandChips } from "/exam/exam-core.js";
     const $ = id => document.getElementById(id);
     const fmtDate = (iso) => iso ? new Date(iso).toLocaleDateString([], { month:"short", day:"numeric", year:"numeric" }) : "";
     const statusPill = (s) => s === "open"
@@ -60,11 +63,13 @@
 
       // ── exams you ran (owned) ──
       const { data:owned } = await sb.from("exams")
-        .select("id,title,code,status,created_at").eq("owner", user.id).order("created_at",{ascending:false});
+        .select("id,title,code,status,created_at,starts_at,ends_at").eq("owner", user.id).order("created_at",{ascending:false});
       if (owned && owned.length){
         $("owned").innerHTML = '<div class="sec-h">Exams you ran</div>' + owned.map(x =>
           '<div class="row"><div class="meta"><div class="title">'+esc(x.title)+'</div>'+
-            '<div class="info">code '+esc(x.code)+' · '+fmtDate(x.created_at)+'</div></div>'+
+            '<div class="info">code '+esc(x.code)+' · '+fmtDate(x.created_at)+'</div>'+
+            (x.status === "open" ? "" :
+              '<div class="bands pending" data-b="'+esc(x.id)+'">reading the exam…</div>')+'</div>'+
             '<div class="acts">'+statusPill(x.status)+
               '<a class="btn ink sm" href="/exam/findings.html?e='+encodeURIComponent(x.id)+'">Report</a>'+
               '<a class="btn ghost sm" href="/exam/live.html?e='+encodeURIComponent(x.id)+'">'+(x.status==="open"?"Live":"Who joined")+'</a>'+
@@ -89,6 +94,21 @@
 
       if ((!owned || !owned.length) && !taken.length){
         $("taken").innerHTML = '<div class="empty"><b>Nothing yet</b>Exams you run or take will show up here.</div>';
+      }
+
+      // ── how each finished exam went ──────────────────────────────────────
+      // Reading an exam means pulling its events, so these fill in one after
+      // another rather than opening a connection per row. Only the teacher's
+      // own exams: a student may read their own activity, never the class's.
+      for (const x of (owned || []).filter(x => x.status !== "open")) {
+        const el = document.querySelector('.bands[data-b="' + CSS.escape(x.id) + '"]');
+        if (!el) continue;
+        try {
+          const r = await fetchExamBands(x);
+          el.classList.remove("pending");
+          el.innerHTML = r.total ? bandChips(r.counts, { short: true })
+            : '<span class="bd none">Nobody joined</span>';
+        } catch (e) { el.remove(); }   // couldn't read it — better silent than wrong
       }
     })();
   </script>

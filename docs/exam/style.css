@@ -110,6 +110,27 @@ h1,h2,h3,.brand b,.code,.big{font-family:var(--display);letter-spacing:-.02em}
   .bcol{height:150px;break-inside:avoid}
 }
 
+/* ── the same four numbers, at list size ──────────────────────────────────
+   A row in a list has no room for a bar chart, and a teacher scanning last
+   term's exams is asking a coarser question than a teacher reading one — how
+   did that one GO — so the counts alone answer it. Same numbers, same colours,
+   same order as the graph on the report they open next. */
+.bands{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.bd{display:inline-flex;align-items:center;gap:5px;font-size:12px;font-weight:600;color:var(--muted);
+  padding:3px 9px;border-radius:999px;background:var(--soft);border:1px solid var(--line);white-space:nowrap}
+.bd b{font-variant-numeric:tabular-nums;color:var(--ink)}
+.bd i{width:7px;height:7px;border-radius:50%;corner-shape:round;background:var(--faint);flex:0 0 auto}
+.bd.high{color:var(--alert);background:var(--alert-soft);border-color:#f3c9ca}
+.bd.high b{color:var(--alert)} .bd.high i{background:var(--alert)}
+.bd.medium{color:var(--warn);background:var(--warn-soft);border-color:#f0dcb6}
+.bd.medium b{color:var(--warn)} .bd.medium i{background:var(--warn)}
+.bd.clear{color:var(--ok);background:var(--ok-soft);border-color:#c3e6d5}
+.bd.clear b{color:var(--ok)} .bd.clear i{background:var(--ok)}
+.bd.unverified{border-style:dashed}
+/* nothing was flagged at all — one calm line instead of three zeroes */
+.bd.none{background:none;border-style:dashed;color:var(--muted)}
+.bands.pending{opacity:.45}
+
 .toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%) translateY(10px);opacity:0;z-index:60;
   background:var(--ink);color:#fff;padding:10px 16px;border-radius:999px;font-size:13.5px;font-weight:600;
   box-shadow:var(--shadow);transition:opacity .25s,transform .25s var(--spring);pointer-events:none}

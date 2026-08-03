@@ -1,6 +1,7 @@
 // Shared Supabase client for the Vigil Exams web app.
 // The anon key is public by design (RLS enforces all access rules).
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { readExam, bandCounts } from "/exam/exam-core.js";
 
 export const SUPABASE_URL = "https://czvxhfbwpmqafpeehayd.supabase.co";
 export const SUPABASE_ANON = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImN6dnhoZmJ3cG1xYWZwZWVoYXlkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODUxNjg2MTcsImV4cCI6MjEwMDc0NDYxN30.yCMKuG2rfCihhGJe6Jy7tTnitYPlls8qeK67NstmDGg";
@@ -20,6 +21,39 @@ export async function fetchExam(id, cols) {
   let r = await get([cols, ...OPTIONAL_EXAM_COLS].join(","));
   if (r.error) r = await get(cols);                // the migration isn't in yet
   return r.data || null;
+}
+
+// ── the risk shape of one exam, for a list ───────────────────────────────────
+// The exam lists want the four numbers the report shows, and "the same numbers"
+// has to mean it — so this reads the exam the way the report reads it, through
+// readExam, rather than estimating from participants.status. A list that
+// disagreed with the report it links to would be worse than a list with no
+// numbers on it at all.
+//
+// It PAGES. PostgREST caps a select at its max-rows setting, and a silently
+// truncated event list yields confident, wrong counts. Asking three times is
+// cheap; being quietly wrong about who cheated is not.
+const PAGE = 1000;
+async function allRows(build) {
+  const out = [];
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await build().range(from, from + PAGE - 1);
+    if (error) throw error;
+    out.push(...(data || []));
+    if (!data || data.length < PAGE) return out;
+  }
+}
+export async function fetchExamBands(exam) {
+  const EVENT_COLS = "id,participant_id,kind,severity,at,meta,review";
+  const events = await allRows(() => sb.from("events").select(EVENT_COLS)
+      .eq("exam_id", exam.id).order("at", { ascending: true }))
+    // pre-v6 has no `review` column, and Postgres rejects the whole select for it
+    .catch(() => allRows(() => sb.from("events").select("id,participant_id,kind,severity,at,meta")
+      .eq("exam_id", exam.id).order("at", { ascending: true })));
+  const parts = await allRows(() => sb.from("participants")
+    .select("id,name,status,joined_at,last_seen").eq("exam_id", exam.id));
+  const read = readExam(parts, events, { startsAt: exam.starts_at, endsAt: exam.ends_at });
+  return { counts: bandCounts(read.students), total: read.students.length };
 }
 
 export async function currentUser() {
