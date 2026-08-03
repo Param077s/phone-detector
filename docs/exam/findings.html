@@ -19,6 +19,9 @@
 
     .tools{display:flex;align-items:center;gap:10px;margin-bottom:30px}
     .tools .sp{flex:1}
+    .opt{font-size:12.5px;color:var(--muted);font-weight:600;display:inline-flex;align-items:center;gap:6px;
+      cursor:pointer;user-select:none;white-space:nowrap}
+    .opt input{accent-color:var(--ink);width:14px;height:14px}
     .backlink{color:var(--muted);display:inline-flex;align-items:center}
     .backlink svg{width:17px;height:17px} .backlink:hover{color:var(--ink)}
 
@@ -76,6 +79,7 @@
       margin-right:7px;vertical-align:.08em;transition:background .4s}
     .rtile .rn .pd.up{background:var(--ok)}
     .rtile.gone{opacity:.5}
+    .rtile.off{display:none}   /* filtered out by the chart above */
     .rtile{background:var(--card);border:1.5px solid transparent;border-radius:10px;padding:14px 12px;
       text-align:left;font:inherit;width:100%;cursor:pointer;
       transition:transform .18s var(--spring),border-color .25s}
@@ -128,6 +132,20 @@
     .pop .caveat{font-size:12.5px;color:var(--warn);margin-top:14px}
     .pop .who{font-size:13.5px;color:var(--ink-2);line-height:1.6;margin:0}
 
+    /* the rest, in brief — one line each, keeping the number it has above so the
+       brief list and the full record are talking about the same finding */
+    #body .chart{margin:0 0 36px}
+    .brief{margin:40px 0 0;padding-top:18px;border-top:1px solid var(--line)}
+    .brief .lab{font-size:10.5px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;
+      color:var(--faint);display:block;margin-bottom:11px}
+    .bl{display:flex;align-items:baseline;gap:10px;font-size:13.5px;padding:5px 0;break-inside:avoid}
+    .bl .n{color:var(--faint);font-variant-numeric:tabular-nums;flex:0 0 auto}
+    .bl .h{flex:1 1 auto}
+    .bl .w{color:var(--muted);flex:0 0 auto}
+    .bl .t{color:var(--faint);font-variant-numeric:tabular-nums;white-space:nowrap;flex:0 0 auto}
+    .bn{font-size:12.5px;color:var(--faint);margin-top:12px;line-height:1.5}
+    @media(max-width:560px){ .bl{flex-wrap:wrap} .bl .h{flex:1 0 100%} }
+
     .none-yet{font-family:var(--voice);font-size:19px;color:var(--muted);margin:30px 0 34px}
     .clearlist{font-size:13.5px;color:var(--muted);margin:38px 0 0;line-height:1.6}
     .clearlist .lab{font-size:10.5px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:var(--faint);display:block;margin-bottom:5px;font-family:var(--font)}
@@ -173,6 +191,7 @@
     <div class="tools">
       <a class="backlink" id="back" href="/exam/console.html" aria-label="Back"><svg viewBox="0 0 24 24" fill="none"><path d="M15 18l-6-6 6-6" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg></a>
       <span class="sp"></span>
+      <label class="opt" title="By default the download carries the serious findings in full and the rest in one line each."><input type="checkbox" id="fullDoc"> Every finding</label>
       <a class="btn ghost sm" id="fullLink" href="#">Full record</a>
       <button class="btn ink sm" id="dl" type="button">Download</button>
     </div>
@@ -187,6 +206,7 @@
 
     <!-- screen: the room, read afterwards. print: hidden, the document takes over -->
     <div class="screenonly">
+      <div class="chart" id="chart" style="display:none;margin-top:26px"></div>
       <div class="presence" id="presence"></div>
       <div class="room" id="room"></div>
       <div class="roomline hidden" id="roomline"><span id="roomtxt"></span><button class="see" id="roomsee" type="button">See it</button></div>
@@ -204,7 +224,8 @@
   <script type="module">
     import { sb, fetchExam } from "/exam/sb.js";
     import { esc, label, clock, clockRange, dateLong, word, readExam, spanTxt, roomHeadline, isOnline, ago,
-             examWindow, examOver, useTimezone, tzNote } from "/exam/exam-core.js";
+             examWindow, examOver, useTimezone, tzNote,
+             RISK_BANDS, bandCounts, bandLabel, keyFinding } from "/exam/exam-core.js";
     const $ = id => document.getElementById(id);
     const examId = new URLSearchParams(location.search).get("e");
 
@@ -230,11 +251,69 @@
       return s.charAt(0).toUpperCase() + s.slice(1) + ".";
     }
 
+    // ── the class at a glance ────────────────────────────────────────────────
+    // The same bar on both surfaces: on screen it filters the room below it, on
+    // paper it is the figure at the head of the document. The counts come from
+    // the shared core, so the bar and the tiles under it cannot disagree about
+    // the same room. On paper the markup drops everything that would imply you
+    // could press it.
+    let bandFilter = null;
+    function chartHtml(interactive) {
+      const counts = bandCounts(read.students), total = read.students.length;
+      if (!total) return "";
+      if (interactive && bandFilter && !counts[bandFilter]) bandFilter = null;
+      const bands = RISK_BANDS.filter(b => counts[b.key] > 0);
+      const el = (cls, band, attrs, inner) => interactive
+        ? '<button type="button" class="' + cls + (bandFilter === band ? " sel" : "") + '" data-band="' + band +
+          '" aria-pressed="' + (bandFilter === band) + '" ' + attrs + '>' + inner + '</button>'
+        : '<span class="' + cls + '" ' + attrs + '>' + inner + '</span>';
+      const seg = b => el("cseg " + b.key, b.key,
+        'style="flex-grow:' + counts[b.key] + '" title="' + counts[b.key] + ' ' + b.label + '"' +
+        ' aria-label="' + counts[b.key] + ' ' + b.label + '"', "");
+      const key = b => el("ckey " + b.key, b.key, "", '<i></i><b>' + counts[b.key] + '</b> ' + b.label);
+      const hint = interactive
+        ? '<span class="chint">' + (bandFilter
+            ? "showing " + bandLabel(bandFilter) + " — press again for the whole room"
+            : total + " student" + (total === 1 ? "" : "s") + " · press a band to see only those") + '</span>'
+        : "";
+      return '<div class="cbar">' + bands.map(seg).join("") + '</div>' +
+        '<div class="ckeys">' + bands.map(key).join("") + hint + '</div>';
+    }
+    // redrawn only when it would actually change — this page repaints every 2 s,
+    // and replacing the bar each time would kill any hover mid-press
+    let chartSig = null;
+    function drawChart() {
+      const html = chartHtml(true);
+      if (html !== chartSig) {
+        chartSig = html;
+        $("chart").style.display = html ? "" : "none";
+        $("chart").innerHTML = html;
+      }
+      $("chart").classList.toggle("on", !!bandFilter);
+      for (const [, el] of rtiles)
+        el.classList.toggle("off", !!bandFilter && el.dataset.band !== bandFilter);
+    }
+    $("chart").addEventListener("click", e => {
+      const b = e.target.closest("[data-band]"); if (!b) return;
+      const k = b.getAttribute("data-band");
+      bandFilter = bandFilter === k ? null : k;
+      drawChart();
+    });
+
     function draw() {
-      const f = read.findings, clear = read.clear;
+      const all = read.findings, clear = read.clear;
+      // WHAT THE DOWNLOAD CARRIES. Everything, in full, made a document that ran
+      // to pages and was therefore filed unread — and a summary nobody reads is
+      // worth less than a short one that is. So by default the serious findings
+      // keep the full treatment and the rest are compressed to a line each, with
+      // the line saying where the detail lives. "Every finding" restores the long
+      // form for anyone who needs to print the lot.
+      const full = $("fullDoc").checked;
+      const f = full ? all : all.filter(keyFinding);
+      const brief = full ? [] : all.filter(x => !keyFinding(x));
       const rev = reviewSentence(read.review);
-      const stand = f.length
-        ? '<span>' + word(f.length) + (f.length === 1 ? " finding." : " findings.") + '</span> ' +
+      const stand = all.length
+        ? '<span>' + word(all.length) + (all.length === 1 ? " finding." : " findings.") + '</span> ' +
           '<span class="rest">' + (rev ? esc(rev) + " " : "") +
           word(clear.length) + ' student' + (clear.length === 1 ? "" : "s") + ' finished clear.</span>'
         : "";
@@ -256,17 +335,33 @@
           saidHtml(x) + outcomeHtml(x) +
         '</div>';
 
-      const body = f.length
-        ? '<div class="stand">' + stand + '</div>' + f.map(findingHtml).join("")
+      // the rest, one line each, keeping the number it carries in the full record
+      // so the brief list and the record are talking about the same finding
+      const briefHtml = list => list.length
+        ? '<div class="brief"><span class="lab">' + (f.length ? "Also flagged" : "Findings, in brief") + '</span>' +
+          list.map(x => '<div class="bl"><span class="n">' + x.n + '</span>' +
+            '<span class="h">' + esc(x.headline) + '</span>' +
+            '<span class="w">' + esc(x.who) + '</span>' +
+            '<span class="t">' + clock(x.startT) + ' · ' + x.count + ' flag' + (x.count === 1 ? "" : "s") +
+            (x.said ? ' · account on file' : '') + '</span></div>').join("") +
+          '<p class="bn">' + (f.length ? "These sat below the serious bar and are given in brief. "
+            : "None of these reached the serious bar. ") +
+          'Every moment behind them, and anything the students wrote about them, is in the full record.</p></div>'
+        : "";
+
+      const body = all.length
+        ? '<div class="stand">' + stand + '</div>' + '<div class="chart">' + chartHtml(false) + '</div>' +
+          f.map(findingHtml).join("") + briefHtml(brief)
         : '<div class="none-yet">Nothing was flagged. ' +
-          '<span class="rest">' + word(read.roster.length) + ' student' + (read.roster.length === 1 ? "" : "s") + ' finished clear.</span></div>';
+          '<span class="rest">' + word(read.roster.length) + ' student' + (read.roster.length === 1 ? "" : "s") + ' finished clear.</span></div>' +
+          '<div class="chart">' + chartHtml(false) + '</div>';
 
       const unver = read.unverified.length
         ? '<div class="clearlist"><span class="lab">No monitoring data</span>' +
           read.unverified.map(x => esc(x.p.name)).join(", ") +
           ' — these students never completed setup, so nothing was recorded about them ' +
           'either way. This is not a clear result.</div>' : "";
-      const clearList = (f.length && clear.length)
+      const clearList = (all.length && clear.length)
         ? '<div class="clearlist"><span class="lab">Finished clear</span>' +
           clear.map(s => esc(s.p.name)).join(", ") + '</div>' : "";
 
@@ -282,7 +377,9 @@
     let docSig = null;
     function drawIfChanged() {
       const sig = read.findings.map(x => x.n + ":" + x.ids.length + ":" + (x.review || "-")).join("|") +
-        "#" + read.clear.length + "#" + read.roster.length;
+        "#" + read.clear.length + "#" + read.roster.length +
+        // how much of it the download carries is part of what the document IS
+        "#" + ($("fullDoc").checked ? "all" : "key");
       if (sig === docSig) { drawRoom(); return; }
       docSig = sig; draw();
     }
@@ -319,6 +416,7 @@
           el.innerHTML = '<span class="rn"><i class="pd"></i><span class="nm"></span></span><span class="rs"></span>';
           rtiles.set(st.p.id, el); room.appendChild(el);
         }
+        el.dataset.band = st.risk;   // what the chart above filters on
         el.classList.toggle("quiet", st.band === "quiet" && !st.unverified);
         el.classList.toggle("unver", !!st.unverified);
         el.classList.toggle("warn", st.band === "warn");
@@ -337,6 +435,8 @@
       let want = room.firstChild;
       for (const st of rows) { const el = rtiles.get(st.p.id); if (!el) continue;
         if (el !== want) room.insertBefore(el, want); else want = el.nextSibling; }
+
+      drawChart();
 
       const m = read.moments.length ? read.moments[read.moments.length - 1] : null;
       $("roomline").classList.toggle("hidden", !m);
@@ -655,6 +755,14 @@
       useTimezone(e.timezone);          // read this exam in the room's own hours
       document.title = "Vigil · " + e.title;
       $("fullLink").href = "/exam/report.html?e=" + examId;
+      // remembered per teacher, not per exam: someone who wants the long form
+      // wants it for their exams, and re-ticking it every time is the kind of
+      // small tax that ends with the box never being ticked
+      $("fullDoc").checked = localStorage.getItem("vg_fulldoc") === "1";
+      $("fullDoc").onchange = () => {
+        localStorage.setItem("vg_fulldoc", $("fullDoc").checked ? "1" : "");
+        drawIfChanged();
+      };
       $("dl").onclick = () => window.print();
       await load();
       // 2 s while an exam is running: this page is what the teacher watches during

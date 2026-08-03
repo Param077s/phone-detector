@@ -375,6 +375,48 @@ export function evidenceQuality(events, calib) {
 // episodes, plus the room-wide moments and the findings that come out of them.
 export const FINDING_SCORE = 4;   // the report's existing "medium" bar
 
+// ── the class at a glance ───────────────────────────────────────────────────
+// A hundred students is not a list anybody reads. It is a shape: how many
+// finished clear, how many are worth a word, how many are worth a hearing. Both
+// surfaces draw that shape now, and they must not arrive at different numbers
+// for the same room — so a student's band is decided once, here.
+//
+// Every student lands in exactly one band and none lands in no band, which is
+// what lets the bar be drawn as a proportion of the class rather than as five
+// numbers that happen to sit near each other.
+//
+// `unverified` is tested LAST but matters most: a student who never completed
+// setup scores zero for the same reason an absent one does, and letting that
+// read as "clear" is the one thing this summary could say that isn't true.
+export const RISK_BANDS = [
+  { key: "high", label: "high risk" },
+  { key: "medium", label: "medium risk" },
+  { key: "low", label: "low risk" },
+  { key: "clear", label: "clear" },
+  { key: "unverified", label: "no data" },
+];
+export const riskBand = s =>
+  s.score >= 10 ? "high" : s.score >= FINDING_SCORE ? "medium" : s.score > 0 ? "low"
+    : s.unverified ? "unverified" : "clear";
+export const bandLabel = k => (RISK_BANDS.find(b => b.key === k) || {}).label || k;
+export function bandCounts(students) {
+  const c = { high: 0, medium: 0, low: 0, clear: 0, unverified: 0 };
+  for (const s of students || []) c[riskBand(s)]++;
+  return c;
+}
+
+// ── what a summary may not leave out ────────────────────────────────────────
+// A filed document that runs to nine pages is read by nobody, and a summary
+// that drops the serious thing is worse than no summary at all. So the document
+// keeps these in full and compresses everything else to a line — the reader can
+// open the full record for the rest, and the line tells them it is there.
+//
+// Room-wide moments are in this list even though they accuse no one. They are
+// what EXCUSES a whole room, and a summary that dropped them would read as
+// harsher than the evidence behind it.
+export const keyFinding = f =>
+  !!f && (f.room || SERIOUS_KINDS.has(f.kind) || (f.student && riskBand(f.student) === "high"));
+
 // ── what the two of them said about a finding ───────────────────────────────
 // A note hangs off (participant, kind) — the same unit a student-level finding is
 // built from — so it lands beside the thing it is about rather than in a pile at
@@ -462,6 +504,10 @@ export function readExam(participants, events, opts = {}) {
       phrase: top ? phrase(top[0], top[1]) : "",
     };
   });
+
+  // The band a student is counted under, decided once so the chart, the tiles and
+  // the document can never put the same person in two places.
+  for (const s of students) s.risk = riskBand(s);
 
   // FINDINGS — the document's unit. A room-wide moment counts once for the room;
   // a student's flags of one kind, taken together, count once for them.

@@ -18,17 +18,10 @@
     .livepill{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);font-weight:600}
     .livepill i{width:8px;height:8px;border-radius:50%;corner-shape:round;background:var(--ok);animation:lp 1.6s infinite}
     @keyframes lp{0%,100%{opacity:1}50%{opacity:.25}}
-    .summary{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:0 0 18px}
-    .stat{font-size:13px;font-weight:600;padding:6px 12px;border-radius:999px;background:var(--soft);border:1px solid var(--line);color:var(--muted)}
-    .stat b{color:var(--ink);font-variant-numeric:tabular-nums}
-    .stat.alert{color:var(--alert);background:var(--alert-soft);border-color:#f3c9ca} .stat.alert b{color:var(--alert)}
-    .stat.warn{color:var(--warn);background:var(--warn-soft);border-color:#f0dcb6} .stat.warn b{color:var(--warn)}
-    .stat.ok{color:var(--ok);background:var(--ok-soft);border-color:#c3e6d5} .stat.ok b{color:var(--ok)}
-    .toggle{margin-left:auto;font-size:13px;color:var(--muted);font-weight:600;display:inline-flex;align-items:center;gap:7px;cursor:pointer;user-select:none}
-    .toggle input{accent-color:var(--ink);width:15px;height:15px}
     .sec-h{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--faint);font-weight:700;margin:22px 0 10px}
     .student{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:22px 24px 14px;margin-bottom:16px;box-shadow:var(--shadow-sm)}
-    .student.hide{display:none}
+    /* anything the chart can filter away — cards, and the two collapsed boxes */
+    .student.hide,.clearbox.hide,.sec-h.hide{display:none}
     .student.pri{border-color:#f3c9ca} .student.pri-w{border-color:#f0dcb6}
     .student h2{font-size:17px;margin:0 0 14px;display:flex;align-items:center;gap:10px}
     .student h2 .sd{width:9px;height:9px;border-radius:50%;corner-shape:round;flex:0 0 9px;background:var(--faint)}
@@ -39,7 +32,9 @@
     .clearbox{background:var(--card);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow-sm);margin-bottom:16px}
     .clearbox>summary{list-style:none;cursor:pointer;padding:15px 20px;font-size:14px;font-weight:600;display:flex;align-items:center;gap:10px}
     .clearbox>summary::-webkit-details-marker{display:none}
-    .clearbox>summary .sd{width:9px;height:9px;border-radius:50%;corner-shape:round;background:var(--ok)}
+    .clearbox>summary .sd{width:9px;height:9px;border-radius:50%;corner-shape:round;background:var(--ok);flex:0 0 auto}
+    /* no monitoring data — hollow, because it is neither a pass nor a flag */
+    .clearbox>summary .sd.nd{background:none;border:1.5px dashed var(--faint)}
     .clearbox>summary .cv{margin-left:auto;color:var(--faint);font-size:12px;font-weight:600}
     .clearbox .names{display:flex;flex-wrap:wrap;gap:8px;padding:0 20px 18px}
     .clearbox .names span{font-size:13px;padding:5px 11px;border-radius:999px;background:var(--soft);border:1px solid var(--line);color:var(--muted)}
@@ -56,10 +51,12 @@
     .ev.warn::before{background:var(--warn)} .ev.alert::before{background:var(--alert)}
     .ev .time{color:var(--muted);font-variant-numeric:tabular-nums;flex:0 0 78px}
     .ev .what{flex:1}
-    .band{font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;padding:3px 8px;border-radius:999px;border:1px solid var(--line)}
+    .band{font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;padding:3px 8px;border-radius:999px;border:1px solid var(--line);white-space:nowrap}
     .band.high{color:var(--alert);background:var(--alert-soft);border-color:#f3c9ca}
     .band.medium{color:var(--warn);background:var(--warn-soft);border-color:#f0dcb6}
     .band.low{color:var(--muted);background:var(--soft)}
+    .band.clear{color:var(--ok);background:var(--ok-soft);border-color:#c3e6d5}
+    .band.unverified{color:var(--muted);background:var(--soft);border-style:dashed;border-color:var(--line-strong)}
     /* calibration-quality badge — context for how trustworthy the flags are */
     .setup{font-size:10.5px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;padding:3px 8px;border-radius:999px;border:1px solid var(--line);flex:0 0 auto}
     .setup.s-ok{color:var(--ok);background:var(--ok-soft);border-color:#c3e6d5}
@@ -116,9 +113,10 @@
     .ev .cf{font-size:11px;color:var(--ok);font-weight:600;margin-left:6px}
     @media print{ .rev{display:none !important} }
     .empty{color:var(--muted);text-align:center;padding:40px 0}
-    @media print{ body{background:#fff;background-image:none} .bar .btn,.backlink,.toggle{display:none !important}
+    @media print{ body{background:#fff;background-image:none} .bar .btn,.backlink{display:none !important}
       .student{box-shadow:none;break-inside:avoid;page-break-inside:avoid;margin-bottom:12px}
-      .student.hide{display:block !important} .clearbox .names{display:flex !important}
+      /* a filtered screen must never print as a partial record */
+      .student.hide,.clearbox.hide,.sec-h.hide{display:revert !important} .clearbox .names{display:flex !important}
       .moreev>summary{display:none}
       *{-webkit-print-color-adjust:exact;print-color-adjust:exact} }
   </style>
@@ -137,7 +135,7 @@
     <h1 id="title">Exam report</h1>
     <p class="sub" id="sub"></p>
     <div class="gen" id="gen"></div>
-    <div class="summary" id="summary" style="display:none"></div>
+    <div class="chart" id="chart" style="display:none"></div>
     <div id="out"><div class="empty">Loading…</div></div>
   </div>
 
@@ -146,11 +144,10 @@
     // This page used to carry its own labels, weights, bands and episode logic — a
     // second opinion about the same events that could drift from the document's.
     // It reads the exam through the shared core now; only the LAYOUT is local.
-    import { esc, label, ALERT_KINDS, readExam, clock, clockSec, useTimezone, tzNote } from "/exam/exam-core.js";
+    import { esc, label, ALERT_KINDS, readExam, clock, clockSec, useTimezone, tzNote,
+             RISK_BANDS, bandCounts, bandLabel } from "/exam/exam-core.js";
     const $ = id => document.getElementById(id);
     const examId = new URLSearchParams(location.search).get("e");
-    // this view's own four-word vocabulary for the same normalised score
-    const bandOf = (score) => score>=10 ? "high" : score>=4 ? "medium" : score>0 ? "low" : "clear";
     let reviewEnabled = false;   // teacher + the v6 review column exists
     let findingNotes = [], notesOn = false;   // what the two of them said (v14)
     // WHICH EVENTS ARE THE EXAM. This page read the whole sitting while the findings
@@ -186,6 +183,67 @@
       else s += ' Spread out, with no single bad stretch.';
       return '<div class="story">'+s+'</div>';
     }
+
+    // ── the class at a glance ────────────────────────────────────────────────
+    // The strip of counts this replaces answered "how many" and nothing else. A
+    // hundred students is a shape, and the shape is the first thing a teacher
+    // wants — then the ability to press the red part and see only those ten.
+    //
+    // The chosen band SURVIVES the five-second live redraw, because a teacher
+    // reading the ten high-risk students during a running exam should not have
+    // the list thrown back at them every time an event arrives.
+    let bandFilter = null, lastCounts = null, lastTotal = 0;
+
+    function drawChart(counts, total) {
+      if (counts) { lastCounts = counts; lastTotal = total; }
+      counts = lastCounts; total = lastTotal;
+      if (!counts || !total) { $("chart").style.display = "none"; return; }
+      // a band that has emptied out since it was chosen stops being a filter,
+      // rather than leaving the page showing nothing and no way back
+      if (bandFilter && !counts[bandFilter]) bandFilter = null;
+      const bands = RISK_BANDS.filter(b => counts[b.key] > 0);
+      const sel = b => bandFilter === b.key ? " sel" : "";
+      const seg = b => '<button type="button" class="cseg '+b.key+sel(b)+'" data-band="'+b.key+'"'+
+        ' style="flex-grow:'+counts[b.key]+'" title="'+counts[b.key]+' '+b.label+'"'+
+        ' aria-pressed="'+(bandFilter===b.key)+'" aria-label="'+counts[b.key]+' '+b.label+'"></button>';
+      const key = b => '<button type="button" class="ckey '+b.key+sel(b)+'" data-band="'+b.key+'"'+
+        ' aria-pressed="'+(bandFilter===b.key)+'"><i></i><b>'+counts[b.key]+'</b> '+b.label+'</button>';
+      const hint = bandFilter
+        ? "showing " + bandLabel(bandFilter) + " — press again for everyone"
+        : total + " student" + (total===1?"":"s") + " · press a band to see only those";
+      $("chart").style.display = "";
+      $("chart").innerHTML = '<div class="cbar">'+bands.map(seg).join("")+'</div>'+
+        '<div class="ckeys">'+bands.map(key).join("")+'<span class="chint">'+hint+'</span></div>';
+      applyBandFilter();
+    }
+
+    // One pass over everything the chart can hide. Cards, the clear box and the
+    // no-data box all carry data-band, so the filter never needs to know which
+    // kind of thing it is looking at.
+    function applyBandFilter() {
+      $("chart").classList.toggle("on", !!bandFilter);
+      let shown = 0;
+      document.querySelectorAll("#out [data-band]").forEach(el => {
+        const hit = !bandFilter || el.getAttribute("data-band") === bandFilter;
+        el.classList.toggle("hide", !hit);
+        if (hit && el.classList.contains("student")) shown++;
+      });
+      const h = document.querySelector(".sec-h");
+      if (h) h.classList.toggle("hide", shown === 0);
+      // choosing a collapsed band should open it — otherwise pressing "clear"
+      // filters the page down to a summary line that is still shut
+      if (bandFilter === "clear" || bandFilter === "unverified") {
+        const box = document.querySelector('.clearbox[data-band="'+bandFilter+'"]');
+        if (box) box.open = true;
+      }
+    }
+
+    $("chart").addEventListener("click", e => {
+      const b = e.target.closest("[data-band]"); if (!b) return;
+      const k = b.getAttribute("data-band");
+      bandFilter = bandFilter === k ? null : k;
+      drawChart();
+    });
 
     let exam = null, teacher = false, csvRows = [], user = null;
     let notes = [], notesEnabled = false;   // invigilator notes (needs migration v7; darkens gracefully)
@@ -223,7 +281,7 @@
     function draw(parts, events) {
       csvRows = [];
       const roster = (parts||[]).sort((a,b)=> new Date(a.joined_at)-new Date(b.joined_at));
-      if (!roster.length){ $("summary").style.display="none";
+      if (!roster.length){ $("chart").style.display="none";
         $("out").innerHTML = '<div class="empty">'+(teacher ? "No one has joined yet." : "No activity recorded yet.")+'</div>'; return; }
 
       if (!teacher) { drawStudent(roster, events || []); return; }   // personal "Your activity" view
@@ -235,22 +293,14 @@
         st.episodes.forEach(ep => csvRows.push([st.p.name, label(ep.kind), ep.count,
           fmt(epStart(ep)), fmt(epEnd(ep)), ep.review || ""]));
         return { p: st.p, evs: st.events, eps: st.episodes, calib: st.calib, counts: st.counts,
-                 flags: st.live.length, score: st.score, band: bandOf(st.score), unverified: st.unverified };
+                 flags: st.live.length, score: st.score, band: st.risk, unverified: st.unverified };
       });
       const flagged = info.filter(i => i.flags > 0).sort((a,b) => b.score - a.score || a.p.name.localeCompare(b.p.name));
-      const clear = info.filter(i => i.flags === 0);
-
-      const stat = (cls,n,txt) => '<span class="stat '+cls+'"><b>'+n+'</b> '+txt+'</span>';
-      const bands = { high:0, medium:0, low:0 };
-      flagged.forEach(i => bands[i.band]++);
-      $("summary").style.display = "flex";
-      $("summary").innerHTML =
-        stat("", roster.length, roster.length===1?"student":"students") +
-        (bands.high ? stat("alert", bands.high, "high risk") : "") +
-        (bands.medium ? stat("warn", bands.medium, "medium") : "") +
-        (bands.low ? stat("", bands.low, "low") : "") +
-        stat("ok", clear.length, "clear") +
-        (flagged.length && clear.length ? '<label class="toggle"><input type="checkbox" id="flagOnly"> Flagged only</label>' : "");
+      // A student who never completed setup used to sit in the clear box beside
+      // students we actually watched. We have no evidence about them either way,
+      // and that is not the same result — so they are counted, and listed, apart.
+      const clear = info.filter(i => i.flags === 0 && !i.unverified);
+      const nodata = info.filter(i => i.flags === 0 && i.unverified);
 
       // one clean line per episode: when · what · how much · decide
       const epHtml = ep => {
@@ -276,7 +326,8 @@
         // the setup badge only appears when it's a caveat worth knowing
         const setup = i.calib && i.calib.grade && i.calib.grade !== "solid"
           ? '<span class="setup s-warn" title="'+esc((i.calib.reasons||[]).join(", "))+'">setup '+esc(i.calib.grade)+'</span>' : '';
-        return '<div class="student '+(i.band==="high"?"pri":"pri-w")+'"><h2><span class="band '+i.band+'">'+i.band+'</span>'+
+        return '<div class="student '+(i.band==="high"?"pri":"pri-w")+'" data-band="'+i.band+'">'+
+          '<h2><span class="band '+i.band+'">'+esc(bandLabel(i.band).replace(" risk",""))+'</span>'+
           '<span class="n">'+esc(p.name)+'</span>'+setup+'<span class="ct">'+i.flags+' flag'+(i.flags===1?"":"s")+'</span></h2>'+
           narrative(eps)+'<div class="eps">'+list+'</div></div>';
       };
@@ -301,25 +352,29 @@
 
       let html = inbox + notesHtml;
       if (flagged.length) html += '<div class="sec-h">Needs review</div>' + flagged.map(card).join("");
-      if (clear.length) {
-        const names = clear.map(i => '<span>'+esc(i.p.name)+'</span>').join("");
-        html += '<details class="clearbox"'+(clear.length<=6?" open":"")+'><summary><span class="sd"></span>'+
-          clear.length+' student'+(clear.length===1?"":"s")+' clear — no flags<span class="cv">tap to '+(clear.length<=6?"hide":"view")+'</span></summary>'+
+      const box = (list, band, dotCls, txt) => {
+        if (!list.length) return "";
+        const names = list.map(i => '<span>'+esc(i.p.name)+'</span>').join("");
+        return '<details class="clearbox" data-band="'+band+'"'+(list.length<=6?" open":"")+'>'+
+          '<summary><span class="sd '+dotCls+'"></span>'+txt(list.length)+
+          '<span class="cv">tap to '+(list.length<=6?"hide":"view")+'</span></summary>'+
           '<div class="names">'+names+'</div></details>';
-      }
+      };
+      html += box(clear, "clear", "", n => n+' student'+(n===1?"":"s")+' clear — no flags');
+      html += box(nodata, "unverified", "nd", n => n+' student'+(n===1?"":"s")+
+        ' with no monitoring data — setup never completed');
       // print-only sign-off — turns "Save as PDF" into a verdict document
       html += '<div class="signoff"><b>Review sign-off</b>'+
         '<div>Flags are on-device detections intended as aids to human judgement. Episodes above were reviewed in Vigil; dismissed items are struck through and excluded from risk bands.</div>'+
         '<div class="lines"><span>Reviewed by</span><span>Signature</span><span>Date</span></div></div>';
       $("out").innerHTML = html;
       renderCursor();
-      const flagOnly = $("flagOnly");
-      if (flagOnly) flagOnly.onchange = () => { const cb=document.querySelector(".clearbox"); if(cb) cb.classList.toggle("hide", flagOnly.checked); };
+      drawChart(bandCounts(read.students), read.students.length);
     }
 
     // a student's own "Your activity" — the SAME episodes the teacher sees, nothing hidden
     function drawStudent(roster, events) {
-      $("summary").style.display = "none";
+      $("chart").style.display = "none";
       // the student sees exactly what the teacher sees about them — same reading,
       // same episodes, same verdicts, no second opinion
       const me = readExam(roster, events, readOpts()).students[0];
@@ -516,8 +571,13 @@
         }, 15000);
       }
 
-      // make sure PDF/print shows everything, then restore the tidy view
-      addEventListener("beforeprint", () => document.querySelectorAll("details").forEach(d => { d.dataset.o = d.open?"1":""; d.open = true; }));
+      // make sure PDF/print shows everything, then restore the tidy view. The
+      // chosen band is dropped too: this page IS the full record, and printing
+      // it with ten of a hundred students on it would be a record of nothing.
+      addEventListener("beforeprint", () => {
+        if (bandFilter) { bandFilter = null; drawChart(); }
+        document.querySelectorAll("details").forEach(d => { d.dataset.o = d.open?"1":""; d.open = true; });
+      });
       addEventListener("afterprint", () => document.querySelectorAll("details").forEach(d => { d.open = d.dataset.o==="1"; }));
     })();
   </script>

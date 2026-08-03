@@ -71,6 +71,52 @@ h1,h2,h3,.brand b,.code,.big{font-family:var(--display);letter-spacing:-.02em}
 .dot{width:9px;height:9px;border-radius:50%;corner-shape:round;background:var(--faint);flex:0 0 auto}
 .dot.ok{background:var(--ok)} .dot.warn{background:var(--warn)} .dot.alert{background:var(--alert)}
 
+/* ── the class at a glance ────────────────────────────────────────────────
+   One bar, one segment per risk band, each sized as its share of the room.
+   Press a segment and the record below narrows to those students; press it
+   again and the whole room comes back.
+
+   The segments carry no text. A count printed on a green or grey block is
+   either too small to read or too pale to pass contrast, and the legend sits
+   directly beneath carrying the same numbers at full contrast anyway — so the
+   bar is the shape and the legend is the data. Each segment still names itself
+   to a screen reader and to a hovering cursor. */
+.chart{margin:0 0 18px}
+.cbar{display:flex;gap:4px;height:30px;margin-bottom:11px}
+.cseg{flex:1 1 0;min-width:12px;border:0;border-radius:8px;padding:0;cursor:pointer;
+  transition:transform .16s var(--spring),opacity .18s,box-shadow .18s}
+.cseg:hover{transform:translateY(-2px);box-shadow:var(--shadow-sm)}
+.cseg:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
+.cseg.high{background:var(--alert)} .cseg.medium{background:var(--warn)}
+.cseg.low{background:var(--faint)} .cseg.clear{background:var(--ok)}
+.cseg.unverified{background:var(--soft);border:1px dashed var(--line-strong)}
+/* while one band is chosen the others stay visible but stand back */
+.chart.on .cseg{opacity:.3} .chart.on .cseg.sel{opacity:1}
+
+.ckeys{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.ckey{font:600 13px var(--font);padding:6px 12px;border-radius:999px;background:var(--soft);
+  border:1px solid var(--line);color:var(--muted);cursor:pointer;display:inline-flex;align-items:center;gap:7px;
+  transition:border-color .16s,color .16s,box-shadow .16s}
+.ckey b{color:var(--ink);font-variant-numeric:tabular-nums}
+.ckey i{width:9px;height:9px;border-radius:50%;corner-shape:round;background:var(--faint);flex:0 0 auto}
+.ckey:hover{border-color:var(--ink)}
+.ckey.high{color:var(--alert);background:var(--alert-soft);border-color:#f3c9ca}
+.ckey.high b{color:var(--alert)} .ckey.high i{background:var(--alert)}
+.ckey.medium{color:var(--warn);background:var(--warn-soft);border-color:#f0dcb6}
+.ckey.medium b{color:var(--warn)} .ckey.medium i{background:var(--warn)}
+.ckey.clear{color:var(--ok);background:var(--ok-soft);border-color:#c3e6d5}
+.ckey.clear b{color:var(--ok)} .ckey.clear i{background:var(--ok)}
+.ckey.unverified{border-style:dashed}
+.ckey.sel{border-color:var(--ink);box-shadow:0 0 0 2px var(--ink)}
+.chint{font-size:12.5px;color:var(--faint)}
+@media(prefers-reduced-motion:reduce){ .cseg{transition-duration:.01ms !important} }
+/* on paper it is a figure, not a control */
+@media print{
+  .cseg{cursor:default;transform:none !important;box-shadow:none !important;opacity:1 !important}
+  .ckey{cursor:default;box-shadow:none !important} .chint{display:none}
+  .cbar,.ckey,.cseg{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+}
+
 .toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%) translateY(10px);opacity:0;z-index:60;
   background:var(--ink);color:#fff;padding:10px 16px;border-radius:999px;font-size:13.5px;font-weight:600;
   box-shadow:var(--shadow);transition:opacity .25s,transform .25s var(--spring);pointer-events:none}
