@@ -12,7 +12,8 @@
        Most of an exam is quiet, and the screen should look it. A quiet tile
        is a faint name and nothing else; colour appears only where a teacher
        would actually want to look. */
-    .bar{display:flex;align-items:center;gap:14px;padding:16px 22px 0;max-width:1000px;margin:0 auto}
+    .bar{display:flex;align-items:center;gap:14px;padding-top:15px;padding-bottom:15px}
+    .bar>.inner{display:flex;align-items:center;gap:14px}
     .bar .sp{flex:1}
     .bar .code{color:var(--faint);font:600 12px ui-monospace,Menlo,monospace;letter-spacing:2px}
     .backlink{color:var(--muted);display:inline-flex;align-items:center}
@@ -21,7 +22,7 @@
     .quiet-btn{background:none;border:0;padding:0;font:500 13px var(--font);color:var(--faint);cursor:pointer;transition:color .18s}
     .quiet-btn:hover{color:var(--ink)}
 
-    .wrap{max-width:1000px;margin:0 auto;padding:0 22px 60px}
+    .wrap{padding-bottom:60px}
     .eyebrow{font-size:11px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:var(--faint);margin:26px 0 10px}
     .head{display:flex;align-items:baseline;gap:12px;margin:0 0 20px;flex-wrap:wrap}
     .head h1{font-size:24px;font-weight:500;letter-spacing:-.02em;margin:0}
@@ -78,15 +79,17 @@
   </style>
 </head>
 <body>
-  <div class="bar">
+  <div class="bar glassbar fluid">
+    <div class="inner">
     <a class="backlink" href="/exam/console.html" aria-label="Back to console"><svg viewBox="0 0 24 24" fill="none"><path d="M15 18l-6-6 6-6" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg></a>
     <span class="code" id="code"></span>
     <span class="sp"></span>
     <button class="btn ink sm hidden" id="startBtn" type="button">Start exam</button>
     <button class="quiet-btn hidden" id="roomNote" type="button">Note the room</button>
+    </div>
   </div>
 
-  <div class="wrap">
+  <div class="wrap fluid">
     <div class="eyebrow" id="eyebrow">Live</div>
     <div class="head"><h1 id="h1">Your room</h1><span class="count" id="count"></span></div>
     <div class="sortbar" id="sortbar" style="display:none">
@@ -105,6 +108,7 @@
     <div class="pop" id="pop" role="dialog" aria-modal="true" aria-labelledby="popName"><div class="popIn" id="popIn"></div></div>
   </div>
 
+  <script src="/exam/glass.js" defer></script>
   <script type="module">
     import { sb, fetchExam, selectAll, orderedEvents } from "/exam/sb.js";
     import { esc, label, clock, ago, readExam, roomHeadline, ALERT_KINDS, t, isOnline,

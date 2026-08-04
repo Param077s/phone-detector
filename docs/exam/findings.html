@@ -15,9 +15,10 @@
        live on an appendix page most readers will never turn to. */
     :root{ --voice:ui-serif,Georgia,"Times New Roman",serif }
     body{background:var(--bg)}
-    .sheet{max-width:720px;margin:0 auto;padding:34px 26px 70px}
+    .sheet{padding-top:34px;padding-bottom:70px}
 
-    .tools{display:flex;align-items:center;gap:10px;margin-bottom:30px}
+    .tools{display:flex;align-items:center;gap:10px;padding-top:14px;padding-bottom:14px;margin-top:-34px;margin-bottom:30px}
+    .tools>.inner{display:flex;align-items:center;gap:10px}
     .tools .sp{flex:1}
     .opt{font-size:12.5px;color:var(--muted);font-weight:600;display:inline-flex;align-items:center;gap:6px;
       cursor:pointer;user-select:none;white-space:nowrap}
@@ -186,7 +187,7 @@
        gives you — previewing an export by exporting it is not a preview. */
     #body{display:none}
     body.showdoc .screenonly{display:none}
-    body.showdoc #body{display:block}
+    body.showdoc #body{display:block;max-width:74ch;margin:0 auto}
     body.showdoc .sheet{padding-bottom:90px}
     @media(max-width:860px){ .room{grid-template-columns:repeat(3,minmax(0,1fr))} }
     @media(max-width:560px){ .room{grid-template-columns:repeat(2,minmax(0,1fr))} }
@@ -207,8 +208,9 @@
   </style>
 </head>
 <body>
-  <div class="sheet">
-    <div class="tools">
+  <div class="sheet fluid">
+    <div class="tools glassbar bleed">
+      <div class="inner">
       <a class="backlink" id="back" href="/exam/console.html" aria-label="Back"><svg viewBox="0 0 24 24" fill="none"><path d="M15 18l-6-6 6-6" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg></a>
       <span class="sp"></span>
       <div class="views" role="tablist" aria-label="View">
@@ -218,6 +220,7 @@
       <label class="opt" title="By default the download carries the serious findings in full and the rest in one line each."><input type="checkbox" id="fullDoc"> Every finding</label>
       <a class="btn ghost sm" id="fullLink" href="#">Full record</a>
       <button class="btn ink sm" id="dl" type="button">Download</button>
+      </div>
     </div>
 
     <div class="letter">
@@ -245,6 +248,7 @@
     <div class="pop" id="pop" role="dialog" aria-modal="true" aria-labelledby="popName"><div class="popIn" id="popIn"></div></div>
   </div>
 
+  <script src="/exam/glass.js" defer></script>
   <script type="module">
     import { sb, fetchExam, selectAll, orderedEvents } from "/exam/sb.js";
     import { esc, label, clock, clockRange, dateLong, word, readExam, spanTxt, roomHeadline, isOnline, ago,

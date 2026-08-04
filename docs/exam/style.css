@@ -14,6 +14,8 @@
      feedback wants the second one — a control that returns dead straight feels
      like a picture of a button, and one that overshoots feels like a thing. */
   --bounce:cubic-bezier(.34,1.56,.64,1);
+  /* the inset the app keeps from the window edge, growing with the window */
+  --gutter:clamp(18px,2.6vw,48px);
 }
 *{box-sizing:border-box;margin:0}
 
@@ -70,6 +72,29 @@ h1,h2,h3,.brand b,.code,.big{font-family:var(--display);letter-spacing:-.02em}
 .hidden{display:none !important}
 .center{min-height:100vh;display:grid;place-items:center;padding:22px}
 
+/* ── measure ──────────────────────────────────────────────────────────────
+   The app fills the window. A grid of exam cards has no business sitting in a
+   940px column with five hundred pixels of nothing either side of it, and a
+   list of a hundred students least of all — the wider the window, the more of
+   the room you should be able to see at once.
+
+   Gutters grow with the window rather than staying at a fixed 22px, so the
+   content is inset proportionally instead of drifting toward the edges.
+
+   PROSE IS THE EXCEPTION, and it is not a stylistic one: past roughly 75
+   characters the eye loses its place returning to the start of the next line.
+   The findings document is prose, and it also has to print onto a sheet of
+   paper. It keeps a measure; everything else fills. */
+.fluid{width:100%;max-width:none;margin:0;padding-left:var(--gutter);padding-right:var(--gutter)}
+.fluid>.inner{max-width:none;width:100%}
+.measure{max-width:74ch;margin-left:auto;margin-right:auto}
+/* Pull an element back out of those gutters so its BACKGROUND reaches the
+   window edge, then hand the gutter back as padding so its CONTENT stays in
+   line with everything above and below it. This is what lets the glass bar span
+   the window while its logo still lines up with the cards. */
+.bleed{margin-left:calc(-1 * var(--gutter));margin-right:calc(-1 * var(--gutter));
+  padding-left:var(--gutter);padding-right:var(--gutter)}
+
 /* ── glass bar ────────────────────────────────────────────────────────────
    A sticky bar with no background is not a bar — it is a set of words floating
    over whatever happens to be scrolling under them, which is exactly what the
@@ -108,6 +133,13 @@ h1,h2,h3,.brand b,.code,.big{font-family:var(--display);letter-spacing:-.02em}
    and it is doing it over a list that may be a hundred rows long. Paint only
    this layer when it scrolls. */
 .glassbar{will-change:box-shadow;contain:paint}
+/* On paper there is no scrolling to stick to, and a blurred translucent strip
+   is just a grey smear across the top of page one. The report and the document
+   both print; the bar stops being one. */
+@media print{
+  .glassbar{position:static;margin:0;padding:0;background:none;box-shadow:none;
+    backdrop-filter:none;-webkit-backdrop-filter:none;contain:none}
+}
 /* The edge is toggled from a passive scroll listener rather than an
    IntersectionObserver. The observer is the tidier instrument and it is what I
    reached for first — but it could not be verified here at all, and a scroll
