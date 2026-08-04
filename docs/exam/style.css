@@ -10,6 +10,10 @@
   --display:"Space Grotesk",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
   --font:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Inter",system-ui,sans-serif;
   --r:18px; --r-sm:12px; --spring:cubic-bezier(.2,.7,.2,1);
+  /* --spring eases to a stop; --bounce overshoots and settles back. Press
+     feedback wants the second one — a control that returns dead straight feels
+     like a picture of a button, and one that overshoots feels like a thing. */
+  --bounce:cubic-bezier(.34,1.56,.64,1);
 }
 *{box-sizing:border-box;margin:0}
 
@@ -65,6 +69,61 @@ h1,h2,h3,.brand b,.code,.big{font-family:var(--display);letter-spacing:-.02em}
 .err{color:var(--alert);font-size:13.5px;min-height:16px;margin-top:12px}
 .hidden{display:none !important}
 .center{min-height:100vh;display:grid;place-items:center;padding:22px}
+
+/* ── glass bar ────────────────────────────────────────────────────────────
+   A sticky bar with no background is not a bar — it is a set of words floating
+   over whatever happens to be scrolling under them, which is exactly what the
+   console was doing. This is the one that isn't.
+
+   Three layers, in the order light hits them:
+     · the backdrop      blurred and saturated, so colour bleeds through rather
+                         than a flat sheet of grey
+     · the body          a translucent tint, because blur alone leaves text
+                         sitting on whatever is behind it
+     · the rim           a bright top hairline and a darker bottom one — the
+                         edge lighting that makes glass read as a solid pane
+                         with thickness rather than as a blur
+
+   What this is NOT: refraction. Apple's glass bends the content behind its
+   edges like a real lens; on the web that needs an SVG displacement map fed
+   into backdrop-filter, which Safari does not support. Everything else here is
+   the real thing.
+
+   `--glass-top` exists so a page can sit the bar below something else. */
+.glassbar{position:sticky;top:var(--glass-top,0);z-index:20;
+  background:linear-gradient(180deg,rgba(255,255,255,.80),rgba(255,255,255,.62));
+  backdrop-filter:blur(20px) saturate(180%);-webkit-backdrop-filter:blur(20px) saturate(180%);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.9);
+  transition:box-shadow .35s ease,background .35s ease}
+/* the bottom hairline appears only once there is something underneath to
+   separate from — a line under a bar at rest is a border for no reason */
+.glassbar.lifted{
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.9),0 1px 0 rgba(12,13,16,.08),
+             0 10px 24px -18px rgba(15,17,24,.34)}
+/* blur is what makes it glass; without it, translucency is just a smear */
+@supports not ((backdrop-filter:blur(1px)) or (-webkit-backdrop-filter:blur(1px))){
+  .glassbar{background:#f7f6f3}
+}
+/* Blurring a backdrop is one of the most expensive things a browser composites,
+   and it is doing it over a list that may be a hundred rows long. Paint only
+   this layer when it scrolls. */
+.glassbar{will-change:box-shadow;contain:paint}
+/* The edge is toggled from a passive scroll listener rather than an
+   IntersectionObserver. The observer is the tidier instrument and it is what I
+   reached for first — but it could not be verified here at all, and a scroll
+   listener could. The cost is a compare and an early return; the class only
+   ever changes on the two frames where it crosses the threshold. */
+
+/* ── press ────────────────────────────────────────────────────────────────
+   Everything pressable answers the finger the same way: down fast, back with
+   a small overshoot. */
+.btn:active:not(:disabled){transform:scale(.965)}
+.btn{transition:transform .24s var(--bounce),box-shadow .18s,background .18s,border-color .16s}
+.btn.primary:hover:not(:disabled),.btn.ink:hover:not(:disabled){transform:translateY(-1px) scale(1.012)}
+.btn.primary:active:not(:disabled),.btn.ink:active:not(:disabled){transform:translateY(0) scale(.965)}
+@media(prefers-reduced-motion:reduce){
+  .btn,.btn:active,.btn:hover{transform:none !important;transition-duration:.01ms !important}
+}
 
 .pill{font-size:11.5px;font-weight:600;padding:4px 10px;border-radius:999px;background:var(--soft);color:var(--muted);white-space:nowrap}
 .pill.ok{background:var(--ok-soft);color:var(--ok)} .pill.alert{background:var(--alert-soft);color:var(--alert)}

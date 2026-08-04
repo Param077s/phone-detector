@@ -9,8 +9,8 @@
   <link rel="stylesheet" href="/exam/style.css">
   <style>
     .wrap{max-width:820px;margin:0 auto;padding:0 22px 80px}
-    .bar{position:sticky;top:0;z-index:10;display:flex;align-items:center;gap:14px;padding:15px 0;margin-bottom:8px;
-      background:rgba(255,255,255,.7);backdrop-filter:blur(12px)}
+    .bar{display:flex;align-items:center;gap:14px;padding:15px 22px;margin:0 -22px 8px}
+    .bar>.inner{display:flex;align-items:center;gap:14px;width:100%;max-width:820px;margin:0 auto}
     .bar .sp{flex:1} .who{color:var(--muted);font-size:13.5px} .who b{color:var(--ink);font-weight:600}
     h1{font-size:23px;margin:18px 0 2px} .sub{color:var(--muted);font-size:14px;margin:0 0 22px}
     .sec-h{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--faint);font-weight:700;margin:24px 2px 12px}
@@ -29,12 +29,14 @@
 </head>
 <body>
   <div class="wrap">
-    <div class="bar">
-      <span class="brand"><span class="mk"><svg viewBox="0 0 24 24" fill="none"><path d="M6 10V7.5A1.5 1.5 0 0 1 7.5 6H10M14 6h2.5A1.5 1.5 0 0 1 18 7.5V10M18 14v2.5a1.5 1.5 0 0 1-1.5 1.5H14M10 18H7.5A1.5 1.5 0 0 1 6 16.5V14" stroke="#fff" stroke-width="1.8" stroke-linecap="round"/><circle cx="12" cy="12" r="2.6" fill="#fff"/></svg></span><b>Vigil</b><span class="tag">· Your exams</span></span>
-      <span class="sp"></span>
-      <span class="who" id="who"></span>
-      <a class="btn ghost sm" href="/exam/">Join a new exam</a>
-      <button class="btn ghost sm" id="signout" style="display:none">Sign out</button>
+    <div class="bar glassbar">
+      <div class="inner">
+        <span class="brand"><span class="mk"><svg viewBox="0 0 24 24" fill="none"><path d="M6 10V7.5A1.5 1.5 0 0 1 7.5 6H10M14 6h2.5A1.5 1.5 0 0 1 18 7.5V10M18 14v2.5a1.5 1.5 0 0 1-1.5 1.5H14M10 18H7.5A1.5 1.5 0 0 1 6 16.5V14" stroke="#fff" stroke-width="1.8" stroke-linecap="round"/><circle cx="12" cy="12" r="2.6" fill="#fff"/></svg></span><b>Vigil</b><span class="tag">· Your exams</span></span>
+        <span class="sp"></span>
+        <span class="who" id="who"></span>
+        <a class="btn ghost sm" href="/exam/">Join a new exam</a>
+        <button class="btn ghost sm" id="signout" style="display:none">Sign out</button>
+      </div>
     </div>
 
     <h1>Your exams</h1>
@@ -43,6 +45,23 @@
     <div id="taken"></div>
   </div>
 
+  <script>
+    // The bottom edge appears only once content has gone under the bar. A line
+    // under a bar at rest is a border drawn for no reason.
+    (() => {
+      const bar = document.querySelector(".glassbar");
+      if (!bar) return;
+      let on = null;
+      const sync = () => {
+        const want = scrollY > 4;
+        if (want === on) return;        // most frames end here
+        on = want; bar.classList.toggle("lifted", want);
+      };
+      addEventListener("scroll", sync, { passive: true });
+      addEventListener("resize", sync, { passive: true });
+      sync();
+    })();
+  </script>
   <script type="module">
     import { sb, esc, fetchExamBands } from "/exam/sb.js";
     import { bandChips } from "/exam/exam-core.js";

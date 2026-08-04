@@ -9,7 +9,11 @@
   <link rel="stylesheet" href="/exam/style.css">
   <style>
     .wrap{max-width:940px;margin:0 auto;padding:0 22px 80px}
-    .bar{position:sticky;top:0;z-index:10;display:flex;align-items:center;gap:14px;padding:15px 0;margin-bottom:8px}
+    /* full-bleed: the glass has to reach the window edges, or cards scroll
+       through the gutters either side of a bar that stops at the wrap */
+    .bar{display:flex;align-items:center;gap:14px;padding:15px 22px;margin:0 -22px 8px;
+      max-width:none}
+    .bar>.inner{display:flex;align-items:center;gap:14px;width:100%;max-width:940px;margin:0 auto}
     .bar .sp{flex:1} .who{color:var(--muted);font-size:13.5px} .who b{color:var(--ink);font-weight:600}
     .create{background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:22px;box-shadow:var(--shadow-sm);margin-bottom:26px}
     .create h1{font-size:20px;margin-bottom:4px} .create p{color:var(--muted);font-size:13.5px;margin-bottom:16px}
@@ -48,11 +52,13 @@
 </head>
 <body>
   <div class="wrap">
-    <div class="bar">
-      <span class="brand"><span class="mk"><svg viewBox="0 0 24 24" fill="none"><path d="M6 10V7.5A1.5 1.5 0 0 1 7.5 6H10M14 6h2.5A1.5 1.5 0 0 1 18 7.5V10M18 14v2.5a1.5 1.5 0 0 1-1.5 1.5H14M10 18H7.5A1.5 1.5 0 0 1 6 16.5V14" stroke="#fff" stroke-width="1.8" stroke-linecap="round"/><circle cx="12" cy="12" r="2.6" fill="#fff"/></svg></span><b>Vigil</b><span class="tag">· Console</span></span>
-      <span class="sp"></span>
-      <span class="who" id="who"></span>
-      <button class="btn ghost sm" id="signout">Sign out</button>
+    <div class="bar glassbar">
+      <div class="inner">
+        <span class="brand"><span class="mk"><svg viewBox="0 0 24 24" fill="none"><path d="M6 10V7.5A1.5 1.5 0 0 1 7.5 6H10M14 6h2.5A1.5 1.5 0 0 1 18 7.5V10M18 14v2.5a1.5 1.5 0 0 1-1.5 1.5H14M10 18H7.5A1.5 1.5 0 0 1 6 16.5V14" stroke="#fff" stroke-width="1.8" stroke-linecap="round"/><circle cx="12" cy="12" r="2.6" fill="#fff"/></svg></span><b>Vigil</b><span class="tag">· Console</span></span>
+        <span class="sp"></span>
+        <span class="who" id="who"></span>
+        <button class="btn ghost sm" id="signout">Sign out</button>
+      </div>
     </div>
 
     <div class="create">
@@ -91,6 +97,23 @@
   </div>
   <div class="toast" id="toast"></div>
 
+  <script>
+    // The bottom edge appears only once content has gone under the bar. A line
+    // under a bar at rest is a border drawn for no reason.
+    (() => {
+      const bar = document.querySelector(".glassbar");
+      if (!bar) return;
+      let on = null;
+      const sync = () => {
+        const want = scrollY > 4;
+        if (want === on) return;        // most frames end here
+        on = want; bar.classList.toggle("lifted", want);
+      };
+      addEventListener("scroll", sync, { passive: true });
+      addEventListener("resize", sync, { passive: true });
+      sync();
+    })();
+  </script>
   <script type="module">
     import { sb, esc, fetchExamBands } from "/exam/sb.js";
     import { examOver, examStarted, examPending, msLeft, countdown, bandChips } from "/exam/exam-core.js";
