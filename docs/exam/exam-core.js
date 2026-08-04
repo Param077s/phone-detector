@@ -403,8 +403,8 @@ export const RISK_BANDS = [
 // what the four words actually mean, for a reader who is not the invigilator
 export const BAND_KEY =
   "High risk — a phone, a second face, or a pattern serious enough to sit down with the student. " +
-  "Medium — repeated flags worth a look. Low — a handful of glances. " +
-  "Clear — nothing was recorded against them.";
+  "Medium — repeated flags worth a look. No risk — nothing, or a glance or two across the " +
+  "whole sitting, which is what ordinary people do.";
 export const riskBand = s =>
   s.score >= 10 ? "high" : s.score >= FINDING_SCORE ? "medium" : s.score > 0 ? "low"
     : s.unverified ? "unverified" : "clear";
@@ -427,6 +427,74 @@ export function bandCounts(students) {
   const c = { high: 0, medium: 0, low: 0, clear: 0, unverified: 0 };
   for (const s of students || []) c[riskBand(s)]++;
   return c;
+}
+
+// ── the three bands a report is READ in ─────────────────────────────────────
+// Five bands are what the score produces. Three are what a person is shown.
+//
+// "Low" — a couple of glances across two hours — is not a risk anybody acts on,
+// and giving it its own column made the reader weigh a distinction that changes
+// nothing. It reads as no risk. Three bars can be read from the back of a room;
+// five have to be studied.
+//
+// `unverified` is deliberately OUTSIDE the three rather than folded into "no
+// risk". A student who never completed setup is not low risk, they are
+// unmeasured, and calling that a clean result is the one thing this summary
+// could say that isn't true. They are counted and named beside the chart.
+export const REPORT_BANDS = [
+  { key: "high", label: "High risk" },
+  { key: "medium", label: "Medium" },
+  { key: "none", label: "No risk" },
+];
+export function reportBand(s) {
+  const b = riskBand(s);
+  return b === "high" ? "high" : b === "medium" ? "medium" : b === "unverified" ? null : "none";
+}
+// worst first, then by name — the order a teacher works down
+export function splitByBand(students) {
+  const out = { high: [], medium: [], none: [], unverified: [] };
+  for (const s of students || []) out[reportBand(s) || "unverified"].push(s);
+  for (const k of ["high", "medium", "none", "unverified"])
+    out[k].sort((a, b) => b.score - a.score || a.p.name.localeCompare(b.p.name));
+  return out;
+}
+
+// The chart's markup, built once. Layout normally lives in the page, but this
+// figure is the report — two hand-copied versions of it would drift, and the
+// day they disagreed about a class is the day neither can be trusted.
+// `interactive` false drops everything that implies you may press it, which is
+// what the printed copy needs.
+export function chartHtml(byBand, opts = {}) {
+  const counts = REPORT_BANDS.map(b => (byBand[b.key] || []).length);
+  const total = counts.reduce((a, b) => a + b, 0);
+  if (!total) return "";
+  const raw = Math.max(...counts) / 4 || 1;
+  const mag = Math.pow(10, Math.floor(Math.log10(raw)));
+  const step = [1, 2, 2.5, 5, 10].map(m => m * mag).find(s => s >= raw) || 10 * mag;
+  const top = Math.max(step, Math.ceil(Math.max(...counts) / step) * step);
+  let ticks = "", lines = "";
+  for (let v = 0; v <= top + 1e-6; v += step) {
+    const pct = (1 - v / top) * 100, d = (v / top) * 0.25;
+    ticks += '<span style="top:' + pct + '%;animation-delay:' + d + 's">' + v + '</span>';
+    lines += '<div class="vline" style="top:' + pct + '%;animation-delay:' + d + 's"></div>';
+  }
+  const sel = opts.selected;
+  const col = (b, i) => {
+    const n = (byBand[b.key] || []).length;
+    const inner = '<span class="vbar ' + b.key + '" data-h="' + (n / top * 100) + '" data-n="' + n + '">' +
+      '<span class="vn">' + (opts.interactive === false ? n : 0) + '</span>' +
+      '<span class="vp">' + Math.round(n / total * 100) + '%</span></span>';
+    return opts.interactive === false
+      ? '<span class="vcol">' + inner + '</span>'
+      : '<button type="button" class="vcol' + (sel === b.key ? " on" : "") + '" data-band="' + b.key +
+        '" aria-pressed="' + (sel === b.key) + '" aria-label="' + n + ' ' + b.label.toLowerCase() +
+        '">' + inner + '</button>';
+  };
+  return '<div class="vchart"><div class="vy">' + ticks + '</div><div>' +
+    '<div class="vplot">' + lines + '<div class="vbars">' + REPORT_BANDS.map(col).join("") + '</div></div>' +
+    '<div class="vlabels">' + REPORT_BANDS.map(b =>
+      '<span data-band="' + b.key + '"' + (sel === b.key ? ' class="on"' : '') + '>' + b.label + '</span>'
+    ).join("") + '</div></div></div>';
 }
 
 // ── what a summary may not leave out ────────────────────────────────────────

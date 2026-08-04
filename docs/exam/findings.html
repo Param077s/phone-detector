@@ -78,6 +78,82 @@
     .pick button:hover{background:var(--soft)}
     .pick button.clear{color:var(--faint)}
 
+    /* ── the report: the chart, then the students behind it ──────────────
+       Prefixed rather than reusing .card/.lab/.who — this file already spends
+       those names on the popup and the document, and a chart that quietly
+       restyled the record beside it would be a nasty way to find out. */
+    .panel{background:var(--card);border:1px solid var(--line);border-radius:var(--r);
+      box-shadow:var(--shadow-sm);padding:26px 28px 22px;margin:26px 0 14px}
+    .ptitle{font-size:15.5px;font-weight:600;margin-bottom:2px}
+    .psub{font-size:13px;color:var(--muted);margin-bottom:24px}
+    .whobox{transition:opacity .22s ease,transform .3s var(--spring)}
+    .whobox.out{opacity:0;transform:translateY(-6px)}
+    .whd{display:flex;align-items:baseline;gap:10px;padding:0 4px 10px;animation:vgIn .35s ease both}
+    .whd h2{font-size:16.5px;font-weight:600;flex:1;letter-spacing:-.01em}
+    .whd .x{background:none;border:0;color:var(--muted);font:600 13px var(--font);cursor:pointer}
+    .whd .x:hover{color:var(--ink)}
+    .scard{background:var(--card);border:1px solid var(--line);border-radius:14px;margin-bottom:8px;
+      box-shadow:var(--shadow-sm);overflow:hidden;opacity:0;transform:translateY(12px) scale(.995);
+      animation:vgRise .55s cubic-bezier(.18,.86,.28,1) forwards;
+      transition:border-color .3s ease,box-shadow .35s ease}
+    .scard.high{border-color:#f3c9ca} .scard.medium{border-color:#f0dcb6}
+    .scard.open{box-shadow:0 2px 6px rgba(15,17,24,.06),0 26px 46px -30px rgba(15,17,24,.3)}
+    .shead{display:flex;align-items:center;gap:13px;padding:14px 18px;cursor:pointer;width:100%;
+      background:none;border:0;font:inherit;text-align:left;transition:background .18s}
+    .shead:hover{background:#faf9f7}
+    .sdot{width:9px;height:9px;border-radius:50%;corner-shape:round;flex:0 0 auto;background:var(--ok)}
+    .sdot.high{background:var(--alert)} .sdot.medium{background:var(--warn)}
+    .sname{flex:1;font-size:14.5px;font-weight:500}
+    .swhy{font-size:13px;color:var(--muted)}
+    .schev{color:var(--faint);font-size:12px;transition:transform .3s var(--spring)}
+    .scard.open .schev{transform:rotate(90deg)}
+    .sbody{display:grid;grid-template-rows:0fr;transition:grid-template-rows .52s cubic-bezier(.22,.85,.26,1)}
+    .scard.open .sbody{grid-template-rows:1fr}
+    .sinner{overflow:hidden}
+    .spad{padding:2px 18px 18px;opacity:0;transform:translateY(9px);
+      transition:opacity .3s ease,transform .3s var(--spring)}
+    .scard.open .spad{opacity:1;transform:none;
+      transition:opacity .42s ease .14s,transform .55s var(--spring) .14s}
+    .slab{font-size:10px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:var(--faint);
+      margin:14px 0 9px;display:flex;align-items:baseline;gap:8px}
+    .slab .rt{margin-left:auto;letter-spacing:0;text-transform:none;font-size:11.5px;font-weight:500}
+
+    /* when it happened — a column per stretch of their time in the room */
+    .wcols{display:flex;align-items:flex-end;gap:10px;height:118px;border-bottom:1.5px solid var(--line-strong)}
+    .wcol{flex:1 1 0;height:100%;display:flex;flex-direction:column;justify-content:flex-end;
+      align-items:center;position:relative}
+    .wn{font-size:12.5px;font-weight:700;color:var(--ink-2);margin-bottom:6px;line-height:1;
+      font-variant-numeric:tabular-nums;opacity:0;transition:opacity .35s ease}
+    .wcol.on .wn{opacity:1}
+    .wbar{width:100%;max-width:52px;border-radius:7px 7px 0 0;height:0;background:var(--warn);
+      transition:height .6s cubic-bezier(.2,.85,.3,1),filter .18s}
+    .wbar.alert{background:var(--alert)}
+    .wcol.zero .wbar{height:3px !important;background:var(--line-strong);border-radius:2px}
+    .wcol:hover .wbar{filter:brightness(.92)}
+    .wx{display:flex;gap:10px;margin-top:9px}
+    .wx span{flex:1 1 0;text-align:center;font-size:11px;color:var(--faint);font-variant-numeric:tabular-nums}
+    .wkey{font-size:11.5px;color:var(--faint);margin-top:11px;display:flex;align-items:center;gap:6px}
+    .wkey i{width:9px;height:9px;border-radius:3px;background:var(--alert);flex:0 0 auto}
+    .wnone{font-size:13px;color:var(--faint);padding:14px 0}
+    .kinds{display:flex;flex-wrap:wrap;gap:6px}
+    .kd{font-size:12px;font-weight:600;padding:4px 10px;border-radius:999px;background:var(--soft);
+      border:1px solid var(--line);color:var(--muted);opacity:0;transform:translateY(7px) scale(.97);
+      transition:opacity .3s ease,transform .3s var(--spring)}
+    .scard.open .kd{opacity:1;transform:none}
+    .scard.open .kd:nth-child(1){transition-delay:.34s} .scard.open .kd:nth-child(2){transition-delay:.40s}
+    .scard.open .kd:nth-child(3){transition-delay:.46s} .scard.open .kd:nth-child(4){transition-delay:.52s}
+    .scard.open .kd:nth-child(5){transition-delay:.58s} .scard.open .kd:nth-child(n+6){transition-delay:.64s}
+    .kd.alert{background:var(--alert-soft);border-color:#f3c9ca;color:var(--alert)}
+    .kd b{font-variant-numeric:tabular-nums}
+    .srec{margin-top:16px;background:none;border:0;padding:0;cursor:pointer;
+      font:600 13px var(--font);color:var(--ink);border-bottom:1px solid var(--line-strong)}
+    .srec:hover{border-color:var(--ink)}
+    .smore{text-align:center;padding:14px;font-size:13px;color:var(--muted);background:none;border:0;
+      cursor:pointer;width:100%;font-weight:600}
+    .smore:hover{color:var(--ink)}
+    @keyframes vgRise{to{opacity:1;transform:none}}
+    @keyframes vgIn{from{opacity:0}to{opacity:1}}
+
     /* the room, coloured by risk — green clear, amber flagged, red serious */
     .presence{font-size:13.5px;color:var(--muted);margin:28px 0 10px}
     .room{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:9px;margin:0}
@@ -219,11 +295,11 @@
     <h1 id="title">Exam</h1>
     <div class="context" id="context"></div>
 
-    <!-- screen: the room, read afterwards. print: hidden, the document takes over -->
+    <!-- screen: the chart, and the students behind it. print: hidden, the
+         document takes over -->
     <div class="screenonly">
-      <div class="chart" id="chart" style="display:none;margin-top:26px"></div>
-      <div class="presence" id="presence"></div>
-      <div class="room" id="room"></div>
+      <div class="panel" id="panel" style="display:none"></div>
+      <div class="whobox" id="who"></div>
       <div class="roomline hidden" id="roomline"><span id="roomtxt"></span><button class="see" id="roomsee" type="button">See it</button></div>
     </div>
 
@@ -240,7 +316,8 @@
     import { sb, fetchExam, selectAll, orderedEvents } from "/exam/sb.js";
     import { esc, label, clock, clockRange, dateLong, word, readExam, spanTxt, roomHeadline, isOnline, ago,
              examWindow, examOver, useTimezone, tzNote,
-             RISK_BANDS, bandCounts, bandLabel, keyFinding, BAND_KEY } from "/exam/exam-core.js";
+             keyFinding, BAND_KEY, ALERT_KINDS, REPORT_BANDS, splitByBand, chartHtml,
+             t } from "/exam/exam-core.js";
     const $ = id => document.getElementById(id);
     const examId = new URLSearchParams(location.search).get("e");
 
@@ -266,58 +343,194 @@
       return s.charAt(0).toUpperCase() + s.slice(1) + ".";
     }
 
-    // ── the class at a glance ────────────────────────────────────────────────
-    // The same bar on both surfaces: on screen it filters the room below it, on
-    // paper it is the figure at the head of the document. The counts come from
-    // the shared core, so the bar and the tiles under it cannot disagree about
-    // the same room. On paper the markup drops everything that would imply you
-    // could press it.
-    let bandFilter = null;
-    function chartHtml(interactive) {
-      const counts = bandCounts(read.students), total = read.students.length;
-      if (!total) return "";
-      if (interactive && bandFilter && !counts[bandFilter]) bandFilter = null;
-      const bands = RISK_BANDS.filter(b => b.always || counts[b.key] > 0);
-      const max = Math.max(1, ...bands.map(b => counts[b.key]));
-      const bar = b => {
-        const inner = '<span class="bn">' + counts[b.key] + '</span>' +
-          '<span class="bplot"><span class="bbar ' + b.key + '" style="height:' +
-            Math.round(counts[b.key] / max * 100) + '%"></span></span>' +
-          '<span class="blab">' + b.short + '</span>';
-        return interactive
-          ? '<button type="button" class="bcol' + (bandFilter === b.key ? " sel" : "") + '" data-band="' + b.key +
-            '" aria-pressed="' + (bandFilter === b.key) + '" aria-label="' + counts[b.key] + ' ' + b.label + '">' +
-            inner + '</button>'
-          : '<span class="bcol">' + inner + '</span>';
-      };
-      // On screen: how to use it. On paper: what the four words mean, because
-      // the reader of a filed document is often not the person who ran the exam.
-      const foot = interactive
-        ? '<span class="chint">' + (bandFilter
-            ? "showing " + bandLabel(bandFilter) + " — press again for the whole room"
-            : total + " student" + (total === 1 ? "" : "s") + " · press a bar to see only those") + '</span>'
-        : '<p class="bkey">' + BAND_KEY + '</p>';
-      return '<div class="bars">' + bands.map(bar).join("") + '</div>' + foot;
-    }
-    // redrawn only when it would actually change — this page repaints every 2 s,
-    // and replacing the bar each time would kill any hover mid-press
-    let chartSig = null;
-    function drawChart() {
-      const html = chartHtml(true);
-      if (html !== chartSig) {
-        chartSig = html;
-        $("chart").style.display = html ? "" : "none";
-        $("chart").innerHTML = html;
+    // ── the report: the chart, then the students behind it ─────────────────
+    // Pressing a bar opens those students; pressing a student opens what they
+    // did and when. The document (Download) is unchanged and still lives behind
+    // the Document tab — this replaces the room grid, not the record.
+    let band = null, shown = 8, chartSig = null;
+
+    function drawReport() {
+      const by = splitByBand(read.students);
+      if (band && !by[band].length) band = null;
+      const total = by.high.length + by.medium.length + by.none.length;
+      const sig = JSON.stringify([by.high.length, by.medium.length, by.none.length,
+                                  by.unverified.length, band]);
+      if (sig !== chartSig) {
+        chartSig = sig;
+        $("panel").style.display = total ? "" : "none";
+        if (total) {
+          $("panel").innerHTML =
+            '<div class="ptitle">Risk across the class</div>' +
+            '<div class="psub">How the ' + total + ' monitored student' + (total === 1 ? "" : "s") +
+              ' came out.</div>' +
+            '<div class="chart' + (band ? " sel" : "") + '" id="chartBox">' +
+              chartHtml(by, { selected: band }) + '</div>' +
+            '<div class="pfoot">' +
+              (by.unverified.length
+                ? '<span>' + by.unverified.length + ' student' + (by.unverified.length === 1 ? "" : "s") +
+                  ' never completed camera setup — no data either way.</span>'
+                : '<span></span>') +
+              '<span class="hint">' + (band ? "Press again for the whole class"
+                                            : "Press a bar to see who") + '</span>' +
+            '</div>';
+          runBars();
+        }
       }
-      $("chart").classList.toggle("on", !!bandFilter);
-      for (const [, el] of rtiles)
-        el.classList.toggle("off", !!bandFilter && el.dataset.band !== bandFilter);
+      drawRoomLine();
+      return by;
     }
-    $("chart").addEventListener("click", e => {
-      const b = e.target.closest("[data-band]"); if (!b) return;
-      const k = b.getAttribute("data-band");
-      bandFilter = bandFilter === k ? null : k;
-      drawChart();
+    // The bars grow once, after the chart is in the DOM.
+    //
+    // Kicked off with setTimeout, NOT requestAnimationFrame: rAF is paused
+    // outright while a tab is in the background, so a report opened in a second
+    // tab would render every bar at zero height and stay that way — a chart
+    // confidently showing an empty class. A timer still fires (throttled), and
+    // one turn of the event loop is all the transition needs to have a `from`.
+    function runBars() {
+      setTimeout(() => {
+        $("panel").querySelectorAll(".vbar").forEach((el, i) => setTimeout(() => {
+          el.style.height = el.dataset.h + "%";
+          countUp(el.querySelector(".vn"), Number(el.dataset.n), 900);
+        }, 120 + i * 90));
+      }, 0);
+    }
+    // requestAnimationFrame is paused in a background tab, so a report opened in
+    // a second tab would sit reading 0. The animation is decoration; the number
+    // is the point — a timer that survives backgrounding writes the real value.
+    function countUp(el, to, ms) {
+      if (!el || !isFinite(to)) return;
+      el.textContent = "0";
+      const t0 = performance.now(); let done = false;
+      const tick = now => { if (done) return;
+        const p = Math.min(1, (now - t0) / ms), e = 1 - Math.pow(1 - p, 3);
+        el.textContent = Math.round(to * e);
+        if (p < 1) requestAnimationFrame(tick); else done = true; };
+      requestAnimationFrame(tick);
+      setTimeout(() => { done = true; el.textContent = to; }, ms + 150);
+    }
+
+    // ── when it happened, for one student ────────────────────────────────────
+    // Eight columns, a count over each and a clock time under each. A column is
+    // red when something serious fell in that stretch, so severity is the colour
+    // of the bar rather than a second bar stacked inside it.
+    function whenChart(s) {
+      const from = t(s.p.joined_at);
+      const to = s.p.last_seen ? t(s.p.last_seen) : (s.lastAt || from + 60e3);
+      const span = Math.max(60e3, to - from);
+      if (!s.events.length)
+        return '<div class="wnone">Nothing was flagged between ' + clock(from) + ' and ' + clock(to) + '.</div>';
+      // fewer columns for a short sitting — eight labels all reading the same
+      // minute would look precise and say nothing
+      const N = Math.max(3, Math.min(8, Math.floor(span / 120e3)));
+      const slice = span / N;
+      const bins = Array.from({ length: N }, () => ({ n: 0, alert: false, kinds: {} }));
+      for (const e of s.events) {
+        const i = Math.max(0, Math.min(N - 1, Math.floor((t(e.at) - from) / span * N)));
+        bins[i].n++;
+        if (ALERT_KINDS.has(e.kind)) bins[i].alert = true;
+        bins[i].kinds[e.kind] = (bins[i].kinds[e.kind] || 0) + 1;
+      }
+      const max = Math.max(1, ...bins.map(b => b.n));
+      const cols = bins.map((b, i) => {
+        const what = Object.entries(b.kinds).sort((x, y) => y[1] - x[1])
+          .map(([k, c]) => c + " " + label(k).toLowerCase()).join(", ");
+        return '<div class="wcol' + (b.n ? "" : " zero") + '" title="' +
+          esc(clock(from + i * slice) + "–" + clock(from + (i + 1) * slice) + " · " +
+              (b.n ? what : "nothing flagged")) + '">' +
+          '<span class="wn">' + (b.n || "") + '</span>' +
+          '<span class="wbar' + (b.alert ? " alert" : "") + '" data-h="' + (b.n / max * 100) + '"></span></div>';
+      }).join("");
+      return '<div class="wcols">' + cols + '</div><div class="wx">' +
+        bins.map((b, i) => '<span>' + clock(from + i * slice) + '</span>').join("") + '</div>' +
+        (bins.some(b => b.alert)
+          ? '<div class="wkey"><i></i>a phone or a second face was seen in that stretch</div>' : '');
+    }
+
+    function scardHtml(s, key, i) {
+      const kinds = Object.entries(s.counts).sort((a, b) => b[1] - a[1]);
+      const cls = key === "none" ? "" : key;
+      return '<div class="scard ' + cls + '" data-id="' + esc(s.p.id) + '" style="animation-delay:' +
+          (i * 0.035) + 's">' +
+        '<button class="shead"><span class="sdot ' + cls + '"></span>' +
+          '<span class="sname">' + esc(s.p.name) + '</span>' +
+          '<span class="swhy">' + esc(s.phrase || (s.unverified ? "no monitoring data" : "nothing recorded")) + '</span>' +
+          '<span class="schev">›</span></button>' +
+        '<div class="sbody"><div class="sinner"><div class="spad">' +
+          '<div class="slab">When it happened<span class="rt">' +
+            (s.events.length ? s.events.length + " flag" + (s.events.length === 1 ? "" : "s") : "") +
+          '</span></div>' + whenChart(s) +
+          (kinds.length ? '<div class="slab">What was flagged</div><div class="kinds">' +
+            kinds.map(([k, n]) => '<span class="kd ' + (ALERT_KINDS.has(k) ? "alert" : "") + '"><b>' + n +
+              '</b> ' + esc(label(k)) + '</span>').join("") + '</div>' : "") +
+          // the verdicts, what the student said and what was concluded all live
+          // in the record popup — this opens the same one the tiles used to
+          '<button class="srec" data-rec="' + esc(s.p.id) + '">Open full record ›</button>' +
+        '</div></div></div></div>';
+    }
+
+    function openBand(k) {
+      const by = splitByBand(read.students), list = by[k];
+      const nm = (REPORT_BANDS.find(b => b.key === k) || {}).label || k;
+      $("who").innerHTML =
+        '<div class="whd"><h2>' + list.length + ' ' + nm.toLowerCase() + '</h2>' +
+          '<button class="x" data-close>Close</button></div>' +
+        list.slice(0, shown).map((s, i) => scardHtml(s, k, i)).join("") +
+        (list.length > shown
+          ? '<button class="smore" data-more>Show ' + (list.length - shown) + ' more</button>' : "");
+    }
+    let closing = null;
+    function closeWho() {
+      const w = $("who"); if (!w.innerHTML) return;
+      clearTimeout(closing); w.classList.add("out");
+      closing = setTimeout(() => { w.innerHTML = ""; w.classList.remove("out"); }, 220);
+    }
+    // the columns rise left to right once the card has finished opening
+    function runWhen(card) {
+      card.querySelectorAll(".wcol").forEach((c, i) => setTimeout(() => {
+        const bar = c.querySelector(".wbar");
+        if (bar) bar.style.height = bar.dataset.h + "%";
+        c.classList.add("on");
+      }, 280 + i * 55));
+    }
+    function resetWhen(card) {
+      card.querySelectorAll(".wcol").forEach(c => {
+        const bar = c.querySelector(".wbar");
+        if (bar) bar.style.height = "0%";
+        c.classList.remove("on");
+      });
+    }
+
+    $("panel").addEventListener("click", e => {
+      const hit = e.target.closest("[data-band]"); if (!hit) return;
+      const k = hit.getAttribute("data-band");
+      band = band === k ? null : k; shown = 8;
+      chartSig = null; drawReport();
+      if (!band) return closeWho();
+      openBand(band);
+      const w = $("who"); w.classList.remove("out");
+      requestAnimationFrame(() => {
+        if (w.getBoundingClientRect().top > innerHeight - 120)
+          w.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      });
+    });
+    $("who").addEventListener("click", e => {
+      if (e.target.closest("[data-close]")) {
+        band = null; shown = 8; chartSig = null; drawReport(); closeWho(); return; }
+      if (e.target.closest("[data-more]")) {
+        shown += 20; openBand(band);
+        requestAnimationFrame(() => $("who").querySelectorAll(".scard.open").forEach(runWhen));
+        return; }
+      const rec = e.target.closest("[data-rec]");
+      if (rec) { const el = rec.closest(".scard");
+        openStudent(rec.getAttribute("data-rec"), el); return; }
+      // one card open at a time — two expanded records push the list off screen
+      const head = e.target.closest(".shead");
+      if (head) {
+        const card = head.closest(".scard"), was = card.classList.contains("open");
+        $("who").querySelectorAll(".scard.open").forEach(c => { c.classList.remove("open"); resetWhen(c); });
+        if (!was) { card.classList.add("open"); runWhen(card);
+          setTimeout(() => card.scrollIntoView({ behavior: "smooth", block: "nearest" }), 200); }
+      }
     });
 
     function draw() {
@@ -370,11 +583,13 @@
         : "";
 
       const body = all.length
-        ? '<div class="stand">' + stand + '</div>' + '<div class="chart">' + chartHtml(false) + '</div>' +
+        ? '<div class="stand">' + stand + '</div>' + '<div class="chart">' + chartHtml(splitByBand(read.students), { interactive: false }) +
+            '<p class="bkey">' + BAND_KEY + '</p></div>' +
           f.map(findingHtml).join("") + briefHtml(brief)
         : '<div class="none-yet">Nothing was flagged. ' +
           '<span class="rest">' + word(read.roster.length) + ' student' + (read.roster.length === 1 ? "" : "s") + ' finished clear.</span></div>' +
-          '<div class="chart">' + chartHtml(false) + '</div>';
+          '<div class="chart">' + chartHtml(splitByBand(read.students), { interactive: false }) +
+            '<p class="bkey">' + BAND_KEY + '</p></div>';
 
       const unver = read.unverified.length
         ? '<div class="clearlist"><span class="lab">No monitoring data</span>' +
@@ -390,7 +605,7 @@
         'detection, offered as an aid to human judgement and not as a conclusion.</p>' +
         '<div class="sign"><span>Reviewed by</span><span>Signature</span><span>Date</span></div>' +
         appendixHtml(f) + '<div class="msg" id="msg"></div>';
-      drawRoom();
+      drawReport();
     }
 
     // the document only needs rebuilding when the findings themselves change
@@ -400,7 +615,7 @@
         "#" + read.clear.length + "#" + read.roster.length +
         // how much of it the download carries is part of what the document IS
         "#" + ($("fullDoc").checked ? "all" : "key");
-      if (sig === docSig) { drawRoom(); return; }
+      if (sig === docSig) { drawReport(); return; }
       docSig = sig; draw();
     }
 
@@ -409,55 +624,10 @@
     // green finished clear, amber was flagged, red flagged seriously. Press one and
     // it grows into that student's record. The document above is what Download
     // prints; on screen this is what a teacher actually works through.
-    const rtiles = new Map();   // participant id -> tile element, kept across redraws
-    function drawRoom() {
-      const live = exam && exam.status === "open";
-      // Online first while the exam runs — the teacher is watching this page during
-      // it, and someone who has dropped out matters more than someone's flag count.
-      const rows = read.students.slice().sort((a, b) =>
-        (live ? (isOnline(b.p) ? 1 : 0) - (isOnline(a.p) ? 1 : 0) : 0) ||
-        b.score - a.score || a.p.name.localeCompare(b.p.name));
-      const on = rows.filter(x => isOnline(x.p)).length, off = rows.length - on;
-      const ptxt = live
-        ? on + " online" + (off ? " · " + off + " offline" : "") + " · " + rows.length + " joined"
-        : rows.length + (rows.length === 1 ? " student joined" : " students joined");
-      if ($("presence").textContent !== ptxt) $("presence").textContent = ptxt;
-
-      // Reconcile — never rebuild. This page redraws every 2 s, and replacing the
-      // grid's innerHTML each time destroyed thirty tiles, killed any hover, and
-      // flickered the whole room. Same mistake the live room already learned.
-      const room = $("room");
-      for (const st of rows) {
-        const up = isOnline(st.p);
-        let el = rtiles.get(st.p.id);
-        if (!el) {
-          el = document.createElement("button");
-          el.type = "button"; el.className = "rtile"; el.dataset.id = st.p.id;
-          el.innerHTML = '<span class="rn"><i class="pd"></i><span class="nm"></span></span><span class="rs"></span>';
-          rtiles.set(st.p.id, el); room.appendChild(el);
-        }
-        el.dataset.band = st.risk;   // what the chart above filters on
-        el.classList.toggle("quiet", st.band === "quiet" && !st.unverified);
-        el.classList.toggle("unver", !!st.unverified);
-        el.classList.toggle("warn", st.band === "warn");
-        el.classList.toggle("alert", st.band === "alert");
-        el.classList.toggle("serious", !!st.serious);
-        el.classList.toggle("gone", live && !up);
-        const dot = el.querySelector(".pd");
-        dot.style.display = live ? "" : "none";
-        dot.classList.toggle("up", up);
-        const nm = el.querySelector(".nm"); if (nm.textContent !== st.p.name) nm.textContent = st.p.name;
-        const rs = el.querySelector(".rs");
-        const txt = st.unverified ? "no data" : st.score === 0 ? "clear" : (st.phrase || "flagged");
-        if (rs.textContent !== txt) rs.textContent = txt;
-      }
-      for (const [id, el] of rtiles) if (!rows.some(r => r.p.id === id)) { el.remove(); rtiles.delete(id); }
-      let want = room.firstChild;
-      for (const st of rows) { const el = rtiles.get(st.p.id); if (!el) continue;
-        if (el !== want) room.insertBefore(el, want); else want = el.nextSibling; }
-
-      drawChart();
-
+    // A whole room flagging at once is still worth saying — it is what EXCUSES
+    // a class rather than accusing it — so the line survives the tiles it used
+    // to sit under, and is refreshed whenever the report is.
+    function drawRoomLine() {
       const m = read.moments.length ? read.moments[read.moments.length - 1] : null;
       $("roomline").classList.toggle("hidden", !m);
       if (m) {

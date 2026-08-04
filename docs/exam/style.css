@@ -80,34 +80,52 @@ h1,h2,h3,.brand b,.code,.big{font-family:var(--display);letter-spacing:-.02em}
 
    The count sits ABOVE each bar rather than inside it: a number printed on a
    green or grey block is either too small to read or too pale to pass
-   contrast, and above the bar it is full-contrast ink at any height. */
+   contrast, and above the bar it is full-contrast ink at any height.
+
+   One component, used by the report and by the full record, so the two can
+   never draw the same room differently. */
 .chart{margin:0 0 20px}
-.bars{display:flex;align-items:flex-end;gap:16px}
-.bcol{flex:1 1 0;display:grid;grid-template-rows:auto 1fr auto;gap:9px;height:186px;
-  justify-items:center;background:none;border:0;padding:0;cursor:pointer;font:inherit;
-  border-radius:10px;transition:opacity .2s}
-.bcol .bn{font:700 19px var(--display);color:var(--ink);font-variant-numeric:tabular-nums;line-height:1}
-.bplot{width:100%;height:100%;display:flex;align-items:flex-end;justify-content:center}
-.bbar{width:100%;max-width:78px;min-height:5px;border-radius:10px 10px 5px 5px;
-  transition:height .55s var(--spring),filter .18s}
-.bcol .blab{font-size:12.5px;font-weight:600;color:var(--muted);line-height:1.25;text-align:center}
-.bcol:hover .bbar{filter:brightness(.92)}
-.bcol:focus-visible{outline:2px solid var(--ink);outline-offset:3px}
-.bbar.high{background:var(--alert)} .bbar.medium{background:var(--warn)}
-.bbar.low{background:var(--faint)} .bbar.clear{background:var(--ok)}
-.bbar.unverified{background:var(--soft);border:1.5px dashed var(--line-strong)}
-/* while one band is chosen the others stay visible but stand back */
-.chart.on .bcol{opacity:.32} .chart.on .bcol.sel{opacity:1}
-.chint{display:block;font-size:12.5px;color:var(--faint);margin-top:12px}
-/* what the four words mean — printed, where the reader may not be a teacher */
-.bkey{font-size:12.5px;color:var(--muted);line-height:1.55;margin-top:12px}
-@media(max-width:520px){ .bars{gap:9px} .bcol{height:150px} .bcol .blab{font-size:11.5px} }
-@media(prefers-reduced-motion:reduce){ .bbar{transition-duration:.01ms !important} }
+.vchart{display:grid;grid-template-columns:34px 1fr;gap:0}
+.vy{position:relative;height:216px}
+.vy span{position:absolute;right:11px;transform:translateY(-50%);font-size:11.5px;color:var(--faint);
+  font-variant-numeric:tabular-nums;opacity:0;animation:vgFade .5s ease forwards}
+.vplot{position:relative;height:216px;border-bottom:1.5px solid var(--line-strong)}
+.vline{position:absolute;left:0;right:0;border-top:1px solid var(--line);transform:scaleX(0);
+  transform-origin:left;animation:vgGrow .7s var(--spring) forwards}
+.vbars{position:absolute;inset:0;display:flex;align-items:flex-end;gap:30px;padding:0 24px}
+.vcol{flex:1 1 0;height:100%;display:flex;align-items:flex-end;justify-content:center;position:relative;
+  background:none;border:0;padding:0;cursor:pointer;font:inherit;transition:opacity .3s ease}
+.vbar{width:100%;max-width:122px;border-radius:9px 9px 0 0;position:relative;height:0;
+  transition:height .85s var(--spring),filter .2s,transform .2s var(--spring);transform-origin:bottom}
+.vcol:hover .vbar{filter:brightness(.94)}
+.vcol:active .vbar{transform:scaleY(.985)}
+.vcol:focus-visible{outline:2px solid var(--ink);outline-offset:3px;border-radius:10px}
+.vn{position:absolute;left:0;right:0;bottom:calc(100% + 22px);text-align:center;
+  font-family:var(--display);font-size:23px;font-weight:700;font-variant-numeric:tabular-nums;line-height:1}
+.vp{position:absolute;left:0;right:0;bottom:calc(100% + 5px);text-align:center;font-size:12px;
+  color:var(--muted);font-variant-numeric:tabular-nums}
+.vbar.high{background:var(--alert)} .vbar.medium{background:var(--warn)} .vbar.none{background:var(--ok)}
+.vlabels{display:flex;gap:30px;padding:10px 24px 0}
+.vlabels span{flex:1 1 0;text-align:center;font-size:13.5px;font-weight:600;color:var(--ink-2);
+  transition:opacity .3s,color .2s}
+.chart.sel .vcol:not(.on){opacity:.28} .chart.sel .vlabels span:not(.on){opacity:.28}
+.pfoot{margin-top:16px;padding-top:14px;border-top:1px solid var(--line);
+  display:flex;gap:10px;align-items:baseline;font-size:12.5px;color:var(--muted)}
+.pfoot .hint{margin-left:auto;color:var(--faint)}
+/* what the three words mean — printed, where the reader may not be a teacher */
+.bkey{font-size:12.5px;color:var(--muted);line-height:1.55;margin-top:14px}
+@keyframes vgGrow{to{transform:scaleX(1)}}
+@keyframes vgFade{to{opacity:1}}
+@media(max-width:560px){ .vbars,.vlabels{gap:14px;padding-left:10px;padding-right:10px}
+  .vy,.vplot{height:170px} .vn{font-size:19px;bottom:calc(100% + 19px)} }
+@media(prefers-reduced-motion:reduce){ .vbar,.vline,.vy span{transition-duration:.01ms !important;
+  animation-duration:.01ms !important} }
 /* on paper it is a figure, not a control */
 @media print{
-  .bcol{cursor:default;opacity:1 !important} .chint{display:none}
-  .bars,.bbar,.bcol{-webkit-print-color-adjust:exact;print-color-adjust:exact}
-  .bcol{height:150px;break-inside:avoid}
+  .vcol{cursor:default;opacity:1 !important} .vlabels span{opacity:1 !important}
+  .pfoot .hint{display:none}
+  .vbar,.vcol,.vplot{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  .vchart{break-inside:avoid} .vy,.vplot{height:170px}
 }
 
 /* ── the same four numbers, at list size ──────────────────────────────────

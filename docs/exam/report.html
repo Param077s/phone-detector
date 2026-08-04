@@ -145,7 +145,7 @@
     // second opinion about the same events that could drift from the document's.
     // It reads the exam through the shared core now; only the LAYOUT is local.
     import { esc, label, ALERT_KINDS, readExam, clock, clockSec, useTimezone, tzNote,
-             RISK_BANDS, bandCounts, bandLabel } from "/exam/exam-core.js";
+             bandLabel, splitByBand, chartHtml, REPORT_BANDS, reportBand } from "/exam/exam-core.js";
     const $ = id => document.getElementById(id);
     const examId = new URLSearchParams(location.search).get("e");
     let reviewEnabled = false;   // teacher + the v6 review column exists
@@ -193,30 +193,36 @@
     // reading the ten high-risk students during a running exam should not have
     // the list thrown back at them every time an event arrives.
     let bandFilter = null, lastCounts = null, lastTotal = 0;
+    // the pill on a student card, in the chart's own three words
+    const bandName = k => k === "unverified" ? "no data"
+      : ((REPORT_BANDS.find(b => b.key === k) || {}).label || k).replace(" risk", "").toLowerCase();
 
-    function drawChart(counts, total) {
-      if (counts) { lastCounts = counts; lastTotal = total; }
-      counts = lastCounts; total = lastTotal;
-      if (!counts || !total) { $("chart").style.display = "none"; return; }
+    function drawChart(by, total) {
+      if (by) { lastCounts = by; lastTotal = total; }
+      by = lastCounts; total = lastTotal;
+      if (!by || !total) { $("chart").style.display = "none"; return; }
       // a band that has emptied out since it was chosen stops being a filter,
       // rather than leaving the page showing nothing and no way back
-      if (bandFilter && !counts[bandFilter]) bandFilter = null;
-      // the four bands are always drawn, even at zero — see RISK_BANDS
-      const bands = RISK_BANDS.filter(b => b.always || counts[b.key] > 0);
-      const max = Math.max(1, ...bands.map(b => counts[b.key]));
-      const bar = b => '<button type="button" class="bcol'+(bandFilter===b.key?" sel":"")+'"'+
-        ' data-band="'+b.key+'" aria-pressed="'+(bandFilter===b.key)+'"'+
-        ' aria-label="'+counts[b.key]+' '+b.label+'">'+
-        '<span class="bn">'+counts[b.key]+'</span>'+
-        '<span class="bplot"><span class="bbar '+b.key+'" style="height:'+
-          Math.round(counts[b.key]/max*100)+'%"></span></span>'+
-        '<span class="blab">'+b.short+'</span></button>';
+      if (bandFilter && !by[bandFilter].length) bandFilter = null;
       const hint = bandFilter
         ? "showing " + bandLabel(bandFilter) + " — press again for everyone"
-        : total + " student" + (total===1?"":"s") + " · press a bar to see only those";
+        : total + " student" + (total === 1 ? "" : "s") + " · press a bar to see only those";
       $("chart").style.display = "";
-      $("chart").innerHTML = '<div class="bars">'+bands.map(bar).join("")+'</div>'+
-        '<span class="chint">'+hint+'</span>';
+      $("chart").className = "chart" + (bandFilter ? " sel" : "");
+      $("chart").innerHTML = chartHtml(by, { selected: bandFilter }) +
+        '<div class="pfoot">' +
+          (by.unverified.length
+            ? '<span>' + by.unverified.length + ' student' + (by.unverified.length === 1 ? "" : "s") +
+              ' never completed camera setup — no data either way.</span>' : '<span></span>') +
+          '<span class="hint">' + hint + '</span></div>';
+      // setTimeout, not requestAnimationFrame — rAF is paused in a background
+      // tab, and a chart whose bars never left zero is worse than no chart.
+      setTimeout(() => {
+        $("chart").querySelectorAll(".vbar").forEach((el, i) => setTimeout(() => {
+          el.style.height = el.dataset.h + "%";
+          const n = el.querySelector(".vn"); if (n) n.textContent = el.dataset.n;
+        }, 120 + i * 90));
+      }, 0);
       applyBandFilter();
     }
 
@@ -297,7 +303,8 @@
         st.episodes.forEach(ep => csvRows.push([st.p.name, label(ep.kind), ep.count,
           fmt(epStart(ep)), fmt(epEnd(ep)), ep.review || ""]));
         return { p: st.p, evs: st.events, eps: st.episodes, calib: st.calib, counts: st.counts,
-                 flags: st.live.length, score: st.score, band: st.risk, unverified: st.unverified };
+                 flags: st.live.length, score: st.score, band: reportBand(st) || "unverified",
+                 unverified: st.unverified };
       });
       const flagged = info.filter(i => i.flags > 0).sort((a,b) => b.score - a.score || a.p.name.localeCompare(b.p.name));
       // A student who never completed setup used to sit in the clear box beside
@@ -373,7 +380,7 @@
         '<div class="lines"><span>Reviewed by</span><span>Signature</span><span>Date</span></div></div>';
       $("out").innerHTML = html;
       renderCursor();
-      drawChart(bandCounts(read.students), read.students.length);
+      drawChart(splitByBand(read.students), read.students.length);
     }
 
     // a student's own "Your activity" — the SAME episodes the teacher sees, nothing hidden
