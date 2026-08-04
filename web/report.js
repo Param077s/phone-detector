@@ -1,3 +1,17 @@
+// NOTE: wrapped in an IIFE because this file now runs more than once per
+// tab. The teacher walks between the console, the live wall and this report, and
+// each arrival re-executes it. Two classic scripts share one global scope, so the
+// declarations below would collide on the second run and the page would
+// arrive blank. See /app/softnav.js.
+(function () {
+  // Standalone fallback: these pages still work opened directly, with or
+  // without the router (see /app/softnav.js).
+  var page = window.vigilPage || {
+    every: function (ms, fn) { return setInterval(fn, ms); },
+    listen: function (t, e, f, o) { t.addEventListener(e, f, o); },
+    onLeave: function () {}
+  };
+
 // Vigil · Exam report — reads the durable event log for one session and lays
 // it out as a per-student timeline. This is the calm, after-the-fact review a
 // human invigilator uses; the live tiles are a separate screen.
@@ -97,8 +111,8 @@ function updateBeams() {
     tl.style.setProperty("--fill", Math.max(0, Math.min(1, p)).toFixed(3));
   });
 }
-addEventListener("scroll", () => requestAnimationFrame(updateBeams), { passive: true });
-addEventListener("resize", () => requestAnimationFrame(updateBeams));
+page.listen(window, "scroll", () => requestAnimationFrame(updateBeams), { passive: true });
+page.listen(window, "resize", () => requestAnimationFrame(updateBeams));
 
 function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, (c) =>
@@ -156,4 +170,6 @@ $("pdfBtn").addEventListener("click", () => window.print());   // browser "Save 
 (() => {
   const h = location.hash.replace(/^#/, "").toUpperCase();
   if (/^[A-Z0-9]{4,6}$/.test(h)) { $("code").value = h; load(h); }
+})();
+
 })();

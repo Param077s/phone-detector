@@ -147,6 +147,36 @@
     tabIn.addEventListener("click", function(){ show("in"); });
     tabUp.addEventListener("click", function(){ show("up"); });
 
+    /* ── arriving at the console without loading a document ──────────────────
+       By the time this runs the sign-in POST has come back and the session
+       cookie is set, so the only thing still standing between here and the
+       console is its HTML. Fetching that and swapping it in costs one request;
+       `location.href` costs the same request PLUS throwing this document away —
+       the tab spinner, a white frame, and a parse of a page we already had the
+       bytes for.
+
+       The swap itself lives in /app/softnav.js, shared with the console, the
+       live room and the report. It cannot be a <script src> in this page's
+       head: /app/* is behind the auth gate and this page is, by definition,
+       reached before signing in. So it is pulled in at the one moment it is
+       both needed and permitted — after a successful sign-in — and if it
+       cannot be had, the transition is an ordinary navigation instead.
+
+       `replace: true`, not a push. A completed sign-in form is not somewhere
+       the back button should return you to. (It used to push: going back landed
+       on /enter, which the server redirects straight to /console, so the back
+       button appeared to do nothing.) */
+    function toConsole(next){
+      var url = next || "/console";
+      if (window.vigilGo) return void vigilGo(url, { replace: true });
+      var s = document.createElement("script");
+      s.src = "/app/softnav.js";
+      s.setAttribute("data-persist", "");
+      s.onload = function(){ vigilGo(url, { replace: true }); };
+      s.onerror = function(){ location.replace(url); };
+      document.head.appendChild(s);
+    }
+
     var err = document.getElementById("tErr");
     async function submitTeacher(endpoint, u, p, btn){
       err.textContent = "";
@@ -156,7 +186,7 @@
         var r = await fetch(endpoint, { method:"POST", headers:{"Content-Type":"application/json"},
           body: JSON.stringify({ username:u, password:p }) });
         var d = await r.json();
-        if (d.ok){ location.href = d.next || "/console"; return; }
+        if (d.ok){ toConsole(d.next); return; }
         err.textContent = d.error || "Something went wrong.";
       } catch(e){ err.textContent = "Couldn't reach the server."; }
       btn.disabled = false;

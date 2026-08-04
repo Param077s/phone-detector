@@ -108,12 +108,18 @@
     <div class="pop" id="pop" role="dialog" aria-modal="true" aria-labelledby="popName"><div class="popIn" id="popIn"></div></div>
   </div>
 
-  <script src="/exam/glass.js" defer></script>
   <script type="module">
-    import { sb, fetchExam, selectAll, orderedEvents } from "/exam/sb.js";
+    import { sb, fetchExam, selectAll, orderedEvents, EXAM_COLS } from "/exam/sb.js";
     import { esc, label, clock, ago, readExam, roomHeadline, ALERT_KINDS, t, isOnline,
              examOver, examStarted, examPending, msLeft, countdown, useTimezone,
              whenChart, kindChips, reportBand, examWindow } from "/exam/exam-core.js";
+    // The room is the page most likely to be left and returned to — a teacher
+    // walks between it, the report and the console all lesson. Everything it
+    // starts (two clocks, a realtime subscription, a visibility listener) is
+    // registered for teardown, because none of it should still be running
+    // against a room nobody is looking at.
+    import { go, replace, every, listen, channel, cached, invalidate } from "/exam/nav.js";
+    import { send } from "/exam/outbox.js";
     const $ = id => document.getElementById(id);
     const examId = new URLSearchParams(location.search).get("e");
 
@@ -398,7 +404,7 @@
       }, src ? 340 : 0);
     }
     $("scrim").onclick = morphClose;
-    addEventListener("keydown", e => { if (e.key === "Escape") morphClose(); });
+    listen(window, "keydown", e => { if (e.key === "Escape") morphClose(); });
 
     // ── what the popup says: now, not the whole exam ────────────────────────
     function noteField(prefix, pid) {
@@ -411,21 +417,35 @@
     function wireNote() {
       const inp = $("noteInp"); if (!inp) return;
       setTimeout(() => inp.focus(), 360);
-      inp.addEventListener("keydown", async e => {
+      inp.addEventListener("keydown", e => {
         if (e.key !== "Enter") return;
         const txt = inp.value.trim(); if (!txt) return;
         const prefix = inp.getAttribute("data-prefix"), pid = inp.getAttribute("data-pid") || null;
-        inp.value = "";
         const row = { exam_id: examId, text: (prefix ? prefix + " — " : "") + txt };
         if (pid) row.participant_id = pid;
-        let { data, error } = await sb.from("exam_notes").insert(row).select("at").maybeSingle();
-        if (error && pid) {   // pre-v10 the column doesn't exist — still record the note
-          delete row.participant_id;
-          ({ data, error } = await sb.from("exam_notes").insert(row).select("at").maybeSingle());
-          if (!error) { $("noted").textContent = "Saved to the report, but not sent (needs the v10 update)."; return; }
-        }
-        if (error) { inp.value = txt; $("noted").textContent = "Could not save that note."; return; }
-        $("noted").textContent = pid ? "Sent." : "Noted at " + clock(data ? data.at : Date.now()) + ".";
+
+        // The note is written the moment it is typed. It goes to the outbox,
+        // which owns it from here — including across a navigation away from
+        // this room, which is exactly when a teacher tends to type one and
+        // leave. Waiting on the server before admitting the note exists is what
+        // used to make this field feel like a web form.
+        inp.value = "";
+        const say = (m) => { const n = $("noted"); if (n) n.textContent = m; };
+        say(pid ? "Sent." : "Noted at " + clock(Date.now()) + ".");
+
+        let downgraded = false;
+        send("note:" + (pid || "room"), async () => {
+          const r = await sb.from("exam_notes").insert(row).select("at").maybeSingle();
+          if (r.error && pid && !downgraded) {   // pre-v10 the column doesn't exist — still record the note
+            downgraded = true;
+            delete row.participant_id;
+            return sb.from("exam_notes").insert(row).select("at").maybeSingle();
+          }
+          return r;
+        }).then(({ ok }) => {
+          if (!ok) say("Could not save that note.");
+          else if (downgraded) say("Saved to the report, but not sent (needs the v10 update).");
+        });
       });
     }
 
@@ -500,12 +520,15 @@
     }
 
     (async () => {
-      const { data: { user } } = await sb.auth.getUser();
-      if (!user) { location.replace("/exam/"); return; }
-      if (!examId) { location.replace("/exam/console.html"); return; }
-      const e = await fetchExam(examId, "title,code,status,owner,created_at,closed_at,starts_at,ends_at,duration_min");
+      const user = await cached("me", async () => (await sb.auth.getUser()).data.user, 60_000);
+      if (!user) { replace("/exam/"); return; }
+      if (!examId) { replace("/exam/console.html"); return; }
+      // Usually already in hand: the console starts this read when the pointer
+      // reaches the "Live room" link, so by the time the click lands the row is
+      // here and the room draws on the first frame.
+      const e = await cached("exam:" + examId, () => fetchExam(examId, EXAM_COLS), 8_000);
       // this page is the teacher's — only the exam's owner may watch its room
-      if (!e || e.owner !== user.id) { location.replace("/exam/console.html"); return; }
+      if (!e || e.owner !== user.id) { replace("/exam/console.html"); return; }
       exam = e; CLOSED = exam.status === "closed";
       useTimezone(exam.timezone);       // the room's clock is the room's, not the watcher's
       $("code").textContent = exam.code; document.title = "Vigil · " + exam.title;
@@ -525,6 +548,8 @@
         const { error } = await sb.from("exams").update(patch).eq("id", examId);
         if (error) return;
         Object.assign(exam, patch);
+        // the console and this page share one copy of this row; it just changed
+        invalidate("exam:" + examId); invalidate("exams:");
         renderHead();
       };
 
@@ -536,7 +561,7 @@
 
       // Nothing here interrupts. A flag elsewhere while a popup is open changes
       // the tile behind it quietly; the teacher meets it when they close.
-      sb.channel("exam-" + examId)
+      channel("exam-" + examId)
         .on("postgres_changes", { event: "*", schema: "public", table: "participants", filter: "exam_id=eq." + examId },
           p => { if (p.eventType === "DELETE") parts.delete(p.old.id); else parts.set(p.new.id, p.new); render(); })
         .on("postgres_changes", { event: "*", schema: "public", table: "events", filter: "exam_id=eq." + examId },
@@ -552,10 +577,10 @@
 
       // Ask every 4 s regardless of the socket: this is what makes a student appear
       // the moment they join and disappear when they go, with no reload.
-      setInterval(refresh, 2000);
-      setInterval(() => { renderHead(); render(); }, 1000);   // presence freshness + the eyebrow clock
+      every(2000, refresh);
+      every(1000, () => { renderHead(); render(); });   // presence freshness + the eyebrow clock
       // coming back to this tab should never show a stale room
-      document.addEventListener("visibilitychange", () => { if (!document.hidden) refresh(); });
+      listen(document, "visibilitychange", () => { if (!document.hidden) refresh(); });
     })();
   </script>
 </body>

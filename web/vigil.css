@@ -345,6 +345,21 @@ svg[viewBox="0 0 24 24"] { width: 16px; height: 16px; flex: none; }
 .content__inner { padding: var(--edge); max-width: 1480px; margin: 0 auto; }
 .content--flush { padding: 0; }
 
+/* ---- Panes ----
+   Each route keeps its own pane inside .content and only one is shown, so
+   leaving a page and coming back is a class change rather than a rebuild
+   (see the router in app.js).
+
+   `display: contents` is what makes that free: the pane takes part in the DOM
+   but not in layout, so .content lays out the view's own children exactly as it
+   did when they were its direct children. A wrapper that produced a box here
+   would have broken every scroll container and grid underneath it.
+
+   The hidden ones are display:none, which also stops their animations and
+   keeps them out of the accessibility tree and out of tab order. */
+.pane { display: contents; }
+.pane.is-hidden { display: none; }
+
 /* ==========================================================================
    MOBILE  —  phones (teachers watching over Wi-Fi). The sidebar becomes an
    off-canvas drawer; the topbar + content take the full width.
@@ -395,11 +410,43 @@ svg[viewBox="0 0 24 24"] { width: 16px; height: 16px; flex: none; }
   .topbar__search { min-width: 0; padding: 0 var(--s2); }
 }
 
-/* View entrance — content glides in, sections stagger */
+/* View entrance — content glides in, sections stagger.
+   Selectors match the pane's children as well as .content's own: a pane is
+   invisible to layout but not to selectors, so without the second half of each
+   rule the stagger would try to animate the pane itself and nothing would move.
+
+   This is a FIRST-render effect. Returning to a page you already opened does
+   not replay it — the content never left, and re-animating it on the way back
+   would be the app pretending to load something it still had. */
 @keyframes rise { from { opacity: 0; transform: translateY(10px); } }
-.content > * { animation: rise var(--t-glide) var(--ease) backwards; }
-.content > *:nth-child(2) { animation-delay: 40ms; }
-.content > *:nth-child(3) { animation-delay: 80ms; }
+.content > *, .content > .pane > * { animation: rise var(--t-glide) var(--ease) backwards; }
+.content > *:nth-child(2), .content > .pane > *:nth-child(2) { animation-delay: 40ms; }
+.content > *:nth-child(3), .content > .pane > *:nth-child(3) { animation-delay: 80ms; }
+
+/* ---- Changing page ----
+   The route swap runs inside a view transition, so these animate snapshots of
+   the two frames rather than live DOM: no blank frame, no reflow to watch, and
+   the shell (sidebar, topbar, clock) is untouched because it is not part of
+   what changed. 160ms — long enough to read as motion, short enough that it
+   never becomes something to sit through. */
+@media (prefers-reduced-motion: no-preference) {
+  /* Naming an element takes it OUT of the root snapshot and gives it a group of
+     its own, which the browser then morphs between the two states. The sidebar
+     and the topbar do not change across a route, so naming them is what makes
+     them sit perfectly still while the content crossfades — without this, the
+     root snapshot would include the whole window and the shell would fade in
+     and out along with the page, which is precisely the website feeling. */
+  .nav { view-transition-name: vg-nav; }
+  .topbar { view-transition-name: vg-topbar; }
+  ::view-transition-group(vg-nav), ::view-transition-group(vg-topbar) { animation: none; }
+
+  ::view-transition-old(root), ::view-transition-new(root) {
+    animation-duration: .16s; animation-timing-function: var(--ease);
+  }
+  ::view-transition-new(root) { animation-name: rise; }
+  ::view-transition-old(root) { animation-name: vgFadeOut; }
+  @keyframes vgFadeOut { to { opacity: 0; } }
+}
 
 /* ==========================================================================
    BUTTONS

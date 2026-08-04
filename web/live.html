@@ -20,6 +20,9 @@
     .counts{display:flex;gap:8px}
     .counts .pill b{color:var(--ink)}
     .counts .pill.flagged b{color:var(--warn)} .counts .pill.offline b{color:var(--alert)}
+    .back{display:inline-flex;align-items:center;color:var(--muted);flex:0 0 auto}
+    .back svg{width:18px;height:18px}
+    .back:hover{color:var(--ink)}
     .rep{color:var(--ink);text-decoration:none;font-size:13.5px;font-weight:600;
       border:1px solid var(--line-strong);padding:8px 14px;border-radius:var(--radius-sm);background:#fff}
     .rep:hover{border-color:var(--faint)}
@@ -60,15 +63,17 @@
 </head>
 <body>
   <div class="bar">
+    <a class="back" href="/console" aria-label="Back to the console"><svg viewBox="0 0 24 24" fill="none"><path d="M15 18l-6-6 6-6" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg></a>
     <span class="brand"><span class="logo"><svg viewBox="0 0 24 24" fill="none"><path d="M6 10V7.5A1.5 1.5 0 0 1 7.5 6H10M14 6h2.5A1.5 1.5 0 0 1 18 7.5V10M18 14v2.5a1.5 1.5 0 0 1-1.5 1.5H14M10 18H7.5A1.5 1.5 0 0 1 6 16.5V14" stroke="#fff" stroke-width="1.8" stroke-linecap="round"/><circle cx="12" cy="12" r="2.6" fill="#fff"/></svg></span><b id="title">Live exam</b></span>
     <span class="code" id="code"></span>
     <span class="live"><i></i> Live</span>
     <span id="alerts" class="pill" style="display:none">🔔 Alerts on</span>
     <div class="spacer"></div>
     <div class="counts" id="counts"></div>
-    <a class="rep" id="repLink" href="#" target="_blank">Report</a>
+    <a class="rep" id="repLink" href="#">Report</a>
   </div>
   <div class="wrap"><div id="out"></div></div>
+  <script src="/app/softnav.js" data-persist></script>
   <script src="/app/live.js"></script>
   <script>
   /* Back-to-top for a tall student wall (no progress bar — a live feed has no "end"). */
@@ -84,8 +89,9 @@
       var vh = window.innerHeight || document.documentElement.clientHeight || 800;
       top.classList.toggle("show", y > vh * 0.6);
     }
-    addEventListener("scroll", upd, { passive:true });
-    addEventListener("resize", upd, { passive:true });
+    var page = window.vigilPage || { listen: function(t,e,f,o){ t.addEventListener(e,f,o); } };
+    page.listen(window, "scroll", upd, { passive:true });
+    page.listen(window, "resize", upd, { passive:true });
     upd();
   })();
   </script>
