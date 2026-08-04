@@ -2,6 +2,21 @@
 
 All notable changes to Vigil. Dates are the release date.
 
+## 1.6.0 — 2026-08-05
+- **Moving around Vigil no longer loads a page.** Every screen used to be a
+  separate document, so each click threw the whole app away and started again —
+  that is what the browser's loading bar was reporting. Now only the part that
+  changed is replaced, and the app stays alive underneath it.
+- **Screens you come back to are already there.** Leaving Live Footage and
+  returning no longer rebuilds the camera wall; the feeds are handed back while
+  you are away and picked up where they were.
+- **The next screen starts loading before you click it**, so it is usually ready
+  by the time you get there.
+- **Fewer loading messages**, because there is less waiting to report. What is
+  left only appears if a wait is genuinely happening.
+- **Notes are saved in the background** — write one and move on; it will be
+  filed, and retried if the network is having a moment.
+
 ## 1.5.0 — 2026-07-27
 - A new living homepage: scroll through Vigil as one continuous journey
 - Exam integrity: monitor exams on each student's own device, video never leaves the laptop
