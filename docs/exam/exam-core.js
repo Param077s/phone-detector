@@ -510,7 +510,17 @@ export function chartHtml(byBand, opts = {}) {
 export const WHEN_COLS = 8;
 export function whenChart(s, opts = {}) {
   const from = t(s.p.joined_at);
-  const to = s.p.last_seen ? t(s.p.last_seen) : (opts.now || Date.now());
+  // WHERE THEIR TIME ENDS. `last_seen` is the honest answer, but exams recorded
+  // before it was written have none — and falling straight through to "now"
+  // stretched a two-hour sitting across every day since, piling every flag into
+  // the first column and leaving seven empty ones. A chart that confident and
+  // that wrong is worse than no chart.
+  //
+  // So: the last thing we actually saw them do, then the exam's own end, and
+  // only then the clock. A student still sitting in a running exam has neither
+  // of the first two and genuinely does run to now.
+  let to = s.p.last_seen ? t(s.p.last_seen) : (s.lastAt || opts.end || opts.now || Date.now());
+  if (opts.end) to = Math.min(to, opts.end);
   const span = Math.max(60000, to - from);
   if (!s.events.length)
     return '<div class="wnone">Nothing was flagged between ' + clock(from) + ' and ' + clock(to) + '.</div>';

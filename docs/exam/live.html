@@ -109,7 +109,7 @@
     import { sb, fetchExam, selectAll, orderedEvents } from "/exam/sb.js";
     import { esc, label, clock, ago, readExam, roomHeadline, ALERT_KINDS, t, isOnline,
              examOver, examStarted, examPending, msLeft, countdown, useTimezone,
-             whenChart, kindChips, reportBand } from "/exam/exam-core.js";
+             whenChart, kindChips, reportBand, examWindow } from "/exam/exam-core.js";
     const $ = id => document.getElementById(id);
     const examId = new URLSearchParams(location.search).get("e");
 
@@ -204,7 +204,7 @@
       pad.innerHTML =
         '<div class="slab">When it happened<span class="rt">' +
           (s.events.length ? s.events.length + " flag" + (s.events.length === 1 ? "" : "s") : "") +
-        '</span></div>' + whenChart(s) +
+        '</span></div>' + whenChart(s, { end: examWindow(exam).endT }) +
         (s.events.length ? '<div class="slab">What was flagged</div>' + kindChips(s) : "") +
         // the note an invigilator sends a student lives in the popup; the tile
         // that used to open it is gone, so the card carries the door instead

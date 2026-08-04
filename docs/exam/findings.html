@@ -353,7 +353,7 @@
         '<div class="sbody"><div class="sinner"><div class="spad">' +
           '<div class="slab">When it happened<span class="rt">' +
             (s.events.length ? s.events.length + " flag" + (s.events.length === 1 ? "" : "s") : "") +
-          '</span></div>' + whenChart(s) +
+          '</span></div>' + whenChart(s, { end: examWindow(exam).endT }) +
           (s.events.length ? '<div class="slab">What was flagged</div>' + kindChips(s) : "") +
           // the verdicts, what the student said and what was concluded all live
           // in the record popup — this opens the same one the tiles used to
