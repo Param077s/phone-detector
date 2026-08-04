@@ -602,7 +602,10 @@
     // what is open, so a verdict can refresh it in place instead of slamming it shut
     let openPid = null, openMom = null;
     function reopen() {
-      if (openPid) { const t = $("room").querySelector('.rtile[data-id="' + CSS.escape(openPid) + '"]');
+      // re-anchor to the card the popup grew out of — the room tiles it used to
+      // look for are gone, and querying a removed element threw on every refresh
+      // that happened while a record was open
+      if (openPid) { const t = $("who").querySelector('.scard[data-id="' + CSS.escape(openPid) + '"]');
         if (t) { openFrom = t; } studentHtml(openPid); }
       else if (openMom) {
         const m = read.moments.find(x => x.kind === openMom.kind && x.startT === openMom.startT);
@@ -686,11 +689,6 @@
         '<div class="caveat">A whole room flagging together is usually the room, not the students. ' +
         'Setting this aside clears it for all of them at once.</div>';
     }
-
-    $("room").addEventListener("click", e => {
-      const tile = e.target.closest(".rtile");
-      if (tile && !e.target.closest(".chip")) openStudent(tile.getAttribute("data-id"), tile);
-    });
 
     // ── verdicts: one press sets every event behind the finding ─────────────
     let pickFor = null;
