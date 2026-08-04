@@ -1,3 +1,17 @@
+// NOTE: wrapped in an IIFE because this file now runs more than once per
+// tab. The teacher walks between the console, this wall and the report, and each
+// arrival re-executes it. Two classic scripts share one global scope, so the
+// declarations below would collide on the second run and the page would
+// arrive blank. See /app/softnav.js.
+(function () {
+  // Standalone fallback: these pages still work opened directly, with or
+  // without the router (see /app/softnav.js).
+  var page = window.vigilPage || {
+    every: function (ms, fn) { return setInterval(fn, ms); },
+    listen: function (t, e, f, o) { t.addEventListener(e, f, o); },
+    onLeave: function () {}
+  };
+
 // Vigil · Live exam room — the teacher's wall of student tiles. It polls the
 // server's computed live status every couple of seconds; the tiles stay green
 // until a *confirmed* pattern turns one amber/red, and a student who goes dark
@@ -80,5 +94,7 @@ if (!/^[A-Z0-9]{4,6}$/.test(CODE)) {
 } else {
   watchExam();
   poll();
-  setInterval(poll, POLL_MS);
+  page.every(POLL_MS, poll);
 }
+
+})();

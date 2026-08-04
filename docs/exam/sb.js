@@ -16,6 +16,12 @@ export const sb = createClient(SUPABASE_URL, SUPABASE_ANON, {
 // so a page that simply listed `timezone` would go blank everywhere until the SQL
 // was pasted in — and migrations here are applied by hand, deliberately.
 export const OPTIONAL_EXAM_COLS = ["timezone"];   // v13
+// What the live room needs to draw itself. Named because the console PREFETCHES
+// this exact read when the pointer reaches a "Live room" link — a warmer that
+// asked for a different set of columns would be a wasted request followed by
+// the real one, and the two drifting apart is the kind of thing nothing tells
+// you about until the room is slow again.
+export const EXAM_COLS = "title,code,status,owner,created_at,closed_at,starts_at,ends_at,duration_min";
 export async function fetchExam(id, cols) {
   const get = c => sb.from("exams").select(c).eq("id", id).maybeSingle();
   let r = await get([cols, ...OPTIONAL_EXAM_COLS].join(","));

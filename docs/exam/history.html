@@ -45,28 +45,28 @@
     <div id="taken"></div>
   </div>
 
-  <script src="/exam/glass.js" defer></script>
   <script type="module">
     import { sb, esc, fetchExamBands } from "/exam/sb.js";
     import { bandChips } from "/exam/exam-core.js";
+    import { go, replace, cached, invalidate } from "/exam/nav.js";
     const $ = id => document.getElementById(id);
     const fmtDate = (iso) => iso ? new Date(iso).toLocaleDateString([], { month:"short", day:"numeric", year:"numeric" }) : "";
     const statusPill = (s) => s === "open"
       ? '<span class="pill ok">Open</span>' : '<span class="pill mut">Ended</span>';
 
     (async () => {
-      const { data:{ user } } = await sb.auth.getUser();
-      if (!user) { location.replace("/exam/"); return; }
+      const user = await cached("me", async () => (await sb.auth.getUser()).data.user, 60_000);
+      if (!user) { replace("/exam/"); return; }
       const signedIn = !user.is_anonymous && !!user.email;
       if (signedIn) {
         $("who").innerHTML = "Signed in as <b>" + esc(user.email) + "</b>";
         $("signout").style.display = "";
-        $("signout").onclick = async () => { await sb.auth.signOut(); localStorage.removeItem("vg_role"); location.href = "/exam/"; };
+        $("signout").onclick = async () => { await sb.auth.signOut(); localStorage.removeItem("vg_role"); invalidate(); go("/exam/"); };
       }
 
       // ── exams you ran (owned) ──
-      const { data:owned } = await sb.from("exams")
-        .select("id,title,code,status,created_at,starts_at,ends_at").eq("owner", user.id).order("created_at",{ascending:false});
+      const { data:owned } = await cached("history:owned:" + user.id, () => sb.from("exams")
+        .select("id,title,code,status,created_at,starts_at,ends_at").eq("owner", user.id).order("created_at",{ascending:false}), 10_000);
       if (owned && owned.length){
         $("owned").innerHTML = '<div class="sec-h">Exams you ran</div>' + owned.map(x =>
           '<div class="row"><div class="meta"><div class="title">'+esc(x.title)+'</div>'+
@@ -81,9 +81,9 @@
 
       // ── exams you took (joined as a student) ──
       const ownedIds = new Set((owned||[]).map(x => x.id));
-      const { data:parts } = await sb.from("participants")
+      const { data:parts } = await cached("history:taken:" + user.id, () => sb.from("participants")
         .select("exam_id, joined_at, exams(id,title,code,status,created_at)")
-        .eq("user_id", user.id).order("joined_at",{ascending:false});
+        .eq("user_id", user.id).order("joined_at",{ascending:false}), 10_000);
       const taken = (parts||[]).map(p => p.exams).filter(e => e && !ownedIds.has(e.id));
       if (taken.length){
         $("taken").innerHTML = '<div class="sec-h">Exams you took</div>' + taken.map(x =>
@@ -107,7 +107,9 @@
         const el = document.querySelector('.bands[data-b="' + CSS.escape(x.id) + '"]');
         if (!el) continue;
         try {
-          const r = await fetchExamBands(x);
+          // shared with the console's cards, so whichever page you reach first
+          // pays for reading the exam and the other one is instant
+          const r = await cached("bands:" + x.id, () => fetchExamBands(x), 3_600_000);
           el.classList.remove("pending");
           el.innerHTML = r.total ? bandChips(r.counts, { short: true })
             : '<span class="bd none">Nobody joined</span>';

@@ -142,9 +142,9 @@
     <div id="out"><div class="empty">Loading…</div></div>
   </div>
 
-  <script src="/exam/glass.js" defer></script>
   <script type="module">
-    import { sb, fetchExam, selectAll, orderedEvents } from "/exam/sb.js";
+    import { sb, fetchExam, selectAll, orderedEvents, EXAM_COLS } from "/exam/sb.js";
+    import { replace, every, listen, channel, cached } from "/exam/nav.js";
     // This page used to carry its own labels, weights, bands and episode logic — a
     // second opinion about the same events that could drift from the document's.
     // It reads the exam through the shared core now; only the LAYOUT is local.
@@ -436,7 +436,7 @@
     // Click a line, type, blur. maxlength matches the 400 the database enforces, so
     // the limit is felt while typing rather than reported as a failure afterwards.
     let myPid = null, editingSay = null;
-    document.addEventListener("click", e => {
+    listen(document, "click", e => {
       const row = e.target.closest(".sayrow"); if (!row || editingSay || teacher) return;
       const val = row.querySelector(".sv"), kind = row.getAttribute("data-kind");
       const current = val.classList.contains("none") ? "" : val.textContent.trim();
@@ -511,10 +511,12 @@
     }
 
     (async () => {
-      const { data:{ user:u } } = await sb.auth.getUser();
-      if (!u || !examId) { location.replace("/exam/"); return; }
+      // Read once per tab and shared with every other page — this used to be a
+      // round trip standing between arriving here and seeing anything at all.
+      const u = await cached("me", async () => (await sb.auth.getUser()).data.user, 60_000);
+      if (!u || !examId) { replace("/exam/"); return; }
       user = u;
-      const e = await fetchExam(examId, "title,code,status,created_at,closed_at,starts_at,ends_at,owner");
+      const e = await cached("exam:" + examId, () => fetchExam(examId, EXAM_COLS), 8_000);
       exam = e;
       if (exam) useTimezone(exam.timezone);
       // Role by CONTEXT first (how you got here), then ownership. The room opens activity
@@ -554,7 +556,7 @@
           await applyReview(b.getAttribute("data-ids").split(","), val, b);
         });
         // keyboard triage: arrows move, C confirms, X dismisses the highlighted episode
-        document.addEventListener("keydown", async (e) => {
+        listen(document, "keydown", async (e) => {
           if (e.metaKey || e.ctrlKey || e.altKey) return;
           const rows = cursorRows(); if (!rows.length) return;
           const k = e.key.toLowerCase();
@@ -575,11 +577,11 @@
 
       // LIVE: while the exam is open, new events + status changes stream straight in
       // whatever is on screen is current — no going back and forth to refresh
-      setInterval(fetchAndDraw, 5000);
-      addEventListener("visibilitychange", () => { if (!document.hidden) fetchAndDraw(); });
+      every(5000, fetchAndDraw);
+      listen(document, "visibilitychange", () => { if (!document.hidden) fetchAndDraw(); });
       if (open){
         let t; const deb = () => { clearTimeout(t); t = setTimeout(fetchAndDraw, 600); };
-        sb.channel("report-"+examId)
+        channel("report-"+examId)
           .on("postgres_changes", { event:"*", schema:"public", table:"events", filter:"exam_id=eq."+examId }, deb)
           .on("postgres_changes", { event:"*", schema:"public", table:"participants", filter:"exam_id=eq."+examId }, deb)
           .on("postgres_changes", { event:"UPDATE", schema:"public", table:"exams", filter:"id=eq."+examId },
@@ -587,23 +589,23 @@
               if (exam){ exam.status = p.new.status; $("sub").textContent = exam.title + " · code " + exam.code + " · " + exam.status; } } })
           .subscribe();
         if (notesEnabled)
-          sb.channel("notes-"+examId)
+          channel("notes-"+examId)
             .on("postgres_changes", { event:"*", schema:"public", table:"exam_notes", filter:"exam_id=eq."+examId }, deb)
             .subscribe();
-        const poll = setInterval(async () => {
+        const poll = every(15000, async () => {
           const { data } = await sb.from("exams").select("status").eq("id", examId).maybeSingle();
           if (data && data.status !== "open"){ $("livePill").style.display = "none"; clearInterval(poll); }
-        }, 15000);
+        });
       }
 
       // make sure PDF/print shows everything, then restore the tidy view. The
       // chosen band is dropped too: this page IS the full record, and printing
       // it with ten of a hundred students on it would be a record of nothing.
-      addEventListener("beforeprint", () => {
+      listen(window, "beforeprint", () => {
         if (bandFilter) { bandFilter = null; drawChart(); }
         document.querySelectorAll("details").forEach(d => { d.dataset.o = d.open?"1":""; d.open = true; });
       });
-      addEventListener("afterprint", () => document.querySelectorAll("details").forEach(d => { d.open = d.dataset.o==="1"; }));
+      listen(window, "afterprint", () => document.querySelectorAll("details").forEach(d => { d.open = d.dataset.o==="1"; }));
     })();
   </script>
 </body>

@@ -157,6 +157,40 @@ h1,h2,h3,.brand b,.code,.big{font-family:var(--display);letter-spacing:-.02em}
   .btn,.btn:active,.btn:hover{transform:none !important;transition-duration:.01ms !important}
 }
 
+/* ── changing page ────────────────────────────────────────────────────────
+   Navigation between the teacher's pages no longer loads a document (see
+   nav.js), so what is left to design is the moment itself.
+
+   The bar is named, which takes it OUT of the crossfade: a named element gets
+   its own transition group, so the browser holds that one strip still and
+   animates around it. Everything else — the console's cards, the room, the
+   report — is the root snapshot, and it crossfades over 170ms with a 4px rise.
+
+   The rise is small on purpose. It is enough to say the content is new and not
+   enough to be a slide; a page that travels across the viewport reads as a
+   phone, and this is a thing people use on a laptop with a class waiting.
+
+   No white anywhere in here: the outgoing frame is a snapshot that stays
+   painted until the incoming one is opaque, so there is never a frame with
+   nothing on it. */
+@media(prefers-reduced-motion:no-preference){
+  .glassbar{view-transition-name:vg-bar}
+  ::view-transition-old(root),::view-transition-new(root){animation-duration:.17s;animation-timing-function:var(--spring)}
+  ::view-transition-new(root){animation-name:vgPageIn}
+  ::view-transition-old(root){animation-name:vgPageOut}
+  @keyframes vgPageIn{from{opacity:0;transform:translateY(4px)}}
+  @keyframes vgPageOut{to{opacity:0}}
+  /* the fallback, for a browser with no View Transitions — same feel, done by
+     animating the incoming page in rather than crossfading two snapshots */
+  body.nav-enter{animation:vgPageIn .17s var(--spring) both}
+}
+/* A navigation that has to wait on the network — a page nobody hovered, on a
+   slow connection — says so with the cursor and nothing else. Deliberately not
+   a spinner or a bar: those need a delay before showing or they become the
+   flicker they were meant to explain, and at these sizes the wait is usually
+   a prefetch hit and therefore no wait at all. */
+html.is-navigating{cursor:progress}
+
 .pill{font-size:11.5px;font-weight:600;padding:4px 10px;border-radius:999px;background:var(--soft);color:var(--muted);white-space:nowrap}
 .pill.ok{background:var(--ok-soft);color:var(--ok)} .pill.alert{background:var(--alert-soft);color:var(--alert)}
 .dot{width:9px;height:9px;border-radius:50%;corner-shape:round;background:var(--faint);flex:0 0 auto}

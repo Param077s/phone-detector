@@ -116,6 +116,7 @@
   </div>
   <div class="toast" id="toast"></div>
 
+  <script src="/app/softnav.js" data-persist></script>
   <script>
   (function(){
     var origin = location.origin;
@@ -156,8 +157,8 @@
           '<span class="cp" data-cp="'+esc(x.code)+'">Copy invite</span></div>'+
         '<div class="stat" data-live="'+esc(x.code)+'"><div><b>—</b>present</div></div>'+
         '<div class="acts">'+
-          '<a class="btn ink sm" href="/app/live.html#'+esc(x.code)+'" target="_blank">Live room</a>'+
-          '<a class="btn ghost sm" href="/app/report.html#'+esc(x.code)+'" target="_blank">Report</a>'+
+          '<a class="btn ink sm" href="/app/live.html#'+esc(x.code)+'">Live room</a>'+
+          '<a class="btn ghost sm" href="/app/report.html#'+esc(x.code)+'">Report</a>'+
           (open?'<button class="btn ghost sm" data-close="'+esc(x.code)+'">Close</button>':'')+
         '</div>';
       return el;
@@ -205,7 +206,9 @@
     });
 
     me(); refresh();
-    setInterval(refresh, 5000);   // keep presence fresh
+    // Through the router, so leaving for the live room actually stops it —
+    // this used to be a new tab, where the console simply stayed alive.
+    (window.vigilPage || { every: function(ms,fn){ setInterval(fn,ms); } }).every(5000, refresh);   // keep presence fresh
   })();
   </script>
 </body>

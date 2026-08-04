@@ -387,7 +387,6 @@ const Live = {
   pollTimer: null,
 
   async render(root) {
-    root.className = "content content--flush";
     root.innerHTML = `
       <div class="toolbar">
         <div class="segmented" id="density">
@@ -439,6 +438,37 @@ const Live = {
 
   destroy() { clearInterval(Live.pollTimer); Live.feeds.forEach(stop => stop()); Live.feeds.clear();
     Live.selecting = false; Live.sel && Live.sel.clear(); document.body.classList.remove("is-selecting"); },
+
+  /* Leaving Live. The wall stays in the DOM showing the frame it was on, so
+     coming back is not a rebuild — but the feeds themselves are given back,
+     because a wall of thirty cameras is thirty open connections and there is
+     nobody looking at them.
+
+     The release is deferred to the browser's idle time rather than done here.
+     This runs on the frame the route changes on, and closing thirty streams
+     (each of which freezes its last frame to a canvas on the way out) is not
+     work to do while a transition is playing. Deferring it also means a quick
+     round trip — Live → Settings → Live — cancels the release before it
+     happens and comes back to feeds that never stopped. */
+  pause() {
+    clearInterval(Live.pollTimer); Live.pollTimer = null;
+    if (Live.selecting) Live.exitSelect();
+    if (Live._release) return;
+    Live._release = idleTask(() => {
+      Live._release = null;
+      Live.feeds.forEach(stop => stop());
+      Live.feeds.clear();
+    });
+  },
+
+  /* Coming back. No skeletons and no buildGrid: the tiles are still here, so
+     this is a status refresh that happens to restart whatever was released
+     (applyStatus starts a feed for any online camera that hasn't got one). */
+  async resume() {
+    if (Live._release) { Live._release(); Live._release = null; }
+    Live.pollTimer = setInterval(() => Live.refresh(false), 3000);
+    await Live.refresh(false);
+  },
 
   async refresh(first) {
     let cams, status;
@@ -755,6 +785,29 @@ const Live = {
 
 /* Snapshot polling — chained on load so a slow frame never piles up.
    Mirrors the backend's proven snapshot approach (no MJPEG freeze). */
+/* Run something when the browser has a moment, and hand back a canceller.
+   requestIdleCallback and setTimeout need different cancels, so the caller gets
+   a function instead of an id it would have to guess about. */
+function idleTask(fn, ms = 300) {
+  if (window.requestIdleCallback) { const h = requestIdleCallback(fn, { timeout: 2000 }); return () => cancelIdleCallback(h); }
+  const h = setTimeout(fn, ms); return () => clearTimeout(h);
+}
+
+/* Stopping a live <img> normally means clearing its src, which empties the
+   tile. Painting the frame it is already showing into a canvas first and
+   handing that back as the source stops the stream AND keeps the picture — so
+   a paused wall looks like a paused wall rather than a broken one, and coming
+   back replaces a real frame with a newer real frame instead of filling a hole. */
+function freezeFrame(img) {
+  try {
+    if (!img.naturalWidth) { img.removeAttribute("src"); return; }
+    const c = document.createElement("canvas");
+    c.width = img.naturalWidth; c.height = img.naturalHeight;
+    c.getContext("2d").drawImage(img, 0, 0);
+    img.src = c.toDataURL("image/jpeg", 0.72);
+  } catch (_) { img.removeAttribute("src"); }
+}
+
 function startFeed(img, id, opts) {
   if (MOCK) { img.src = mockFrame(id); return () => {}; }
   // MJPEG plays at the camera's FULL native frame rate (no snapshot-polling
@@ -766,7 +819,7 @@ function startFeed(img, id, opts) {
     || ["localhost", "127.0.0.1", "::1"].includes(location.hostname);
   if (stream) {
     img.src = `/stream/${id}`;                 // continuous, full-fps
-    return () => { try { img.src = ""; } catch (_) {} };
+    return () => { try { freezeFrame(img); } catch (_) {} };
   }
   let stopped = false;
   const gap = () => document.hidden ? 1000 : ({ comfortable: 90, cozy: 120, compact: 160, dense: 220 }[state.density] || 130);
@@ -1035,7 +1088,6 @@ const PhoneAccess = {
 const Evidence = {
   all: [], pendingOpen: null, selected: new Set(), _lastSel: null,
   async render(root) {
-    root.className = "content content--flush";
     root.innerHTML = `<div class="evidence">
       <aside class="evidence__side" id="evSide"></aside>
       <div class="evidence__main"><div class="toolbar">
@@ -1052,11 +1104,14 @@ const Evidence = {
     await Evidence.load();
   },
   destroy() {},
+  // Nothing to give back — evidence is a list, not a connection. Coming back
+  // re-reads it behind the list that is already on screen.
+  async resume() { await Evidence.load(); },
 
   async load() {
     Evidence.selected.clear(); Evidence._lastSel = null;
     // Fetch all recent once; date range/day is filtered client-side (see filtered()).
-    try { Evidence.all = await api.evidence("?status=all"); }
+    try { Evidence.all = await warm("evidence", () => api.evidence("?status=all")); }
     catch {
       const body = $("#evBody");
       if (body) { body.innerHTML = ""; body.appendChild(recoverNode("network", [{ label: "Retry", primary: true, icon: "wifi", onClick: () => Evidence.load() }])); }
@@ -1264,7 +1319,6 @@ const Evidence = {
 const Users = {
   list: [], sort: { key: "username", dir: 1 },
   async render(root) {
-    root.className = "content";
     if (!isAdmin()) { root.innerHTML = `<div class="content__inner">${noAccess()}</div>`; return; }
     root.innerHTML = `<div class="users-wrap">
       <div class="page-head">
@@ -1279,10 +1333,16 @@ const Users = {
     $("#addUser").onclick = () => Users.form();
     $("#uSearch").oninput = debounce(() => Users.paint(), 120);
     $$("[data-k]").forEach(th => th.onclick = () => { const k = th.dataset.k; state && (Users.sort = { key: k, dir: Users.sort.key === k ? -Users.sort.dir : 1 }); Users.paint(); });
-    try { Users.list = await api.users(); } catch { Users.list = []; }
+    try { Users.list = await warm("users", () => api.users()); } catch { Users.list = []; }
     Users.paint();
   },
   destroy() {},
+  async resume() {
+    if (!isAdmin()) return;
+    unwarm("users");
+    try { Users.list = await warm("users", () => api.users()); } catch { return; }
+    Users.paint();
+  },
   paint() {
     const q = ($("#uSearch")?.value || "").toLowerCase();
     let rows = Users.list.filter(u => !q || (u.username + " " + (u.email||"")).toLowerCase().includes(q));
@@ -1316,7 +1376,7 @@ const Users = {
     $("[data-save]", node).onclick = async () => {
       const f = new FormData(); $$("[data-f]", node).forEach(i => f.append(i.dataset.f, i.value));
       if (!f.get("username").trim()) { toast("Username is required", { kind: "danger" }); return; }
-      try { await api.addUser(f); toast("User added", { kind: "ok" }); close(); Users.render($("#view")); } catch { toast("Could not add user", { kind: "danger" }); }
+      try { await api.addUser(f); toast("User added", { kind: "ok" }); close(); Users.render(paneOf("users")); } catch { toast("Could not add user", { kind: "danger" }); }
     };
   },
   resetPassword(u) {
@@ -1342,7 +1402,7 @@ const Users = {
   async remove(u) {
     if (u.username === state.me.username) { toast("You can't remove yourself", { kind: "danger" }); return; }
     if (!await confirmDialog({ title: "Remove user?", body: `${u.username} will lose access to Vigil.`, confirmText: "Remove user", danger: true })) return;
-    await api.delUser(u.username); toast("User removed", { kind: "ok" }); Users.render($("#view"));
+    await api.delUser(u.username); toast("User removed", { kind: "ok" }); Users.render(paneOf("users"));
   },
 };
 
@@ -1352,7 +1412,6 @@ const Users = {
 const Exams = {
   list: [],
   async render(root) {
-    root.className = "content";
     root.innerHTML = `<div class="users-wrap">
       <div class="page-head">
         <div><h1>Exams</h1><div class="muted">Create a monitored exam, share the code with students, and review each one's activity.</div></div>
@@ -1363,10 +1422,15 @@ const Exams = {
         <th>Exam</th><th>Join code</th><th>Status</th><th>Created</th><th></th>
       </tr></thead><tbody id="exBody">${skel.rows(3)}</tbody></table></div></div>`;
     $("#newExam").onclick = () => Exams.create();
-    try { Exams.list = await api.examSessions(); } catch { Exams.list = []; }
+    try { Exams.list = await warm("exams", () => api.examSessions()); } catch { Exams.list = []; }
     Exams.paint();
   },
   destroy() {},
+  async resume() {
+    unwarm("exams");
+    try { Exams.list = await warm("exams", () => api.examSessions()); } catch { return; }
+    Exams.paint();
+  },
   paint() {
     const body = $("#exBody");
     if (!body) return;
@@ -1406,7 +1470,7 @@ const Exams = {
       try {
         const r = await api.examCreate(title);
         if (!r || !r.ok) throw new Error();
-        close(); toast(`Exam created — code ${r.code}`, { kind: "ok" }); Exams.render($("#view"));
+        close(); toast(`Exam created — code ${r.code}`, { kind: "ok" }); Exams.render(paneOf("exams"));
       } catch { toast("Could not create exam", { kind: "danger" }); }
     };
   },
@@ -1418,7 +1482,7 @@ const Exams = {
   },
   async close(s) {
     if (!await confirmDialog({ title: "Close this exam?", body: `Students will no longer be able to join ${s.title || "this exam"}.`, confirmText: "Close exam", danger: true })) return;
-    try { await api.examClose(s.code); toast("Exam closed", { kind: "ok" }); Exams.render($("#view")); }
+    try { await api.examClose(s.code); toast("Exam closed", { kind: "ok" }); Exams.render(paneOf("exams")); }
     catch { toast("Could not close exam", { kind: "danger" }); }
   },
 };
@@ -1437,9 +1501,8 @@ const Settings = {
     ["account", "Account", "users"],
   ],
   async render(root) {
-    root.className = "content content--flush";
     if (!isAdmin()) { root.innerHTML = `<div class="content__inner">${noAccess()}</div>`; return; }
-    try { Settings.data = await api.settings(); } catch { Settings.data = {}; }
+    try { Settings.data = await warm("settings", () => api.settings()); } catch { Settings.data = {}; }
     root.innerHTML = `<div class="settings">
       <nav class="settings__nav" id="setNav">${Settings.groups.map(([k,l,ic]) =>
         `<div class="nav__item ${Settings.section===k?"is-active":""}" data-s="${k}">${icon(ic)} ${l}</div>`).join("")}</nav>
@@ -1448,6 +1511,14 @@ const Settings = {
     Settings.paint();
   },
   destroy() {},
+  // Returning keeps the section you were on and the place you had scrolled to;
+  // only the values are re-read, and only if they changed does anything move.
+  async resume() {
+    if (!isAdmin()) return;
+    unwarm("settings");
+    try { Settings.data = await warm("settings", () => api.settings()); } catch { return; }
+    Settings.paint();
+  },
   row(name, desc, control) {
     return `<div class="setting"><div class="setting__info"><div class="setting__name">${name}</div><div class="setting__desc">${desc}</div></div><div class="setting__control">${control}</div></div>`;
   },
@@ -1884,13 +1955,81 @@ const Updates = {
    10. SHELL + ROUTER
    ========================================================================= */
 const ROUTES = {
-  live:     { title: "Live Footage", sub: "Real-time monitoring", view: Live, section: "monitor" },
-  evidence: { title: "Evidence",     sub: "Detected events",       view: Evidence, section: "monitor" },
+  live:     { title: "Live Footage", sub: "Real-time monitoring", view: Live, section: "monitor", flush: true },
+  evidence: { title: "Evidence",     sub: "Detected events",       view: Evidence, section: "monitor", flush: true },
   exams:    { title: "Exams",        sub: "Integrity monitoring",  view: Exams, section: "monitor" },
   users:    { title: "Users",        sub: "Access & roles",        view: Users, section: "manage" },
-  settings: { title: "Settings",     sub: "Configuration",         view: Settings, section: "manage" },
+  settings: { title: "Settings",     sub: "Configuration",         view: Settings, section: "manage", flush: true },
 };
 let current = null;
+
+/* =========================================================================
+   Keeping the pages alive
+   =========================================================================
+   The old mount() emptied #view and re-rendered from scratch on every route
+   change. Nothing about that involved the browser loading a document — this is
+   a hash router and always has been — but it produced the same feeling, because
+   leaving Live tore down every camera stream and coming back rebuilt the wall
+   out of grey skeleton tiles. A page that shows you a loading state for
+   something it had a second ago is a page that lost it on purpose.
+
+   So each route now keeps its own pane, and a route change hides one and shows
+   another. Live comes back with its cameras exactly where they were; Settings
+   comes back on the section you left it on, scrolled where you left it.
+
+   The panes are `display:contents`, so they are invisible to layout — .content
+   still lays out the view's children directly, and no wrapper appears in the
+   box tree to break a grid or a scroll container.
+
+   What a view has to do about being hidden is its own business, and the two
+   halves are different: pausing should give back anything expensive (Live hands
+   back its MJPEG connections — a wall of thirty cameras is thirty open sockets
+   and no reason to hold them for a page nobody is looking at), while resuming
+   should re-acquire it and refresh, without a skeleton, because the last frame
+   is still on screen to replace. */
+const panes = new Map();
+
+function paneOf(route) { return panes.get(route) || null; }
+
+/* Views declare the padding they want on the scroll container. It has to live
+   on .content itself rather than on the pane, because .content IS the scroller
+   and a display:contents child cannot carry padding. */
+function contentClass(flush) {
+  const v = $("#view");
+  if (v) v.className = flush ? "content content--flush" : "content";
+}
+
+/* ---- warm data ----------------------------------------------------------
+   Opening Users for the first time should not be the first moment anybody asks
+   the server who the users are. Once the app is idle these are fetched ahead of
+   being wanted, so the first visit to a page paints from memory.
+
+   Short TTL: this is a monitoring tool, and a stale roster or a stale settings
+   page would be worse than a slow one. The cached value is what the view draws
+   FIRST; every view still refreshes behind that. */
+const warmStore = new Map();
+function warm(key, make, ttl = 10_000) {
+  const hit = warmStore.get(key);
+  if (hit && Date.now() - hit.at < ttl) return hit.p;
+  const p = Promise.resolve().then(make);
+  warmStore.set(key, { at: Date.now(), p });
+  p.catch(() => { if (warmStore.get(key)?.p === p) warmStore.delete(key); });
+  return p;
+}
+function unwarm(key) { warmStore.delete(key); }
+
+function prefetchRoutes() {
+  const idle = window.requestIdleCallback || (fn => setTimeout(fn, 500));
+  idle(() => {
+    const admin = isAdmin();
+    if (!state.me.exam_only) warm("evidence", () => api.evidence("?status=all")).catch(() => {});
+    warm("exams", () => api.examSessions()).catch(() => {});
+    if (admin) {
+      warm("users", () => api.users()).catch(() => {});
+      warm("settings", () => api.settings()).catch(() => {});
+    }
+  });
+}
 
 function shell() {
   const nav = (id, ic, label, badge) => `<div class="nav__item ${state.route===id?"is-active":""}" data-route="${id}" role="link" tabindex="0" title="${label}" ${state.route===id?'aria-current="page"':""}>${icon(ic)}<span>${label}</span>${badge?`<span class="nav__badge" id="navBadge">${badge}</span>`:""}</div>`;
@@ -1970,20 +2109,49 @@ async function mount() {
   if (!ROUTES[route]) route = fallback;
   // Exam-only servers have no cameras — Live/Evidence don't exist here.
   if (state.me.exam_only && (route === "live" || route === "evidence")) route = "exams";
+  if (route === state.route && panes.has(route)) return;   // already here
+  const from = current;      // null on the very first mount — nothing to fade from
   state.route = route;
   localStorage.setItem("vigil.route", state.route);   // reopen where you left off
   // tear down anything transient left over from the previous view
   $$(".menu").forEach(m => m.remove());
   $("#overlays").innerHTML = "";
-  if (current && current.destroy) current.destroy();
+  // Hand back what the outgoing page was holding, but keep its DOM: `pause` is
+  // "stop costing anything", not "stop existing". Views with nothing to give
+  // back fall through to the old destroy().
+  if (current) (current.pause || current.destroy || (() => {})).call(current);
   // update nav active + title without full reflow of feeds
   $$("[data-route]").forEach(n => { const on = n.dataset.route === state.route; n.classList.toggle("is-active", on); on ? n.setAttribute("aria-current", "page") : n.removeAttribute("aria-current"); });
   const r = ROUTES[state.route];
   $("#tbTitle") && ($("#tbTitle").textContent = r.title);
-  const view = $("#view");
-  view.innerHTML = "";
-  current = r.view;
-  await r.view.render(view);
+
+  const swap = async () => {
+    const view = $("#view");
+    let pane = panes.get(state.route);
+    const first = !pane;
+    if (first) {
+      pane = document.createElement("div");
+      pane.className = "pane";
+      pane.dataset.pane = state.route;
+      view.appendChild(pane);
+      panes.set(state.route, pane);
+    }
+    for (const [k, el] of panes) el.classList.toggle("is-hidden", k !== state.route);
+    contentClass(!!r.flush);
+    current = r.view;
+    if (first) await r.view.render(pane);
+    else if (r.view.resume) await r.view.resume(pane);
+  };
+
+  // A crossfade the platform performs on snapshots of the two frames: no blank
+  // frame between them, no reflow to watch, and — because the outgoing frame is
+  // a picture — nothing jumps when the incoming page's height differs.
+  if (!matchMedia("(prefers-reduced-motion: reduce)").matches && document.startViewTransition && from) {
+    const t = document.startViewTransition(swap);
+    try { await t.updateCallbackDone; } catch (_) {}
+  } else {
+    await swap();
+  }
 }
 
 /* "auto" follows the OS live (macOS appearance changes apply instantly). */
@@ -2211,6 +2379,9 @@ async function boot() {
   addEventListener("hashchange", mount);
   document.addEventListener("keydown", shortcuts);
   await mount();
+  // Read the other pages' data while the app is idle, so the first visit to
+  // each one paints from memory instead of from a request. See prefetchRoutes.
+  prefetchRoutes();
   Notify.start();               // app-wide detection awareness (bell + toasts)
   PhoneNotify.init();           // register the service worker (installable + notifications)
   Updates.start();              // automatic update notice (chip + one toast)

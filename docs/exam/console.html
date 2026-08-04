@@ -96,10 +96,14 @@
   </div>
   <div class="toast" id="toast"></div>
 
-  <script src="/exam/glass.js" defer></script>
   <script type="module">
-    import { sb, esc, fetchExamBands } from "/exam/sb.js";
+    import { sb, esc, fetchExamBands, fetchExam, EXAM_COLS } from "/exam/sb.js";
     import { examOver, examStarted, examPending, msLeft, countdown, bandChips } from "/exam/exam-core.js";
+    // Navigation here never loads a document — see /exam/nav.js. What this page
+    // has to hold up its end of is stopping what it starts: the poll and the
+    // realtime subscription below are registered through `every` and `channel`
+    // so leaving the console actually stops them.
+    import { go, replace, every, listen, channel, cached, invalidate, onPrefetch } from "/exam/nav.js";
     const $ = id => document.getElementById(id);
     const listEl = $("list"), countEl = $("count"), toastEl = $("toast");
     const toast = (m) => { toastEl.textContent=m; toastEl.classList.add("show"); clearTimeout(toast._t); toast._t=setTimeout(()=>toastEl.classList.remove("show"),1700); };
@@ -107,22 +111,37 @@
 
     let me = null;
     (async () => {
-      const { data:{ user } } = await sb.auth.getUser();
-      if (!user || user.is_anonymous || !user.email) { location.replace("/exam/"); return; }
+      // `getUser` costs a round trip and the answer cannot change while the tab
+      // is open without us hearing about it, so it is remembered for the tab
+      // rather than re-asked on arrival. This is most of why coming back to the
+      // console is now instant instead of blank-then-populated.
+      const user = await cached("me", async () => (await sb.auth.getUser()).data.user, 60_000);
+      if (!user || user.is_anonymous || !user.email) { replace("/exam/"); return; }
       me = user;
       localStorage.setItem("vg_role", "teacher");   // returning here lands on the console, not the picker
       $("who").innerHTML = "Signed in as <b>" + esc(user.email) + "</b>";
-      refresh();
-      setInterval(refresh, 5000);   // fallback cadence; realtime below makes it instant
+      refresh(true);
+      every(5000, refresh);   // fallback cadence; realtime below makes it instant
       // realtime: status flips, new joins and setting changes land without waiting for the poll
       let rt; const debRefresh = () => { clearTimeout(rt); rt = setTimeout(refresh, 300); };
-      sb.channel("console-"+me.id)
+      channel("console-"+me.id)
         .on("postgres_changes", { event:"*", schema:"public", table:"exams", filter:"owner=eq."+me.id }, debRefresh)
         .on("postgres_changes", { event:"*", schema:"public", table:"participants" }, debRefresh)
         .subscribe();
+
+      // Pointing at "Live room" or "Report" starts reading that exam before the
+      // click lands, so the next page opens with its subject already in hand.
+      // Read through `fetchExam` and with the same column list the live room
+      // asks for, so this is the very request that page would have made — a
+      // warmer that fetched a different shape would just be a wasted request
+      // followed by the real one.
+      onPrefetch((u) => {
+        const id = u.searchParams.get("e");
+        if (id) cached("exam:" + id, () => fetchExam(id, EXAM_COLS), 8_000);
+      });
     })();
 
-    $("signout").onclick = async () => { await sb.auth.signOut(); location.href = "/exam/"; };
+    $("signout").onclick = async () => { await sb.auth.signOut(); invalidate(); go("/exam/"); };
 
     async function newCode(){
       const { data, error } = await sb.rpc("new_exam_code");
@@ -151,7 +170,8 @@
           const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
           if (tz && data) await sb.from("exams").update({ timezone: tz }).eq("id", data.id);
         } catch (e) {}
-        $("title").value = ""; $("reqSignin").checked = false; toast("Exam created · code " + code); await refresh();
+        $("title").value = ""; $("reqSignin").checked = false; toast("Exam created · code " + code);
+        invalidate("exams:"); await refresh();
       } catch (ex) { toast(ex.message || "Couldn't create exam"); }
       btn.disabled = false;
     };
@@ -215,8 +235,15 @@
     // Reconcile, never rebuild — the list must not flicker, and an open card must
     // not jump under the cursor while someone is joining.
     const cards = new Map();
-    async function refresh(){
-      const { data, error } = await sb.from("exams").select("id,code,title,status,starts_at,ends_at,duration_min").eq("owner", me.id).order("created_at",{ascending:false});
+    // `first` is the arrival paint. It is allowed to answer from the last copy
+    // of this list the tab read — which on a return from the live room is a few
+    // seconds old — so the console draws populated on its first frame instead
+    // of empty. The 5-second poll immediately behind it makes it current.
+    async function refresh(first){
+      const load = () => sb.from("exams")
+        .select("id,code,title,status,starts_at,ends_at,duration_min")
+        .eq("owner", me.id).order("created_at",{ascending:false});
+      const { data, error } = first ? await cached("exams:" + me.id, load, 10_000) : await load();
       if (error) return;
       const rows = data || [];
       countEl.textContent = rows.length ? rows.length + " total" : "";
@@ -262,20 +289,18 @@
     //
     // Two at a time: a teacher with thirty terms of exams should not open thirty
     // connections at once, and the cards fill in as they land anyway.
-    const bandCache = new Map();
+    //
+    // Held in the tab's cache rather than a local Map, so that leaving the
+    // console and coming back does not re-read every finished exam's whole
+    // event log to re-learn numbers that cannot have changed. A closed exam is
+    // closed: an hour is a short TTL for it.
     let bandQueue = Promise.resolve();
     function fillBands(exams){
       for (const x of exams){
         const slot = () => listEl.querySelector('[data-b="'+CSS.escape(x.id)+'"]');
-        if (bandCache.has(x.id)){ paintBands(slot(), bandCache.get(x.id)); continue; }
-        if (bandCache.get(x.id) === null) continue;
-        bandCache.set(x.id, null);                       // claimed, in flight
         bandQueue = bandQueue.then(async () => {
-          try {
-            const r = await fetchExamBands(x);
-            bandCache.set(x.id, r);
-            paintBands(slot(), r);
-          } catch (e) { bandCache.delete(x.id); paintBands(slot(), null); }
+          try { paintBands(slot(), await cached("bands:" + x.id, () => fetchExamBands(x), 3_600_000)); }
+          catch (e) { paintBands(slot(), null); }
         });
       }
     }
@@ -298,14 +323,14 @@
     }
     $("shareX").onclick = () => shareModal.classList.remove("open");
     shareModal.addEventListener("click", (e) => { if (e.target === shareModal) shareModal.classList.remove("open"); });
-    addEventListener("keydown", (e) => { if (e.key === "Escape") shareModal.classList.remove("open"); });
+    listen(window, "keydown", (e) => { if (e.key === "Escape") shareModal.classList.remove("open"); });
     $("copyLink").onclick = async () => {
       try { await navigator.clipboard.writeText($("shareLink").value); toast("Link copied"); }
       catch (_) { $("shareLink").select(); toast("Press ⌘C to copy"); }
     };
 
     // coming back to this tab must never show a stale list
-    document.addEventListener("visibilitychange", () => { if (!document.hidden) refresh(); });
+    listen(document, "visibilitychange", () => { if (!document.hidden) refresh(); });
 
     listEl.addEventListener("click", async (e) => {
       const sh = e.target.closest("[data-share]");
@@ -316,14 +341,21 @@
         const now = new Date();
         const patch = { starts_at: now.toISOString() };
         if (d) patch.ends_at = new Date(now.getTime() + d*60000).toISOString();
-        const { error } = await sb.from("exams").update(patch).eq("id", st.getAttribute("data-start"));
-        toast(error ? "Could not start (needs the v12 update)" : "Exam started");
-        refresh(); return;
+        // The teacher says go and the room says go. The write goes out behind
+        // that, and realtime brings back the authoritative row a moment later —
+        // waiting on a round trip to admit a button was pressed is how software
+        // feels like a website.
+        const startId = st.getAttribute("data-start");
+        st.remove(); toast("Exam started"); invalidate("exams:");
+        sb.from("exams").update(patch).eq("id", startId)
+          .then(({ error }) => { if (error) toast("Could not start (needs the v12 update)"); refresh(); },
+                () => toast("Could not start"));
+        return;
       }
       const cl = e.target.closest("[data-close]");
       if (cl){ if(!confirm("Close this exam? Students stop being monitored.")) return;
         await sb.from("exams").update({ status:"closed", closed_at:new Date().toISOString() }).eq("id", cl.getAttribute("data-close"));
-        toast("Exam closed"); refresh(); return; }
+        toast("Exam closed"); invalidate("exams:"); refresh(); return; }
       // deleting takes the roster, the flags and the report with it — say so, and
       // make them type nothing they can mistype, just confirm the title back
       const dl = e.target.closest("[data-del]");
@@ -332,6 +364,7 @@
         if (!confirm("Delete \u201c" + title + "\u201d?\n\nThis removes the exam, everyone who joined, every flag and the report. It cannot be undone.")) return;
         const { error } = await sb.from("exams").delete().eq("id", dl.getAttribute("data-del"));
         toast(error ? "Could not delete that exam" : "Exam deleted");
+        invalidate("exams:"); invalidate("bands:" + dl.getAttribute("data-del"));
         refresh();
       }
     });

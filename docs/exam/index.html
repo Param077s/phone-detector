@@ -86,6 +86,11 @@
 
   <script type="module">
     import { sb, esc } from "/exam/sb.js";
+    // `go`/`replace` move between the app's pages without the browser loading a
+    // document. Handing them a URL this router does not own — "/" or the exam
+    // room — falls straight through to a real navigation, so every destination
+    // can be written the same way. See /exam/nav.js.
+    import { go, replace, invalidate } from "/exam/nav.js";
     const $ = id => document.getElementById(id);
     const show = (which) => { ["s-student","s-teacher"].forEach(s => $(s).classList.toggle("hidden", s !== which)); };
     const toast = (m) => { const t=$("toast"); t.textContent=m; t.classList.add("show"); clearTimeout(toast._t); toast._t=setTimeout(()=>t.classList.remove("show"),1800); };
@@ -128,11 +133,11 @@
       // an explicit role from the landing-page popup wins over the remembered one
       if (urlRole === "student") { await openStudent(); return; }
       if (urlRole === "teacher") {
-        if (isTeacherAcct(user)) { localStorage.setItem("vg_role","teacher"); location.replace("/exam/console.html"); return; }
+        if (isTeacherAcct(user)) { localStorage.setItem("vg_role","teacher"); replace("/exam/console.html"); return; }
         show("s-teacher"); return;
       }
       const role = localStorage.getItem("vg_role");
-      if (role === "teacher" && isTeacherAcct(user)) { location.replace("/exam/console.html"); return; }
+      if (role === "teacher" && isTeacherAcct(user)) { replace("/exam/console.html"); return; }
       if (role === "student") { await openStudent(); return; }
       // no role, no code: students are the overwhelming majority of people
       // who land here, and there is a teacher link on that screen
@@ -141,7 +146,7 @@
 
     $("goTeacher").onclick = async () => {
       const { data:{ user } } = await sb.auth.getUser();
-      if (isTeacherAcct(user)) { localStorage.setItem("vg_role","teacher"); location.replace("/exam/console.html"); return; }
+      if (isTeacherAcct(user)) { localStorage.setItem("vg_role","teacher"); replace("/exam/console.html"); return; }
       show("s-teacher");
     };
     // back goes where the student came from, not to a screen we deleted
@@ -184,7 +189,8 @@
                   { onConflict: "exam_id,user_id" });
         if (e2) throw e2;
         localStorage.setItem("vg_role", "student");
-        location.href = "/exam/room.html?e=" + exam.id;
+        invalidate();
+        location.href = "/exam/room.html?e=" + exam.id;   // a real load, on purpose: the room owns the camera
       } catch (ex) { err.textContent = ex.message || "Couldn't join."; joining = false; $("joinBtn").disabled = false; }
     }
     $("joinBtn").onclick = () => doJoin(false);
@@ -232,7 +238,8 @@
           const { error } = await sb.auth.signInWithPassword({ email, password });
           if (error) throw error;
         }
-        location.href = "/exam/console.html";
+        invalidate();
+        go("/exam/console.html");
       } catch (ex) { err.style.color=""; err.textContent = ex.message || "Couldn't sign in."; btn.disabled = false; }
     };
     $("pass").addEventListener("keydown", e => { if (e.key==="Enter") $("tGo").click(); });
