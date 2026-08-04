@@ -497,6 +497,60 @@ export function chartHtml(byBand, opts = {}) {
     ).join("") + '</div></div></div>';
 }
 
+// ── when it happened, for one student ───────────────────────────────────────
+// Eight columns across their time in the room, a count over each and a clock
+// time under each. A column is red when something serious fell in that stretch,
+// so severity is the colour of the bar rather than a second bar stacked inside
+// it — which is what made the earlier version something you decoded rather than
+// read. Hovering a column says exactly what it contains, empty ones included.
+//
+// The report and the live room draw the same figure from this one function. A
+// student's record must not look like two different afternoons depending on
+// which page you opened it from.
+export const WHEN_COLS = 8;
+export function whenChart(s, opts = {}) {
+  const from = t(s.p.joined_at);
+  const to = s.p.last_seen ? t(s.p.last_seen) : (opts.now || Date.now());
+  const span = Math.max(60000, to - from);
+  if (!s.events.length)
+    return '<div class="wnone">Nothing was flagged between ' + clock(from) + ' and ' + clock(to) + '.</div>';
+  // Fewer columns for a short sitting. Eight labels all reading the same minute
+  // would look precise and say nothing, which is worse than being coarse.
+  const N = Math.max(3, Math.min(WHEN_COLS, Math.floor(span / 120000)));
+  const slice = span / N;
+  const bins = Array.from({ length: N }, () => ({ n: 0, alert: false, kinds: {} }));
+  for (const e of s.events) {
+    const i = Math.max(0, Math.min(N - 1, Math.floor((t(e.at) - from) / span * N)));
+    bins[i].n++;
+    if (ALERT_KINDS.has(e.kind)) bins[i].alert = true;
+    bins[i].kinds[e.kind] = (bins[i].kinds[e.kind] || 0) + 1;
+  }
+  const max = Math.max(1, ...bins.map(b => b.n));
+  const cols = bins.map((b, i) => {
+    const what = Object.entries(b.kinds).sort((x, y) => y[1] - x[1])
+      .map(([k, c]) => c + " " + label(k).toLowerCase()).join(", ");
+    return '<div class="wcol' + (b.n ? "" : " zero") + '" title="' +
+      esc(clock(from + i * slice) + "–" + clock(from + (i + 1) * slice) + " · " +
+          (b.n ? what : "nothing flagged")) + '">' +
+      '<span class="wn">' + (b.n || "") + '</span>' +
+      '<span class="wbar' + (b.alert ? " alert" : "") + '" data-h="' + (b.n / max * 100) + '"></span></div>';
+  }).join("");
+  return '<div class="wcols">' + cols + '</div><div class="wx">' +
+    bins.map((b, i) => '<span>' + clock(from + i * slice) + '</span>').join("") + '</div>' +
+    (bins.some(b => b.alert)
+      ? '<div class="wkey"><i></i>a phone or a second face was seen in that stretch</div>' : '');
+}
+
+// The flag chips under the chart — every kind they were flagged for, worst
+// first, the serious ones wearing red.
+export function kindChips(s) {
+  const kinds = Object.entries(s.counts || {}).sort((a, b) => b[1] - a[1]);
+  if (!kinds.length) return "";
+  return '<div class="kinds">' + kinds.map(([k, n]) =>
+    '<span class="kd ' + (ALERT_KINDS.has(k) ? "alert" : "") + '"><b>' + n + '</b> ' +
+    esc(label(k)) + '</span>').join("") + '</div>';
+}
+
 // ── what a summary may not leave out ────────────────────────────────────────
 // A filed document that runs to nine pages is read by nobody, and a summary
 // that drops the serious thing is worse than no summary at all. So the document

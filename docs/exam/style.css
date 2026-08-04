@@ -149,6 +149,81 @@ h1,h2,h3,.brand b,.code,.big{font-family:var(--display);letter-spacing:-.02em}
 .bd.none{background:none;border-style:dashed;color:var(--muted)}
 .bands.pending{opacity:.45}
 
+/* ── a student, opened ────────────────────────────────────────────────────
+   The report and the live room show the same card: who, then when it
+   happened, then what was flagged. A record must not look like two different
+   afternoons depending on which page you opened it from.
+
+   The box makes room first and the contents arrive behind it — doing both in
+   one frame is what makes an expansion read as a pop. */
+.whobox{transition:opacity .22s ease,transform .3s var(--spring)}
+.whobox.out{opacity:0;transform:translateY(-6px)}
+.whd{display:flex;align-items:baseline;gap:10px;padding:0 4px 10px;animation:vgIn .35s ease both}
+.whd h2{font-size:16.5px;font-weight:600;flex:1;letter-spacing:-.01em}
+.whd .x{background:none;border:0;color:var(--muted);font:600 13px var(--font);cursor:pointer}
+.whd .x:hover{color:var(--ink)}
+.scard{background:var(--card);border:1px solid var(--line);border-radius:14px;margin-bottom:8px;
+  box-shadow:var(--shadow-sm);overflow:hidden;opacity:0;transform:translateY(12px) scale(.995);
+  animation:vgRise .55s cubic-bezier(.18,.86,.28,1) forwards;
+  transition:border-color .3s ease,box-shadow .35s ease}
+.scard.high{border-color:#f3c9ca} .scard.medium{border-color:#f0dcb6}
+.scard.open{box-shadow:0 2px 6px rgba(15,17,24,.06),0 26px 46px -30px rgba(15,17,24,.3)}
+.shead{display:flex;align-items:center;gap:13px;padding:14px 18px;cursor:pointer;width:100%;
+  background:none;border:0;font:inherit;text-align:left;transition:background .18s}
+.shead:hover{background:#faf9f7}
+.sdot{width:9px;height:9px;border-radius:50%;corner-shape:round;flex:0 0 auto;background:var(--ok)}
+.sdot.high{background:var(--alert)} .sdot.medium{background:var(--warn)}
+.sname{flex:1;font-size:14.5px;font-weight:500}
+.swhy{font-size:13px;color:var(--muted)}
+.schev{color:var(--faint);font-size:12px;transition:transform .3s var(--spring)}
+.scard.open .schev{transform:rotate(90deg)}
+.sbody{display:grid;grid-template-rows:0fr;transition:grid-template-rows .52s cubic-bezier(.22,.85,.26,1)}
+.scard.open .sbody{grid-template-rows:1fr}
+.sinner{overflow:hidden}
+.spad{padding:2px 18px 18px;opacity:0;transform:translateY(9px);
+  transition:opacity .3s ease,transform .3s var(--spring)}
+.scard.open .spad{opacity:1;transform:none;
+  transition:opacity .42s ease .14s,transform .55s var(--spring) .14s}
+.slab{font-size:10px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:var(--faint);
+  margin:14px 0 9px;display:flex;align-items:baseline;gap:8px}
+.slab .rt{margin-left:auto;letter-spacing:0;text-transform:none;font-size:11.5px;font-weight:500}
+
+/* when it happened — a column per stretch of their time in the room */
+.wcols{display:flex;align-items:flex-end;gap:10px;height:118px;border-bottom:1.5px solid var(--line-strong)}
+.wcol{flex:1 1 0;height:100%;display:flex;flex-direction:column;justify-content:flex-end;
+  align-items:center;position:relative}
+.wn{font-size:12.5px;font-weight:700;color:var(--ink-2);margin-bottom:6px;line-height:1;
+  font-variant-numeric:tabular-nums;opacity:0;transition:opacity .35s ease}
+.wcol.on .wn{opacity:1}
+.wbar{width:100%;max-width:52px;border-radius:7px 7px 0 0;height:0;background:var(--warn);
+  transition:height .6s cubic-bezier(.2,.85,.3,1),filter .18s}
+.wbar.alert{background:var(--alert)}
+.wcol.zero .wbar{height:3px !important;background:var(--line-strong);border-radius:2px}
+.wcol:hover .wbar{filter:brightness(.92)}
+.wx{display:flex;gap:10px;margin-top:9px}
+.wx span{flex:1 1 0;text-align:center;font-size:11px;color:var(--faint);font-variant-numeric:tabular-nums}
+.wkey{font-size:11.5px;color:var(--faint);margin-top:11px;display:flex;align-items:center;gap:6px}
+.wkey i{width:9px;height:9px;border-radius:3px;background:var(--alert);flex:0 0 auto}
+.wnone{font-size:13px;color:var(--faint);padding:14px 0}
+.kinds{display:flex;flex-wrap:wrap;gap:6px}
+.kd{font-size:12px;font-weight:600;padding:4px 10px;border-radius:999px;background:var(--soft);
+  border:1px solid var(--line);color:var(--muted);opacity:0;transform:translateY(7px) scale(.97);
+  transition:opacity .3s ease,transform .3s var(--spring)}
+.scard.open .kd{opacity:1;transform:none}
+.scard.open .kd:nth-child(1){transition-delay:.34s} .scard.open .kd:nth-child(2){transition-delay:.40s}
+.scard.open .kd:nth-child(3){transition-delay:.46s} .scard.open .kd:nth-child(4){transition-delay:.52s}
+.scard.open .kd:nth-child(5){transition-delay:.58s} .scard.open .kd:nth-child(n+6){transition-delay:.64s}
+.kd.alert{background:var(--alert-soft);border-color:#f3c9ca;color:var(--alert)}
+.kd b{font-variant-numeric:tabular-nums}
+.srec{margin-top:16px;background:none;border:0;padding:0;cursor:pointer;
+  font:600 13px var(--font);color:var(--ink);border-bottom:1px solid var(--line-strong)}
+.srec:hover{border-color:var(--ink)}
+.smore{text-align:center;padding:14px;font-size:13px;color:var(--muted);background:none;border:0;
+  cursor:pointer;width:100%;font-weight:600}
+.smore:hover{color:var(--ink)}
+@keyframes vgRise{to{opacity:1;transform:none}}
+@keyframes vgIn{from{opacity:0}to{opacity:1}}
+
 .toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%) translateY(10px);opacity:0;z-index:60;
   background:var(--ink);color:#fff;padding:10px 16px;border-radius:999px;font-size:13.5px;font-weight:600;
   box-shadow:var(--shadow);transition:opacity .25s,transform .25s var(--spring);pointer-events:none}

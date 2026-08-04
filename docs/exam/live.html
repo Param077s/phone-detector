@@ -28,19 +28,18 @@
     .head .count{font-size:14px;color:var(--muted)}
 
     .room{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:9px}
-    .tile{position:relative;background:var(--card);border:1.5px solid transparent;border-radius:10px;
-      padding:14px 12px;cursor:pointer;text-align:left;font:inherit;width:100%;
-      transition:transform .18s var(--spring),border-color .6s ease,box-shadow .18s,opacity .6s ease}
-    .tile:hover{transform:translateY(-2px)}
-    .tile:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
-    .tile .nm{font-size:14px;color:var(--ink);font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
-      transition:color .6s ease}
-    .tile .ph{font-size:12.5px;margin-top:4px;color:var(--faint);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
-      transition:color .6s ease}
-    /* red is the only colour, and only for a phone, a second face or a virtual camera */
-    .tile.alert{border-color:var(--alert)} .tile.alert .ph{color:#a32d2d}
-    .tile.off{opacity:.5}
-    .tile.new{animation:fadein .6s ease both}
+    /* who joined — one row per student, opened in place */
+    .sortbar{display:flex;align-items:center;gap:6px;margin:0 0 12px}
+    .sortbar .sl{font-size:11px;font-weight:600;letter-spacing:.12em;text-transform:uppercase;
+      color:var(--faint);margin-right:4px}
+    .sortbar button{border:1px solid var(--line);background:var(--card);border-radius:999px;
+      padding:5px 12px;font:600 12.5px var(--font);color:var(--muted);cursor:pointer;
+      transition:border-color .18s,color .18s}
+    .sortbar button:hover{border-color:var(--ink);color:var(--ink)}
+    .sortbar button.on{background:var(--ink);border-color:var(--ink);color:#fff}
+    .stime{font-size:12.5px;color:var(--muted);font-variant-numeric:tabular-nums;white-space:nowrap}
+    .sdot.off{background:var(--faint)}
+    .scard.gone{opacity:.62}
     @keyframes fadein{from{opacity:0}}
 
     .roomline{display:flex;align-items:baseline;gap:10px;margin-top:26px;font-size:13.5px;color:var(--muted)}
@@ -75,7 +74,7 @@
     .pop .noted{font-size:12.5px;color:var(--muted);margin-top:6px}
     @media(max-width:860px){ .room{grid-template-columns:repeat(3,minmax(0,1fr))} }
     @media(max-width:560px){ .room{grid-template-columns:repeat(2,minmax(0,1fr))} }
-    @media(prefers-reduced-motion:reduce){ .pop,.popIn,.tile,.tile .nm,.tile .ph{transition-duration:.01ms !important} }
+    @media(prefers-reduced-motion:reduce){ .pop,.popIn,.scard,.wbar{transition-duration:.01ms !important} }
   </style>
 </head>
 <body>
@@ -90,6 +89,12 @@
   <div class="wrap">
     <div class="eyebrow" id="eyebrow">Live</div>
     <div class="head"><h1 id="h1">Your room</h1><span class="count" id="count"></span></div>
+    <div class="sortbar" id="sortbar" style="display:none">
+      <span class="sl">Order</span>
+      <button type="button" data-sort="joined" class="on">Joined</button>
+      <button type="button" data-sort="name">Name</button>
+      <button type="button" data-sort="flags">Flags</button>
+    </div>
     <div id="out"><div class="empty"><b>Waiting for students…</b>Share the code — names appear here the moment they join.</div></div>
     <div class="roomline hidden" id="setupline"><span id="setuptxt"></span><button class="see" id="setupsee" type="button">Who</button></div>
     <div class="roomline hidden" id="roomline"><span id="roomtxt"></span><button class="see" id="roomsee" type="button">See it</button></div>
@@ -103,7 +108,8 @@
   <script type="module">
     import { sb, fetchExam, selectAll, orderedEvents } from "/exam/sb.js";
     import { esc, label, clock, ago, readExam, roomHeadline, ALERT_KINDS, t, isOnline,
-             examOver, examStarted, examPending, msLeft, countdown, useTimezone } from "/exam/exam-core.js";
+             examOver, examStarted, examPending, msLeft, countdown, useTimezone,
+             whenChart, kindChips, reportBand } from "/exam/exam-core.js";
     const $ = id => document.getElementById(id);
     const examId = new URLSearchParams(location.search).get("e");
 
@@ -158,61 +164,157 @@
     }
 
     // ── the room ────────────────────────────────────────────────────────────
+    // ── who joined ───────────────────────────────────────────────────────────
+    // A grid of tiles answered "is the room here" and nothing else — to find out
+    // when somebody arrived, or what they had been doing, you had to open a
+    // popup and read a list. It is a list of people now, in an order you choose,
+    // and pressing one opens the same card the report shows: when they joined,
+    // when they were last seen, when their flags fell, and what they were.
+    //
+    // Rows are reconciled rather than rebuilt. This repaints every couple of
+    // seconds while an exam runs, and replacing the list each time would close
+    // whatever the invigilator had just opened.
+    let sortBy = localStorage.getItem("vg_sort") || "joined";
+    const rows = new Map();             // participant id -> row element
+    let openId = null;                  // the one card left open, kept across repaints
+
+    function sortRows(list) {
+      const by = {
+        joined: (a, b) => t(a.p.joined_at) - t(b.p.joined_at),
+        name:   (a, b) => a.p.name.localeCompare(b.p.name),
+        flags:  (a, b) => b.events.length - a.events.length || b.score - a.score,
+      }[sortBy] || (() => 0);
+      return list.slice().sort((a, b) => by(a, b) || a.p.name.localeCompare(b.p.name));
+    }
+
+    function rowHtml(s) {
+      const band = reportBand(s);
+      const cls = CLOSED ? (band === "high" ? "high" : band === "medium" ? "medium" : "") : "";
+      return '<button class="shead"><span class="sdot ' + cls + '"></span>' +
+        '<span class="sname"></span><span class="stime"></span>' +
+        '<span class="schev">\u203a</span></button>' +
+        '<div class="sbody"><div class="sinner"><div class="spad"></div></div></div>';
+    }
+    // the body is built only when a row is actually opened — a hundred students
+    // is a hundred charts nobody has asked to see
+    function fillBody(el, s) {
+      const pad = el.querySelector(".spad");
+      if (pad.dataset.built === String(s.events.length)) return;
+      pad.dataset.built = String(s.events.length);
+      pad.innerHTML =
+        '<div class="slab">When it happened<span class="rt">' +
+          (s.events.length ? s.events.length + " flag" + (s.events.length === 1 ? "" : "s") : "") +
+        '</span></div>' + whenChart(s) +
+        (s.events.length ? '<div class="slab">What was flagged</div>' + kindChips(s) : "") +
+        // the note an invigilator sends a student lives in the popup; the tile
+        // that used to open it is gone, so the card carries the door instead
+        '<button class="srec" data-note="' + esc(s.p.id) + '">Note this student \u203a</button>';
+    }
+    function runWhen(el) {
+      el.querySelectorAll(".wcol").forEach((c, i) => setTimeout(() => {
+        const bar = c.querySelector(".wbar");
+        if (bar) bar.style.height = bar.dataset.h + "%";
+        c.classList.add("on");
+      }, 280 + i * 55));
+    }
+    function resetWhen(el) {
+      el.querySelectorAll(".wcol").forEach(c => {
+        const bar = c.querySelector(".wbar");
+        if (bar) bar.style.height = "0%";
+        c.classList.remove("on");
+      });
+    }
+
     function render() {
       read = readExam([...parts.values()], events);
-      const rows = read.students;
-      if (!rows.length) {
+      const list = read.students;
+      if (!list.length) {
         $("out").innerHTML = CLOSED
           ? '<div class="empty"><b>No one joined this exam.</b></div>'
           : '<div class="empty"><b>Waiting for students…</b>Share the code — names appear here the moment they join.</div>';
-        tiles.clear(); $("count").textContent = ""; return;
+        rows.clear(); $("sortbar").style.display = "none"; $("count").textContent = ""; return;
       }
-      let grid = $("out").querySelector(".room");
-      if (!grid) { $("out").innerHTML = '<div class="room"></div>'; grid = $("out").querySelector(".room"); tiles.clear(); }
+      $("sortbar").style.display = "";
+      let host = $("out").querySelector(".rowlist");
+      if (!host) { $("out").innerHTML = '<div class="rowlist"></div>';
+        host = $("out").querySelector(".rowlist"); rows.clear(); }
 
       let on = 0, off_ = 0, look = 0;
-      for (const s of rows) {
+      const ordered = sortRows(list);
+      for (const s of ordered) {
         const off = !fresh(s.p);
-        const flagged = s.serious && !CLOSED;   // red, and only for phone / second face / virtual cam
+        const flagged = s.serious && !CLOSED;
         if (off) off_++; else on++;
         if (flagged) look++;
-        let el = tiles.get(s.p.id);
+        let el = rows.get(s.p.id);
         if (!el) {
-          el = document.createElement("button");
-          el.type = "button"; el.className = "tile new"; el.setAttribute("data-id", s.p.id);
-          el.innerHTML = '<div class="nm"></div><div class="ph"></div>';
-          grid.appendChild(el); tiles.set(s.p.id, el);
-          setTimeout(() => el.classList.remove("new"), 700);   // spent — never let it replay
+          el = document.createElement("div");
+          el.className = "scard"; el.setAttribute("data-id", s.p.id);
+          el.innerHTML = rowHtml(s);
+          host.appendChild(el); rows.set(s.p.id, el);
         }
-        // classes change on a 600ms colour transition — the room never flashes
-        el.classList.toggle("flag", flagged);
-        el.classList.toggle("alert", flagged);
-        el.classList.toggle("off", off);
-        const nm = el.querySelector(".nm"), ph = el.querySelector(".ph");
+        el.classList.toggle("high", flagged || (CLOSED && reportBand(s) === "high"));
+        el.classList.toggle("medium", CLOSED && reportBand(s) === "medium" && !flagged);
+        el.classList.toggle("gone", off && !CLOSED);
+        const dot = el.querySelector(".sdot");
+        dot.className = "sdot" + (flagged ? " high" : CLOSED
+          ? (reportBand(s) === "high" ? " high" : reportBand(s) === "medium" ? " medium" : "")
+          : (off ? " off" : ""));
+        const nm = el.querySelector(".sname");
         if (nm.textContent !== s.p.name) nm.textContent = s.p.name;
-        // presence is the whole story here; the report is where risk gets read
-        const txt = CLOSED ? "" : (off ? "offline" : "online");
-        if (ph.textContent !== txt) ph.textContent = txt;
-        el.setAttribute("aria-label", s.p.name + (txt ? " — " + txt : "") + (flagged ? ", needs a look" : ""));
+        // what a row says depends on why you are reading it: during the exam,
+        // who is here; afterwards, when they came and when they went.
+        const when = CLOSED
+          ? clock(t(s.p.joined_at)) + (s.p.last_seen ? " – " + clock(t(s.p.last_seen)) : "")
+          : (off ? "offline · joined " + clock(t(s.p.joined_at))
+                 : "online · joined " + clock(t(s.p.joined_at)));
+        const tm = el.querySelector(".stime");
+        if (tm.textContent !== when) tm.textContent = when;
+        el.querySelector(".shead").setAttribute("aria-expanded", String(openId === s.p.id));
+        if (openId === s.p.id) { fillBody(el, s); el.classList.add("open"); }
       }
-      for (const [id, el] of tiles) if (!parts.has(id)) { el.remove(); tiles.delete(id); }
-      // Keep tile order matching the roster (joined order) as people arrive — but
-      // ONLY move a tile that is actually out of place. appendChild() on a node that
-      // is already there still removes and re-inserts it, which restarts its CSS
-      // animation: doing that to every tile on every update is what made the room
-      // flicker several times a minute.
-      let want = grid.firstChild;
-      for (const s of rows) {
-        const el = tiles.get(s.p.id); if (!el) continue;
-        if (el !== want) grid.insertBefore(el, want); else want = el.nextSibling;
+      for (const [id, el] of rows) if (!parts.has(id)) { el.remove(); rows.delete(id); }
+      // move only what is out of place — reordering every row on every repaint
+      // is what used to make the room flicker
+      let want = host.firstChild;
+      for (const s of ordered) {
+        const el = rows.get(s.p.id); if (!el) continue;
+        if (el !== want) host.insertBefore(el, want); else want = el.nextSibling;
       }
 
       renderSetupLine();
       $("count").textContent = CLOSED
-        ? rows.length + (rows.length === 1 ? " student" : " students")
+        ? list.length + (list.length === 1 ? " student" : " students")
         : on + " online" + (off_ ? " · " + off_ + " offline" : "") + (look ? " · " + look + " worth a look" : "");
       renderRoomLine();
     }
+
+    $("sortbar").querySelectorAll("button").forEach(x =>
+      x.classList.toggle("on", x.getAttribute("data-sort") === sortBy));
+    $("sortbar").addEventListener("click", e => {
+      const b = e.target.closest("[data-sort]"); if (!b) return;
+      sortBy = b.getAttribute("data-sort");
+      localStorage.setItem("vg_sort", sortBy);
+      $("sortbar").querySelectorAll("button").forEach(x =>
+        x.classList.toggle("on", x.getAttribute("data-sort") === sortBy));
+      render();
+    });
+    $("out").addEventListener("click", e => {
+      if (e.target.closest("[data-note]")) return;   // that opens the note, not the row
+      const head = e.target.closest(".shead"); if (!head) return;
+      const el = head.closest(".scard"), id = el.getAttribute("data-id");
+      const was = el.classList.contains("open");
+      // one at a time — a hundred open records is the wall of data this replaced
+      rows.forEach(r => { r.classList.remove("open"); resetWhen(r);
+        r.querySelector(".shead").setAttribute("aria-expanded", "false"); });
+      openId = was ? null : id;
+      if (!was) {
+        const s = read.students.find(x => x.p.id === id);
+        if (s) fillBody(el, s);
+        el.classList.add("open"); head.setAttribute("aria-expanded", "true"); runWhen(el);
+        setTimeout(() => el.scrollIntoView({ behavior: "smooth", block: "nearest" }), 200);
+      }
+    });
 
     // ── the one moment a bad camera can still be fixed ──────────────────────
     // Calibration quality used to surface only in the report, as a caveat, which
@@ -359,7 +461,8 @@
     }
 
     $("out").addEventListener("click", e => {
-      const tile = e.target.closest(".tile"); if (tile) openStudent(tile.getAttribute("data-id"), tile);
+      const n = e.target.closest("[data-note]");
+      if (n) { e.stopPropagation(); openStudent(n.getAttribute("data-note"), n); }
     });
     $("roomNote").onclick = () => {
       $("popIn").innerHTML = '<div class="ptop"><h2 id="popName">Note the room</h2></div>' +

@@ -86,73 +86,6 @@
       box-shadow:var(--shadow-sm);padding:26px 28px 22px;margin:26px 0 14px}
     .ptitle{font-size:15.5px;font-weight:600;margin-bottom:2px}
     .psub{font-size:13px;color:var(--muted);margin-bottom:24px}
-    .whobox{transition:opacity .22s ease,transform .3s var(--spring)}
-    .whobox.out{opacity:0;transform:translateY(-6px)}
-    .whd{display:flex;align-items:baseline;gap:10px;padding:0 4px 10px;animation:vgIn .35s ease both}
-    .whd h2{font-size:16.5px;font-weight:600;flex:1;letter-spacing:-.01em}
-    .whd .x{background:none;border:0;color:var(--muted);font:600 13px var(--font);cursor:pointer}
-    .whd .x:hover{color:var(--ink)}
-    .scard{background:var(--card);border:1px solid var(--line);border-radius:14px;margin-bottom:8px;
-      box-shadow:var(--shadow-sm);overflow:hidden;opacity:0;transform:translateY(12px) scale(.995);
-      animation:vgRise .55s cubic-bezier(.18,.86,.28,1) forwards;
-      transition:border-color .3s ease,box-shadow .35s ease}
-    .scard.high{border-color:#f3c9ca} .scard.medium{border-color:#f0dcb6}
-    .scard.open{box-shadow:0 2px 6px rgba(15,17,24,.06),0 26px 46px -30px rgba(15,17,24,.3)}
-    .shead{display:flex;align-items:center;gap:13px;padding:14px 18px;cursor:pointer;width:100%;
-      background:none;border:0;font:inherit;text-align:left;transition:background .18s}
-    .shead:hover{background:#faf9f7}
-    .sdot{width:9px;height:9px;border-radius:50%;corner-shape:round;flex:0 0 auto;background:var(--ok)}
-    .sdot.high{background:var(--alert)} .sdot.medium{background:var(--warn)}
-    .sname{flex:1;font-size:14.5px;font-weight:500}
-    .swhy{font-size:13px;color:var(--muted)}
-    .schev{color:var(--faint);font-size:12px;transition:transform .3s var(--spring)}
-    .scard.open .schev{transform:rotate(90deg)}
-    .sbody{display:grid;grid-template-rows:0fr;transition:grid-template-rows .52s cubic-bezier(.22,.85,.26,1)}
-    .scard.open .sbody{grid-template-rows:1fr}
-    .sinner{overflow:hidden}
-    .spad{padding:2px 18px 18px;opacity:0;transform:translateY(9px);
-      transition:opacity .3s ease,transform .3s var(--spring)}
-    .scard.open .spad{opacity:1;transform:none;
-      transition:opacity .42s ease .14s,transform .55s var(--spring) .14s}
-    .slab{font-size:10px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:var(--faint);
-      margin:14px 0 9px;display:flex;align-items:baseline;gap:8px}
-    .slab .rt{margin-left:auto;letter-spacing:0;text-transform:none;font-size:11.5px;font-weight:500}
-
-    /* when it happened — a column per stretch of their time in the room */
-    .wcols{display:flex;align-items:flex-end;gap:10px;height:118px;border-bottom:1.5px solid var(--line-strong)}
-    .wcol{flex:1 1 0;height:100%;display:flex;flex-direction:column;justify-content:flex-end;
-      align-items:center;position:relative}
-    .wn{font-size:12.5px;font-weight:700;color:var(--ink-2);margin-bottom:6px;line-height:1;
-      font-variant-numeric:tabular-nums;opacity:0;transition:opacity .35s ease}
-    .wcol.on .wn{opacity:1}
-    .wbar{width:100%;max-width:52px;border-radius:7px 7px 0 0;height:0;background:var(--warn);
-      transition:height .6s cubic-bezier(.2,.85,.3,1),filter .18s}
-    .wbar.alert{background:var(--alert)}
-    .wcol.zero .wbar{height:3px !important;background:var(--line-strong);border-radius:2px}
-    .wcol:hover .wbar{filter:brightness(.92)}
-    .wx{display:flex;gap:10px;margin-top:9px}
-    .wx span{flex:1 1 0;text-align:center;font-size:11px;color:var(--faint);font-variant-numeric:tabular-nums}
-    .wkey{font-size:11.5px;color:var(--faint);margin-top:11px;display:flex;align-items:center;gap:6px}
-    .wkey i{width:9px;height:9px;border-radius:3px;background:var(--alert);flex:0 0 auto}
-    .wnone{font-size:13px;color:var(--faint);padding:14px 0}
-    .kinds{display:flex;flex-wrap:wrap;gap:6px}
-    .kd{font-size:12px;font-weight:600;padding:4px 10px;border-radius:999px;background:var(--soft);
-      border:1px solid var(--line);color:var(--muted);opacity:0;transform:translateY(7px) scale(.97);
-      transition:opacity .3s ease,transform .3s var(--spring)}
-    .scard.open .kd{opacity:1;transform:none}
-    .scard.open .kd:nth-child(1){transition-delay:.34s} .scard.open .kd:nth-child(2){transition-delay:.40s}
-    .scard.open .kd:nth-child(3){transition-delay:.46s} .scard.open .kd:nth-child(4){transition-delay:.52s}
-    .scard.open .kd:nth-child(5){transition-delay:.58s} .scard.open .kd:nth-child(n+6){transition-delay:.64s}
-    .kd.alert{background:var(--alert-soft);border-color:#f3c9ca;color:var(--alert)}
-    .kd b{font-variant-numeric:tabular-nums}
-    .srec{margin-top:16px;background:none;border:0;padding:0;cursor:pointer;
-      font:600 13px var(--font);color:var(--ink);border-bottom:1px solid var(--line-strong)}
-    .srec:hover{border-color:var(--ink)}
-    .smore{text-align:center;padding:14px;font-size:13px;color:var(--muted);background:none;border:0;
-      cursor:pointer;width:100%;font-weight:600}
-    .smore:hover{color:var(--ink)}
-    @keyframes vgRise{to{opacity:1;transform:none}}
-    @keyframes vgIn{from{opacity:0}to{opacity:1}}
 
     /* the room, coloured by risk — green clear, amber flagged, red serious */
     .presence{font-size:13.5px;color:var(--muted);margin:28px 0 10px}
@@ -316,8 +249,8 @@
     import { sb, fetchExam, selectAll, orderedEvents } from "/exam/sb.js";
     import { esc, label, clock, clockRange, dateLong, word, readExam, spanTxt, roomHeadline, isOnline, ago,
              examWindow, examOver, useTimezone, tzNote,
-             keyFinding, BAND_KEY, ALERT_KINDS, REPORT_BANDS, splitByBand, chartHtml,
-             t } from "/exam/exam-core.js";
+             keyFinding, BAND_KEY, REPORT_BANDS, splitByBand, chartHtml,
+             whenChart, kindChips } from "/exam/exam-core.js";
     const $ = id => document.getElementById(id);
     const examId = new URLSearchParams(location.search).get("e");
 
@@ -409,45 +342,7 @@
       setTimeout(() => { done = true; el.textContent = to; }, ms + 150);
     }
 
-    // ── when it happened, for one student ────────────────────────────────────
-    // Eight columns, a count over each and a clock time under each. A column is
-    // red when something serious fell in that stretch, so severity is the colour
-    // of the bar rather than a second bar stacked inside it.
-    function whenChart(s) {
-      const from = t(s.p.joined_at);
-      const to = s.p.last_seen ? t(s.p.last_seen) : (s.lastAt || from + 60e3);
-      const span = Math.max(60e3, to - from);
-      if (!s.events.length)
-        return '<div class="wnone">Nothing was flagged between ' + clock(from) + ' and ' + clock(to) + '.</div>';
-      // fewer columns for a short sitting — eight labels all reading the same
-      // minute would look precise and say nothing
-      const N = Math.max(3, Math.min(8, Math.floor(span / 120e3)));
-      const slice = span / N;
-      const bins = Array.from({ length: N }, () => ({ n: 0, alert: false, kinds: {} }));
-      for (const e of s.events) {
-        const i = Math.max(0, Math.min(N - 1, Math.floor((t(e.at) - from) / span * N)));
-        bins[i].n++;
-        if (ALERT_KINDS.has(e.kind)) bins[i].alert = true;
-        bins[i].kinds[e.kind] = (bins[i].kinds[e.kind] || 0) + 1;
-      }
-      const max = Math.max(1, ...bins.map(b => b.n));
-      const cols = bins.map((b, i) => {
-        const what = Object.entries(b.kinds).sort((x, y) => y[1] - x[1])
-          .map(([k, c]) => c + " " + label(k).toLowerCase()).join(", ");
-        return '<div class="wcol' + (b.n ? "" : " zero") + '" title="' +
-          esc(clock(from + i * slice) + "–" + clock(from + (i + 1) * slice) + " · " +
-              (b.n ? what : "nothing flagged")) + '">' +
-          '<span class="wn">' + (b.n || "") + '</span>' +
-          '<span class="wbar' + (b.alert ? " alert" : "") + '" data-h="' + (b.n / max * 100) + '"></span></div>';
-      }).join("");
-      return '<div class="wcols">' + cols + '</div><div class="wx">' +
-        bins.map((b, i) => '<span>' + clock(from + i * slice) + '</span>').join("") + '</div>' +
-        (bins.some(b => b.alert)
-          ? '<div class="wkey"><i></i>a phone or a second face was seen in that stretch</div>' : '');
-    }
-
     function scardHtml(s, key, i) {
-      const kinds = Object.entries(s.counts).sort((a, b) => b[1] - a[1]);
       const cls = key === "none" ? "" : key;
       return '<div class="scard ' + cls + '" data-id="' + esc(s.p.id) + '" style="animation-delay:' +
           (i * 0.035) + 's">' +
@@ -459,9 +354,7 @@
           '<div class="slab">When it happened<span class="rt">' +
             (s.events.length ? s.events.length + " flag" + (s.events.length === 1 ? "" : "s") : "") +
           '</span></div>' + whenChart(s) +
-          (kinds.length ? '<div class="slab">What was flagged</div><div class="kinds">' +
-            kinds.map(([k, n]) => '<span class="kd ' + (ALERT_KINDS.has(k) ? "alert" : "") + '"><b>' + n +
-              '</b> ' + esc(label(k)) + '</span>').join("") + '</div>' : "") +
+          (s.events.length ? '<div class="slab">What was flagged</div>' + kindChips(s) : "") +
           // the verdicts, what the student said and what was concluded all live
           // in the record popup — this opens the same one the tiles used to
           '<button class="srec" data-rec="' + esc(s.p.id) + '">Open full record ›</button>' +
