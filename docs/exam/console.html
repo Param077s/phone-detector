@@ -218,7 +218,7 @@
         '<div class="stat" data-p="'+esc(x.id)+'"><div><b><span class="odo" data-k="t"></span></b>joined</div><div><b><span class="odo" data-k="f"></span></b>flagged</div></div>'+
         // how it went, once it is over. A running exam has the live room for this,
         // and a band that moves while you read it is noise rather than an answer.
-        (over ? '<div class="bands pending" data-b="'+esc(x.id)+'">reading the exam…</div>' : "")+
+        (over ? '<div class="bands pending lazy" data-b="'+esc(x.id)+'">reading the exam…</div>' : "")+
         '<div class="acts">'+
           (open
             ? (waiting ? '<button class="btn ink sm" data-start="'+esc(x.id)+'" data-d="'+(x.duration_min||"")+'">Start exam</button>' : "")+
