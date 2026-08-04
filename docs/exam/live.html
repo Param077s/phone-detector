@@ -98,7 +98,7 @@
       <button type="button" data-sort="name">Name</button>
       <button type="button" data-sort="flags">Flags</button>
     </div>
-    <div id="out"><div class="empty"><b>Waiting for students…</b>Share the code — names appear here the moment they join.</div></div>
+    <div id="out"><div class="empty lazy"><b>Waiting for students…</b>Share the code — names appear here the moment they join.</div></div>
     <div class="roomline hidden" id="setupline"><span id="setuptxt"></span><button class="see" id="setupsee" type="button">Who</button></div>
     <div class="roomline hidden" id="roomline"><span id="roomtxt"></span><button class="see" id="roomsee" type="button">See it</button></div>
   </div>
@@ -241,7 +241,7 @@
       if (!list.length) {
         $("out").innerHTML = CLOSED
           ? '<div class="empty"><b>No one joined this exam.</b></div>'
-          : '<div class="empty"><b>Waiting for students…</b>Share the code — names appear here the moment they join.</div>';
+          : '<div class="empty'+(read ? '' : ' lazy')+'"><b>Waiting for students…</b>Share the code — names appear here the moment they join.</div>';
         rows.clear(); $("sortbar").style.display = "none"; $("count").textContent = ""; return;
       }
       $("sortbar").style.display = "";

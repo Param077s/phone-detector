@@ -184,6 +184,25 @@ h1,h2,h3,.brand b,.code,.big{font-family:var(--display);letter-spacing:-.02em}
      animating the incoming page in rather than crossfading two snapshots */
   body.nav-enter{animation:vgPageIn .17s var(--spring) both}
 }
+/* ── placeholders that usually never appear ───────────────────────────────
+   A loading line is an apology for a wait. Most waits here no longer happen —
+   the page was prefetched on hover, its data is in the tab's cache, the exam
+   row was warmed before the click — so printing "Loading…" and replacing it
+   40ms later does not inform anyone, it just flashes.
+
+   So a placeholder starts invisible and fades in on a delay. If the real
+   content arrives first the element is gone before it was ever drawn, and the
+   screen goes straight from the previous page to the answer. If the wait is
+   real, it says so, and the fade means it arrives as a statement rather than a
+   flicker.
+
+   This applies to genuine empty states too — "Waiting for students" is true
+   only once the roster has come back empty, and showing it while we are still
+   asking is the same lie as showing a spinner we do not need. */
+.lazy{animation:vgLazy .22s ease 170ms both}
+@keyframes vgLazy{from{opacity:0}to{opacity:1}}
+@media(prefers-reduced-motion:reduce){ .lazy{animation-duration:.01ms} }
+
 /* A navigation that has to wait on the network — a page nobody hovered, on a
    slow connection — says so with the cursor and nothing else. Deliberately not
    a spinner or a bar: those need a delay before showing or they become the

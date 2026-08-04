@@ -834,10 +834,23 @@ svg[viewBox="0 0 24 24"] { width: 16px; height: 16px; flex: none; }
 .empty--warn .empty__icon  { background: var(--warn-quiet);   border-color: transparent; color: var(--warn); }
 .empty--info .empty__icon  { background: var(--info-quiet);   border-color: transparent; color: var(--info); }
 
+/* Skeletons that usually never appear.
+   Every route's data is prefetched while the app is idle and each route keeps
+   its pane between visits, so the overwhelming majority of these are replaced
+   within a frame or two of being written. Drawing them anyway is not a loading
+   state, it is a flicker that says "loading" about something already in hand.
+
+   So a skeleton starts invisible and fades in on a delay. Beat the delay and it
+   is gone before it was ever drawn; miss it — a genuine cold start on a slow
+   server — and it arrives as a statement instead of a blink. The shimmer on
+   ::after is untouched and only ever seen by a wait that is really happening. */
 .skeleton {
   position: relative; overflow: hidden;
   background: var(--surface-2); border-radius: var(--r-md);
+  opacity: 0; animation: skelIn .22s var(--ease) 170ms forwards;
 }
+@keyframes skelIn { to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .skeleton { animation-duration: .01ms; } }
 .skeleton::after {
   content: ""; position: absolute; inset: 0;
   background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--surface-3) 60%, transparent), transparent);
