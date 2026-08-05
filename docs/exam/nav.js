@@ -459,7 +459,16 @@ if (!window.__vgNav) {
     if (!plainClick(e)) return;
     const a = e.target.closest("a[href]");
     if (!a || a.target || a.hasAttribute("download") || a.hasAttribute("data-hard")) return;
-    const u = managed(a.getAttribute("href"));
+    const raw = a.getAttribute("href");
+    /* A hash link is a place on this page, not a page. `href="#"` in particular
+       is what a link looks like before its script has filled the destination
+       in — and resolving it against the current URL produces "…?e=abc#", which
+       is not byte-equal to the current URL and would therefore be treated as a
+       navigation TO THE PAGE YOU ARE ALREADY ON. Pressing such a link re-ran
+       the page and pushed a history entry, so it read as being sent backwards.
+       Links like that are the browser's business. */
+    if (!raw || raw.charAt(0) === "#") return;
+    const u = managed(raw);
     if (!u) return;
     e.preventDefault();
     if (u.href === location.href) return;

@@ -152,6 +152,17 @@
              bandLabel, splitByBand, chartHtml, REPORT_BANDS, reportBand } from "/exam/exam-core.js";
     const $ = id => document.getElementById(id);
     const examId = new URLSearchParams(location.search).get("e");
+    // Where Back goes is decided again below once the exam row is in hand, but
+    // both inputs to that decision — the ?as= override and the remembered role —
+    // are known right now, and a Back button that points at the console until
+    // three awaits have resolved sends a student to a page that will only bounce
+    // them out again.
+    (() => {
+      const as = new URLSearchParams(location.search).get("as");
+      const asStudent = as === "student" || (as !== "teacher" && localStorage.getItem("vg_role") === "student");
+      const back = document.getElementById("back");
+      if (back && asStudent) back.href = examId ? "/exam/room.html?e=" + examId : "/exam/";
+    })();
     let reviewEnabled = false;   // teacher + the v6 review column exists
     let findingNotes = [], notesOn = false;   // what the two of them said (v14)
     // WHICH EVENTS ARE THE EXAM. This page read the whole sitting while the findings
