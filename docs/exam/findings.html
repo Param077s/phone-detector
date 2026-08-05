@@ -20,15 +20,6 @@
     .tools{display:flex;align-items:center;gap:10px;padding-top:14px;padding-bottom:14px;margin-top:-34px;margin-bottom:30px}
     .tools>.inner{display:flex;align-items:center;gap:10px}
     .tools .sp{flex:1}
-    .opt{font-size:12.5px;color:var(--muted);font-weight:600;display:inline-flex;align-items:center;gap:6px;
-      cursor:pointer;user-select:none;white-space:nowrap}
-    .opt input{accent-color:var(--ink);width:14px;height:14px}
-    /* Room / Document — the second one IS the download, shown before you take it */
-    .views{display:inline-flex;background:var(--soft);border-radius:999px;padding:3px;gap:2px}
-    .views button{border:0;background:none;border-radius:999px;padding:6px 14px;cursor:pointer;
-      font:600 12.5px var(--font);color:var(--muted);transition:background .18s,color .18s}
-    .views button.on{background:var(--card);color:var(--ink);box-shadow:var(--shadow-sm)}
-    .views button:hover:not(.on){color:var(--ink)}
     .backlink{color:var(--muted);display:inline-flex;align-items:center}
     .backlink svg{width:17px;height:17px} .backlink:hover{color:var(--ink)}
 
@@ -186,9 +177,6 @@
        "Document" swaps them, so what you are looking at is exactly what Download
        gives you — previewing an export by exporting it is not a preview. */
     #body{display:none}
-    body.showdoc .screenonly{display:none}
-    body.showdoc #body{display:block;max-width:74ch;margin:0 auto}
-    body.showdoc .sheet{padding-bottom:90px}
     @media(max-width:860px){ .room{grid-template-columns:repeat(3,minmax(0,1fr))} }
     @media(max-width:560px){ .room{grid-template-columns:repeat(2,minmax(0,1fr))} }
     @media(prefers-reduced-motion:reduce){ .pop,.popIn,.rtile{transition-duration:.01ms !important} }
@@ -213,12 +201,7 @@
       <div class="inner">
       <a class="backlink" id="back" href="/exam/console.html" aria-label="Back"><svg viewBox="0 0 24 24" fill="none"><path d="M15 18l-6-6 6-6" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg></a>
       <span class="sp"></span>
-      <div class="views" role="tablist" aria-label="View">
-        <button type="button" id="vRoom" class="on" role="tab" aria-selected="true">Room</button>
-        <button type="button" id="vDoc" role="tab" aria-selected="false">Document</button>
-      </div>
-      <label class="opt" title="By default the download carries the serious findings in full and the rest in one line each."><input type="checkbox" id="fullDoc"> Every finding</label>
-      <a class="btn ghost sm" id="fullLink" href="#">Full record</a>
+      <a class="btn ghost sm" id="fullLink">Full record</a>
       <button class="btn ink sm" id="dl" type="button">Download</button>
       </div>
     </div>
@@ -258,6 +241,10 @@
              whenChart, kindChips } from "/exam/exam-core.js";
     const $ = id => document.getElementById(id);
     const examId = new URLSearchParams(location.search).get("e");
+    // Set now, not inside the async boot below: an <a> whose destination
+    // arrives two awaits late is an <a> that does the wrong thing if pressed
+    // in between.
+    if (examId) document.getElementById("fullLink").href = "/exam/report.html?e=" + examId + "&as=teacher";
 
     const VERDICT = { confirmed: ["Upheld", "upheld"], dismissed: ["Set aside", "aside"], discuss: ["To discuss", "discuss"] };
     let exam = null, read = null, canReview = false;
@@ -439,7 +426,12 @@
       // keep the full treatment and the rest are compressed to a line each, with
       // the line saying where the detail lives. "Every finding" restores the long
       // form for anyone who needs to print the lot.
-      const full = $("fullDoc").checked;
+      // Serious findings get the full treatment; the rest are compressed to a
+      // line each that says where the detail lives. The long form is not a
+      // toggle any more — "Full record" is where every event lives, and one
+      // document that is always the same document is easier to trust than one
+      // whose shape depends on a checkbox somebody ticked last term.
+      const full = false;
       const f = full ? all : all.filter(keyFinding);
       const brief = full ? [] : all.filter(x => !keyFinding(x));
       const rev = reviewSentence(read.review);
@@ -511,8 +503,7 @@
     function drawIfChanged() {
       const sig = read.findings.map(x => x.n + ":" + x.ids.length + ":" + (x.review || "-")).join("|") +
         "#" + read.clear.length + "#" + read.roster.length +
-        // how much of it the download carries is part of what the document IS
-        "#" + ($("fullDoc").checked ? "all" : "key");
+        "#key";
       if (sig === docSig) { drawReport(); return; }
       docSig = sig; draw();
     }
@@ -893,27 +884,6 @@
       exam = e;
       useTimezone(e.timezone);          // read this exam in the room's own hours
       document.title = "Vigil · " + e.title;
-      $("fullLink").href = "/exam/report.html?e=" + examId;
-      // remembered per teacher, not per exam: someone who wants the long form
-      // wants it for their exams, and re-ticking it every time is the kind of
-      // small tax that ends with the box never being ticked
-      $("fullDoc").checked = localStorage.getItem("vg_fulldoc") === "1";
-      $("fullDoc").onchange = () => {
-        localStorage.setItem("vg_fulldoc", $("fullDoc").checked ? "1" : "");
-        drawIfChanged();
-        setView(true);   // you changed how much it carries — show what that looks like
-      };
-      // Room / Document. Ticking "Every finding" or pressing Download from the
-      // Room view used to be an act of faith; this is the same page the printer
-      // gets, so nothing about the export is a surprise.
-      const setView = doc => {
-        document.body.classList.toggle("showdoc", doc);
-        $("vDoc").classList.toggle("on", doc); $("vRoom").classList.toggle("on", !doc);
-        $("vDoc").setAttribute("aria-selected", String(doc));
-        $("vRoom").setAttribute("aria-selected", String(!doc));
-      };
-      $("vRoom").onclick = () => setView(false);
-      $("vDoc").onclick = () => setView(true);
       $("dl").onclick = () => window.print();
       await load();
       // 2 s while an exam is running: this page is what the teacher watches during
