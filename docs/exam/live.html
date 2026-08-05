@@ -109,7 +109,7 @@
   </div>
 
   <script type="module">
-    import { sb, fetchExam, selectAll, orderedEvents, EXAM_COLS } from "/exam/sb.js";
+    import { sb, currentUser, fetchExam, selectAll, orderedEvents, EXAM_COLS } from "/exam/sb.js";
     import { esc, label, clock, ago, readExam, roomHeadline, ALERT_KINDS, t, isOnline,
              examOver, examStarted, examPending, msLeft, countdown, useTimezone,
              whenChart, kindChips, reportBand, examWindow } from "/exam/exam-core.js";
@@ -118,7 +118,7 @@
     // starts (two clocks, a realtime subscription, a visibility listener) is
     // registered for teardown, because none of it should still be running
     // against a room nobody is looking at.
-    import { go, replace, every, listen, channel, cached, invalidate } from "/exam/nav.js";
+    import { go, replace, every, listen, channel, cached, invalidate, stranded } from "/exam/nav.js";
     import { send } from "/exam/outbox.js";
     const $ = id => document.getElementById(id);
     const examId = new URLSearchParams(location.search).get("e");
@@ -520,15 +520,27 @@
     }
 
     (async () => {
-      const user = await cached("me", async () => (await sb.auth.getUser()).data.user, 60_000);
-      if (!user) { replace("/exam/"); return; }
-      if (!examId) { replace("/exam/console.html"); return; }
+      const user = await currentUser();
+      if (!user) {
+        if (await replace("/exam/")) return;
+        stranded("You're signed out, but the sign-in page keeps sending you back here.");
+        return;
+      }
+      if (!examId) {
+        if (await replace("/exam/console.html")) return;
+        stranded("This live room has no exam attached to it.");
+        return;
+      }
       // Usually already in hand: the console starts this read when the pointer
       // reaches the "Live room" link, so by the time the click lands the row is
       // here and the room draws on the first frame.
       const e = await cached("exam:" + examId, () => fetchExam(examId, EXAM_COLS), 8_000);
       // this page is the teacher's — only the exam's owner may watch its room
-      if (!e || e.owner !== user.id) { replace("/exam/console.html"); return; }
+      if (!e || e.owner !== user.id) {
+        if (await replace("/exam/console.html")) return;
+        stranded("This exam room isn't yours to watch.");
+        return;
+      }
       exam = e; CLOSED = exam.status === "closed";
       useTimezone(exam.timezone);       // the room's clock is the room's, not the watcher's
       $("code").textContent = exam.code; document.title = "Vigil · " + exam.title;

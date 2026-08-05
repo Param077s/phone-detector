@@ -1,6 +1,14 @@
 // Shared Supabase client for the Vigil Exams web app.
 // The anon key is public by design (RLS enforces all access rules).
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+//
+// PINNED, exactly. This used to ask for "@2", which means "whatever the newest
+// version of 2.x is at the moment a student's browser asks" — so the library
+// underneath a live exam could change without anybody here touching a file, and
+// the first anyone would know of it is a room full of students unable to join.
+// There is no build step to catch it and no staging deploy in front of it.
+// Moving this number is a decision, made deliberately, and tested before it
+// ships. It is not something the CDN gets to do on our behalf mid-exam.
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.112.1";
 import { readExam, bandCounts } from "/exam/exam-core.js";
 
 export const SUPABASE_URL = "https://czvxhfbwpmqafpeehayd.supabase.co";
@@ -73,10 +81,56 @@ export async function fetchExamBands(exam) {
   return { counts: bandCounts(read.students), total: read.students.length };
 }
 
+/* ── who is signed in ───────────────────────────────────────────────────────
+   ONE answer per tab, shared by every page.
+
+   It used to be one answer per page. The console, the live room, the report and
+   the history each remembered their own `getUser()` for sixty seconds, and the
+   landing page asked fresh every time. Two pages holding different answers to
+   "is this a teacher?" is not a cosmetic problem here, because each of those
+   pages REDIRECTS to the other when it does not like the answer: the landing
+   page saw a teacher and replaced itself with the console, the console still
+   held a minute-old "nobody is signed in" and replaced itself back. Several
+   hundred times a second, for as long as the stale copy lived — and all anyone
+   saw was the brand mark on an empty card, because the landing page redirects
+   BEFORE it draws anything. That is what signing in looked like.
+
+   So there is one memo now, and auth itself is what clears it. */
+let memo = null;      // a user we have confirmed, held until auth says otherwise
+let inflight = null;  // the read that is happening right now, shared by callers
+
 export async function currentUser() {
-  const { data } = await sb.auth.getUser();
-  return data.user || null;
+  if (memo) return memo;
+  // Two callers a millisecond apart share one round trip rather than racing
+  // two — the landing page asks once to route and again to fill in the name.
+  if (!inflight) inflight = read().finally(() => { inflight = null; });
+  return inflight;
 }
+
+async function read() {
+  const { data, error } = await sb.auth.getUser();
+  const user = (data && data.user) || null;
+  // A network failure is not a sign-out. Without this, one dropped request on a
+  // school's wifi ejects a teacher from their own console mid-exam.
+  if (!user && error) {
+    const { data: s } = await sb.auth.getSession();
+    const stored = s && s.session && s.session.user;
+    if (stored) return (memo = stored);
+  }
+  // Only a real user is remembered. "Nobody" is precisely the answer that is
+  // about to change — the OAuth redirect is still settling, the stored session
+  // has not been restored yet — and remembering THAT is what turned one unlucky
+  // read into a minute of ping-pong.
+  if (user) memo = user;
+  return user;
+}
+
+// Signing in, signing out and refreshing a token all make the memo a lie, and
+// all three announce themselves here. Nothing in this callback may call back
+// into `sb.auth` — auth holds its own lock while it runs, and asking it a
+// question from inside would deadlock the tab.
+sb.auth.onAuthStateChange(() => { memo = null; });
+
 export function isAnon(user) {
   return !!user && (user.is_anonymous === true || (!user.email && !user.phone));
 }

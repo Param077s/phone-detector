@@ -46,17 +46,21 @@
   </div>
 
   <script type="module">
-    import { sb, esc, fetchExamBands } from "/exam/sb.js";
+    import { sb, esc, currentUser, fetchExamBands } from "/exam/sb.js";
     import { bandChips } from "/exam/exam-core.js";
-    import { go, replace, cached, invalidate } from "/exam/nav.js";
+    import { go, replace, cached, invalidate, stranded } from "/exam/nav.js";
     const $ = id => document.getElementById(id);
     const fmtDate = (iso) => iso ? new Date(iso).toLocaleDateString([], { month:"short", day:"numeric", year:"numeric" }) : "";
     const statusPill = (s) => s === "open"
       ? '<span class="pill ok">Open</span>' : '<span class="pill mut">Ended</span>';
 
     (async () => {
-      const user = await cached("me", async () => (await sb.auth.getUser()).data.user, 60_000);
-      if (!user) { replace("/exam/"); return; }
+      const user = await currentUser();
+      if (!user) {
+        if (await replace("/exam/")) return;
+        stranded("You're signed out, but the sign-in page keeps sending you back here.");
+        return;
+      }
       const signedIn = !user.is_anonymous && !!user.email;
       if (signedIn) {
         $("who").innerHTML = "Signed in as <b>" + esc(user.email) + "</b>";

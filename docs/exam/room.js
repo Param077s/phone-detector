@@ -1,6 +1,6 @@
 // Vigil Exams · student monitor — MediaPipe runs entirely on this device.
 // Video/frames NEVER leave the laptop; only tiny events + presence go to Supabase.
-import { sb, SUPABASE_URL, SUPABASE_ANON } from "/exam/sb.js";
+import { sb, currentUser, SUPABASE_URL, SUPABASE_ANON } from "/exam/sb.js";
 import { ALERT_KINDS } from "/exam/exam-core.js";
 import { FaceLandmarker, ObjectDetector, FilesetResolver } from "/vendor/mediapipe/vision_bundle.mjs";
 
@@ -651,7 +651,10 @@ function stopTimers() {
 
 // ── Boot: confirm the student joined this exam, then start ────────────────────
 (async () => {
-  const { data:{ user: u } } = await sb.auth.getUser();
+  // Through `currentUser` so that a dropped request is not read as a sign-out.
+  // Being thrown out of the room you are sitting an exam in, because one call
+  // to /auth/v1/user timed out on school wifi, is the worst version of this bug.
+  const u = await currentUser();
   if (!u || !examId) { location.replace("/exam/"); return; }
   user = u;
   const { data: exam } = await sb.from("exams").select("title,status,owner").eq("id", examId).maybeSingle();

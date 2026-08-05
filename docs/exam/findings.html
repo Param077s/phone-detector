@@ -232,8 +232,8 @@
   </div>
 
   <script type="module">
-    import { sb, fetchExam, selectAll, orderedEvents, EXAM_COLS } from "/exam/sb.js";
-    import { replace, every, listen, cached } from "/exam/nav.js";
+    import { sb, currentUser, fetchExam, selectAll, orderedEvents, EXAM_COLS } from "/exam/sb.js";
+    import { replace, every, listen, cached, stranded } from "/exam/nav.js";
     import { send } from "/exam/outbox.js";
     import { esc, label, clock, clockRange, dateLong, word, readExam, spanTxt, roomHeadline, isOnline, ago,
              examWindow, examOver, useTimezone, tzNote,
@@ -876,11 +876,19 @@
     (async () => {
       // both already in hand when this page was reached from the console: the
       // identity is read once per tab, and the exam row was warmed on hover
-      const user = await cached("me", async () => (await sb.auth.getUser()).data.user, 60_000);
-      if (!user || !examId) { replace("/exam/"); return; }
+      const user = await currentUser();
+      if (!user || !examId) {
+        if (await replace("/exam/")) return;
+        stranded("You're signed out, but the sign-in page keeps sending you back here.");
+        return;
+      }
       const e = await cached("exam:" + examId, () => fetchExam(examId, EXAM_COLS), 8_000);
       // the findings document is the teacher's record — a student reads their own activity instead
-      if (!e || e.owner !== user.id) { replace("/exam/report.html?e=" + examId + "&as=student"); return; }
+      if (!e || e.owner !== user.id) {
+        if (await replace("/exam/report.html?e=" + examId + "&as=student")) return;
+        stranded("These findings belong to the teacher who ran the exam.");
+        return;
+      }
       exam = e;
       useTimezone(e.timezone);          // read this exam in the room's own hours
       document.title = "Vigil · " + e.title;

@@ -143,8 +143,8 @@
   </div>
 
   <script type="module">
-    import { sb, fetchExam, selectAll, orderedEvents, EXAM_COLS } from "/exam/sb.js";
-    import { replace, every, listen, channel, cached } from "/exam/nav.js";
+    import { sb, currentUser, fetchExam, selectAll, orderedEvents, EXAM_COLS } from "/exam/sb.js";
+    import { replace, every, listen, channel, cached, stranded } from "/exam/nav.js";
     // This page used to carry its own labels, weights, bands and episode logic — a
     // second opinion about the same events that could drift from the document's.
     // It reads the exam through the shared core now; only the LAYOUT is local.
@@ -524,8 +524,12 @@
     (async () => {
       // Read once per tab and shared with every other page — this used to be a
       // round trip standing between arriving here and seeing anything at all.
-      const u = await cached("me", async () => (await sb.auth.getUser()).data.user, 60_000);
-      if (!u || !examId) { replace("/exam/"); return; }
+      const u = await currentUser();
+      if (!u || !examId) {
+        if (await replace("/exam/")) return;
+        stranded("You're signed out, but the sign-in page keeps sending you back here.");
+        return;
+      }
       user = u;
       const e = await cached("exam:" + examId, () => fetchExam(examId, EXAM_COLS), 8_000);
       exam = e;

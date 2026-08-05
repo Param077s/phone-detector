@@ -349,9 +349,66 @@ let generation = 0;
 /** Go to a page, without the browser going anywhere. */
 export function go(href) { return visit(href, { mode: "push" }); }
 
+/* ── the redirect breaker ───────────────────────────────────────────────────
+   Every page here is a guard as well as a page. The console sends you to the
+   landing page if you are not a teacher; the landing page sends you to the
+   console if you are. Two guards that disagree therefore answer each other, and
+   the app spends the CPU redirecting between two documents while showing
+   neither of them.
+
+   The disagreement that actually happened is fixed at its source — the session
+   is read once per tab now, in sb.js, rather than cached per page. This is the
+   part that makes a disagreement STOP MATTERING. Whatever new guard someone
+   adds, and whatever it decides, a redirect that is the fifth in three seconds
+   is refused and the caller is told so, so the page it is standing on can show
+   itself instead of disappearing into another hop.
+
+   Only `replace` is counted. `go` is a person clicking, and a person clicking
+   the same two links quickly is not a loop. */
+const HOP_WINDOW = 3000, HOP_LIMIT = 4;
+const hops = [];
+
+function looping(href) {
+  const now = performance.now();
+  while (hops.length && now - hops[0] > HOP_WINDOW) hops.shift();
+  hops.push(now);
+  if (hops.length <= HOP_LIMIT) return false;
+  console.warn("Vigil: refusing a redirect to " + href + " — two pages are sending each other in circles.");
+  return true;
+}
+
 /** Replace the current entry — for redirects, which should not be somewhere
-    the back button can return you to. */
-export function replace(href) { return visit(href, { mode: "replace" }); }
+    the back button can return you to.
+
+    Resolves TRUE if it navigated and FALSE if it was refused as a loop. Guards
+    must honour the false: `if (await replace("/exam/")) return;` and then draw
+    something. A guard that returns regardless is how a page renders nothing. */
+export async function replace(href) {
+  if (looping(href)) return false;
+  await visit(href, { mode: "replace" });
+  return true;
+}
+
+/** The last resort, when a guard's redirect has been refused: say so, on the
+    page the person is actually looking at. A dead end with a way out of it is
+    worth a great deal more than a blank card.
+
+    The link is `data-hard` — a real document load — because whatever is
+    disagreeing is in this tab's memory, and throwing the tab away is exactly
+    the fix. */
+export function stranded(msg) {
+  document.body.replaceChildren();
+  const wrap = document.createElement("div");
+  wrap.className = "center";
+  wrap.innerHTML =
+    '<div class="card" style="max-width:400px;text-align:center">' +
+      '<h1 style="font-size:19px;margin:0 0 8px">Something didn\'t line up</h1>' +
+      '<p style="color:var(--muted);font-size:14px;line-height:1.55;margin:0 0 18px"></p>' +
+      '<a class="btn primary block" data-hard href="/exam/">Start again</a>' +
+    '</div>';
+  wrap.querySelector("p").textContent = msg;
+  document.body.appendChild(wrap);
+}
 
 async function visit(href, { mode = "push", y = 0 } = {}) {
   const u = managed(href);
