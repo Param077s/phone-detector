@@ -98,7 +98,7 @@
 
   <script type="module">
     import { sb, esc, fetchExamBands, fetchExam, EXAM_COLS } from "/exam/sb.js";
-    import { examOver, examStarted, examPending, msLeft, countdown, bandChips } from "/exam/exam-core.js";
+    import { examOver, examStarted, examPending, msLeft, countdown, bandChips, ALERT_KINDS } from "/exam/exam-core.js";
     // Navigation here never loads a document — see /exam/nav.js. What this page
     // has to hold up its end of is stopping what it starts: the poll and the
     // realtime subscription below are registered through `every` and `channel`
@@ -176,10 +176,32 @@
       btn.disabled = false;
     };
 
+    // ── the two numbers on a card ───────────────────────────────────────────
+    // "Flagged" is counted from the EVENT LOG, not from participants.status.
+    //
+    // That column is written by the student's own browser — the room pushes it
+    // every few seconds as their behaviour changes — so anyone who opened the
+    // console on their laptop could set their row back to 'ok' and vanish from
+    // this number while still being flagged in the record. The teacher would be
+    // watching a count the watched person controls, during the exam, which is
+    // the one moment the count matters.
+    //
+    // Events cannot be edited that way. A student may INSERT their own and
+    // nothing more: there is no update policy for them and no delete policy for
+    // anyone, so the log is append-only to everybody including the teacher.
+    // Counting distinct students with an alerting event is therefore a number
+    // they can earn and cannot erase.
+    //
+    // It does read "has been flagged" rather than "is flagged right now", which
+    // is the more useful of the two on a console you glance at anyway — and it
+    // is the same basis the report and the risk bands already use, so the card
+    // and the report can no longer disagree.
     async function presence(examId){
       const { count } = await sb.from("participants").select("id",{count:"exact",head:true}).eq("exam_id",examId);
-      const { count:flag } = await sb.from("participants").select("id",{count:"exact",head:true}).eq("exam_id",examId).in("status",["warn","alert"]);
-      return { total: count||0, flagged: flag||0 };
+      const { data:flags } = await sb.from("events").select("participant_id")
+        .eq("exam_id", examId).in("kind", [...ALERT_KINDS]);
+      const flagged = new Set((flags||[]).map(r => r.participant_id)).size;
+      return { total: count||0, flagged };
     }
 
     // ── a number that rolls instead of blinking ─────────────────────────────
