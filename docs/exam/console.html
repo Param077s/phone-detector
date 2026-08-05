@@ -97,13 +97,13 @@
   <div class="toast" id="toast"></div>
 
   <script type="module">
-    import { sb, esc, fetchExamBands, fetchExam, EXAM_COLS } from "/exam/sb.js";
+    import { sb, esc, currentUser, fetchExamBands, fetchExam, EXAM_COLS } from "/exam/sb.js";
     import { examOver, examStarted, examPending, msLeft, countdown, bandChips, ALERT_KINDS } from "/exam/exam-core.js";
     // Navigation here never loads a document — see /exam/nav.js. What this page
     // has to hold up its end of is stopping what it starts: the poll and the
     // realtime subscription below are registered through `every` and `channel`
     // so leaving the console actually stops them.
-    import { go, replace, every, listen, channel, cached, invalidate, onPrefetch } from "/exam/nav.js";
+    import { go, replace, every, listen, channel, cached, invalidate, onPrefetch, stranded } from "/exam/nav.js";
     const $ = id => document.getElementById(id);
     const listEl = $("list"), countEl = $("count"), toastEl = $("toast");
     const toast = (m) => { toastEl.textContent=m; toastEl.classList.add("show"); clearTimeout(toast._t); toast._t=setTimeout(()=>toastEl.classList.remove("show"),1700); };
@@ -111,12 +111,17 @@
 
     let me = null;
     (async () => {
-      // `getUser` costs a round trip and the answer cannot change while the tab
-      // is open without us hearing about it, so it is remembered for the tab
-      // rather than re-asked on arrival. This is most of why coming back to the
-      // console is now instant instead of blank-then-populated.
-      const user = await cached("me", async () => (await sb.auth.getUser()).data.user, 60_000);
-      if (!user || user.is_anonymous || !user.email) { replace("/exam/"); return; }
+      // Read once per tab, in sb.js, and shared with every other page — this is
+      // most of why coming back to the console is instant instead of
+      // blank-then-populated. It is shared rather than cached here because a
+      // per-page copy is what let this guard and the landing page's guard hold
+      // different answers and redirect at each other forever.
+      const user = await currentUser();
+      if (!user || user.is_anonymous || !user.email) {
+        if (await replace("/exam/")) return;
+        stranded("You're signed out, but the sign-in page keeps sending you back here.");
+        return;
+      }
       me = user;
       localStorage.setItem("vg_role", "teacher");   // returning here lands on the console, not the picker
       $("who").innerHTML = "Signed in as <b>" + esc(user.email) + "</b>";

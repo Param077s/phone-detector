@@ -85,7 +85,7 @@
   <div class="toast" id="toast"></div>
 
   <script type="module">
-    import { sb, esc } from "/exam/sb.js";
+    import { sb, esc, currentUser } from "/exam/sb.js";
     // `go`/`replace` move between the app's pages without the browser loading a
     // document. Handing them a URL this router does not own — "/" or the exam
     // room — falls straight through to a real navigation, so every destination
@@ -108,7 +108,7 @@
     // signed-out → Continue with Google (+ guest link). Role is decided per action, never
     // by auth type, so a Google-signed-in student is NEVER bounced to the teacher console.
     async function refreshStudentIdentity() {
-      const { data:{ user } } = await sb.auth.getUser();
+      const user = await currentUser();
       const signedIn = user && !user.is_anonymous && (user.email || metaName(user));
       if (signedIn) {
         if (!$("sname").value) $("sname").value = metaName(user);
@@ -126,27 +126,46 @@
     const openStudent = async () => { show("s-student"); await refreshStudentIdentity();
       setTimeout(() => ($("code").value ? $("sname") : $("code")).focus(), 60); };
 
+    // Send a signed-in teacher through to their console. Answers FALSE when it
+    // did not go — either they are not a teacher, or the redirect was refused
+    // as a loop — and the caller then has to draw a screen, because this page
+    // deciding to redirect and then not redirecting is how it came to show
+    // nothing but its own logo.
+    async function toConsole(user) {
+      if (!isTeacherAcct(user)) return false;
+      localStorage.setItem("vg_role","teacher");
+      return await replace("/exam/console.html");
+    }
+
     // Route on load — remembered role, or a share-link code. No hard redirect for students.
+    // Every path through this ends in a visible screen. It is the first thing
+    // that runs on the first page anyone sees, it is the only thing standing
+    // between them and the app, and it has exactly one job: never leave the
+    // card empty. Hence the catch — a failed session read is a reason to show
+    // someone the join screen, not a reason to show them nothing.
     (async () => {
-      const { data:{ user } } = await sb.auth.getUser();
-      if (/^[A-Z0-9]{4,6}$/.test(urlCode)) { $("code").value = urlCode; await openStudent(); return; }
-      // an explicit role from the landing-page popup wins over the remembered one
-      if (urlRole === "student") { await openStudent(); return; }
-      if (urlRole === "teacher") {
-        if (isTeacherAcct(user)) { localStorage.setItem("vg_role","teacher"); replace("/exam/console.html"); return; }
-        show("s-teacher"); return;
+      try {
+        const user = await currentUser();
+        if (/^[A-Z0-9]{4,6}$/.test(urlCode)) { $("code").value = urlCode; await openStudent(); return; }
+        // an explicit role from the landing-page popup wins over the remembered one
+        if (urlRole === "student") { await openStudent(); return; }
+        if (urlRole === "teacher") {
+          if (await toConsole(user)) return;
+          show("s-teacher"); return;
+        }
+        const role = localStorage.getItem("vg_role");
+        if (role === "teacher" && await toConsole(user)) return;
+        // no role, no code: students are the overwhelming majority of people
+        // who land here, and there is a teacher link on that screen
+        await openStudent();
+      } catch (ex) {
+        console.error("Vigil: couldn't route on load", ex);
+        if ($("s-student")) show("s-student");
       }
-      const role = localStorage.getItem("vg_role");
-      if (role === "teacher" && isTeacherAcct(user)) { replace("/exam/console.html"); return; }
-      if (role === "student") { await openStudent(); return; }
-      // no role, no code: students are the overwhelming majority of people
-      // who land here, and there is a teacher link on that screen
-      await openStudent();
     })();
 
     $("goTeacher").onclick = async () => {
-      const { data:{ user } } = await sb.auth.getUser();
-      if (isTeacherAcct(user)) { localStorage.setItem("vg_role","teacher"); replace("/exam/console.html"); return; }
+      if (await toConsole(await currentUser())) return;
       show("s-teacher");
     };
     // back goes where the student came from, not to a screen we deleted
@@ -173,7 +192,7 @@
       try {
         const exam = await resolveExam(code);
         if (!exam) { err.textContent = "No open exam with that code."; joining = false; $("joinBtn").disabled = false; return; }
-        let { data:{ user } } = await sb.auth.getUser();
+        let user = await currentUser();
         const signedIn = user && !user.is_anonymous && user.email;
         // teacher can require sign-in per exam (v5). Guests can't reset flags with a fresh identity.
         if (exam.require_signin && !signedIn) {
