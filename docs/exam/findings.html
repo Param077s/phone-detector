@@ -48,6 +48,10 @@
       padding-left:11px;border-left:2px solid var(--line);line-height:1.45}
     .said .by{font-family:var(--font);font-size:12px;color:var(--faint);white-space:nowrap}
     .outcome{font-size:13.5px;color:var(--muted);margin:8px 0 0 30px;line-height:1.45}
+    /* the caution under a pair finding — it prints, because the printed copy is
+       the one that travels to people who were never in the room */
+    .pnote{font-family:var(--voice);font-size:13px;color:var(--muted);margin:7px 0 0 30px;
+           line-height:1.5;max-width:46em}
     .outcome .lb{font-size:10.5px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;
       color:var(--faint);margin-right:7px}
 
@@ -466,11 +470,23 @@
       const outcomeHtml = x => x.outcome
         ? '<div class="outcome"><span class="lb">Outcome</span> ' + esc(x.outcome.body) + '</div>' : "";
 
+      // A pair's count is not a count of flags — it is a count of the times the
+      // two of them coincided, and printing "9 flags" beside two names would be
+      // saying something the number does not mean.
+      const countPhrase = x => x.pair
+        ? x.count + " times together"
+        : x.count + " flag" + (x.count === 1 ? "" : "s");
+
       const findingHtml = x =>
         '<div class="finding">' +
           '<div class="fl1"><span class="n">' + x.n + '</span><span class="h">' + esc(x.headline) + '</span>' + chipHtml(x) + '</div>' +
-          '<div class="fl2">' + esc(x.who) + ' · ' + clock(x.startT) + ' · ' + x.count + ' flag' + (x.count === 1 ? "" : "s") +
+          '<div class="fl2">' + esc(x.who) + ' · ' + clock(x.startT) + ' · ' + countPhrase(x) +
             ' · ' + esc(x.quality) + '</div>' +
+          // A pair finding is the one thing here that points at two people at
+          // once, so it is the one that most needs saying what it is not.
+          (x.pair ? '<div class="pnote">Two students flagging together is a reason to look, ' +
+            'not a conclusion. Students sitting near the same door or window produce this ' +
+            'pattern honestly.</div>' : "") +
           saidHtml(x) + outcomeHtml(x) +
         '</div>';
 
@@ -481,7 +497,7 @@
           list.map(x => '<div class="bl"><span class="n">' + x.n + '</span>' +
             '<span class="h">' + esc(x.headline) + '</span>' +
             '<span class="w">' + esc(x.who) + '</span>' +
-            '<span class="t">' + clock(x.startT) + ' · ' + x.count + ' flag' + (x.count === 1 ? "" : "s") +
+            '<span class="t">' + clock(x.startT) + ' · ' + countPhrase(x) +
             (x.said ? ' · account on file' : '') + '</span></div>').join("") +
           '<p class="bn">' + (f.length ? "These sat below the serious bar and are given in brief. "
             : "None of these reached the serious bar. ") +
@@ -648,6 +664,12 @@
     // given — before that there is nothing to have concluded, and an empty box
     // against every finding would be exactly the chrome this document avoids.
     function outcomeFieldHtml(f) {
+      // A finding with two names on it has nowhere to put an outcome: a note
+      // hangs off (participant, kind), so a pair would either have to pick one
+      // of them or collide with that student's own finding of the same kind.
+      // The verdict still works, which is the action that matters; recording
+      // what the conversation concluded needs a key of its own (§5.16).
+      if (f.pair) return "";
       if (!notesOn || !f.review) return f.outcome
         ? '<div class="pout"><span class="lb">Outcome</span> ' + esc(f.outcome.body) + '</div>' : "";
       const key = f.student.p.id + "|" + f.kind;
@@ -657,7 +679,10 @@
     }
     function studentHtml(pid) {
       const s = read.students.find(x => x.p.id === pid); if (!s) return false;
-      const mine = read.findings.filter(f => !f.room && f.student && f.student.p.id === pid);
+      // their own findings, plus any pair finding they are half of — a student's
+      // page must not omit the one finding that has their name on it
+      const mine = read.findings.filter(f => !f.room &&
+        ((f.student && f.student.p.id === pid) || (f.pair && f.people.has(pid))));
       const eps = s.episodes;
       const caveat = s.calib && s.calib.grade && s.calib.grade !== "solid"
         ? '<div class="caveat">Setup was ' + esc(s.calib.grade) +

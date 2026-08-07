@@ -422,9 +422,10 @@ above. It keeps only its own four-word *vocabulary* for the same number
 
 ### 5.4 Findings — the document's unit
 
-The unit is the **moment**, not the student. A finding is either:
+The unit is the **moment**, not the student. A finding is one of three things:
 
-- a **room-wide moment**, or
+- a **room-wide moment** (§5.2), or
+- a **pair moment** (§5.16) — two students, repeatedly, at the same times, or
 - one student's events **of a single kind**, taken together, whose raw weighted score
   reaches `FINDING_SCORE = 4` — the same bar as the old "medium" band.
 
@@ -751,6 +752,89 @@ as the window's baseline, so their settling-in minutes — usually well-monitore
 included, which nudges coverage slightly **up**. It is the wrong direction for honesty and
 it is bounded by one write interval.
 
+### 5.16 Two students, repeatedly, at the same moments
+
+Room-wide moments need 60% of the roster, which makes them structurally blind to the
+commonest shape of copying: **exactly two people**. Two is never a room. It is also what a
+human invigilator spots from the front of the hall — *those two keep looking up together*
+— and what no report has ever been able to say.
+
+Computed entirely from events that already exist. No new detection, no schema change.
+
+- Each student's episodes (§5.5) are taken from their **`own`** events — anything a
+  room-wide moment already explains is excluded, or a whole room looking up at a door
+  would mint a pair out of every two people in it.
+- Two episodes of the same kind are "together" when their spans touch within
+  `PAIR_TOL_MS` (30 s).
+- A moment shared by more than `PAIR_MAX_CLUSTER` (25%) of the room is skipped. A crowd is
+  a property of the room, not of any two people standing in it.
+- The comparison is **same-kind only**. "Both looked away" is a claim; "one looked away
+  while the other's camera went off" is noise.
+
+**A raw count of togethers would report the two most fidgety people in the room, every
+time.** Two students who each drift off thirty times an hour will coincide often for no
+reason at all. So what counts is the excess over their own rates: two intervals dropped at
+random into a shared window `W` overlap with probability `(durA + durB + 2·tol)/W`, so
+`nA·nB` of them meet that many times. The document prints that as *"chance predicts two"*
+— a first-order estimate, called one, never dressed up as a probability.
+
+#### The trap this fell into first, and the guard that came out of it
+
+The first working version reported **eleven pairs in a room where nobody had done
+anything**, every one of them wearing a confident-looking multiple like "9.6× chance".
+
+Twenty students is **190 pairs**. Ask 190 questions at once and a few come back looking
+remarkable for no reason — four coincidences against an expectation of 0.4 is nine times
+chance and means nothing, because *something* had to come top. That is the multiple
+comparisons problem, and it is the exact failure that would have ended this feature's
+credibility on its first real exam: name a quarter of the class, and nobody believes the
+one pair that mattered.
+
+So the bar rises with the number of questions asked. `poissonAtLeast(together, expected)`
+is the chance of seeing this many coincidences if the two of them had nothing to do with
+each other, and it must survive being multiplied by the number of pairs tested:
+
+```
+p × tests ≤ PAIR_ALPHA (0.05)
+```
+
+Worked, from the test suite:
+
+| | together | expected | lift | p | tests | reported |
+|---|---|---|---|---|---|---|
+| a real pair | 9 | 1.7 | 5.4× | 7.2e-5 | 1 | **yes** |
+| a coincidence | 4 | 0.42 | 9.6× | 9.0e-4 | 91 | no — `0.082 > 0.05` |
+
+The effect-size floors (`PAIR_MIN = 4`, `PAIR_LIFT = 3`) stay as well: a large enough
+sample makes trivial differences significant, and a pair that is real but tiny is not a
+finding.
+
+#### What it must never become
+
+**Co-occurrence is not evidence of collusion.** Two friends sitting by the same door,
+under the same window, or next to the same noisy radiator produce this pattern honestly
+and repeatedly. This is the most accusatory thing the system can print, and it is built to
+be quiet rather than clever:
+
+- **It changes nobody's score.** Their own flags are already counted once against each of
+  them; counting them again because of who else was flagged that second would be scoring a
+  student for another student's behaviour. It is a finding — a thing put in front of a
+  person to decide — and nothing else. A regression test asserts every score is identical
+  with pair findings suppressed.
+- **It does not affect the clear list**, for the same reason.
+- **The headline says what was counted and stops.** No wording in the system contains
+  "cheating", "copying" or "collusion", and a test asserts it.
+- **The finding carries its own caution, in print**: *"Two students flagging together is a
+  reason to look, not a conclusion."* The printed copy travels to people who were never in
+  the room, so the caution has to travel with it.
+- It is a **key finding** (§5.8), so it is never compressed into the appendix. It is the
+  one thing on the page a teacher could not have worked out from the tiles.
+
+**Known limit:** a pair finding has no outcome field. Notes hang off `(participant, kind)`
+(§5.14), so a finding with two names on it would have to pick one of them, or collide with
+that student's own finding of the same kind. The verdict — which is the action that
+matters — works normally. Recording what the conversation concluded needs a key of its own.
+
 ---
 
 ## 6. Design constraints (please don't propose breaking these)
@@ -877,12 +961,21 @@ now partly or wholly addressed and are marked as such.
     - Coverage's window baseline is imprecise for exams that start within 5 minutes of a
       student joining (§5.15).
 
-17. **No pairwise analysis.** Room-wide moments (§5.2) need ≥60% of the roster, which is
-    structurally unable to see the commonest shape of collusion: *exactly two* students
-    flagging together, repeatedly. Comparing each pair's co-flagged minutes against what
-    their individual rates predict is pure interpretation over data that already exists —
-    no schema change, no new detection — and it is what a human invigilator notices
-    intuitively.
+17. ~~No pairwise analysis.~~ **Addressed** (§5.16) — two students who keep flagging
+    together, far more often than their own rates predict, are a finding now, with the
+    bar rising by the number of pairs tested so a room of coincidences names nobody.
+    Still open, and the things to watch on the first real exam:
+    - `PAIR_TOL_MS`, `PAIR_MIN`, `PAIR_LIFT` and `PAIR_ALPHA` are four more constants
+      chosen by judgement. The statistical *shape* is right; the numbers are untested.
+    - **Same-kind only.** One student looking away while the other puts their head down
+      is invisible to this, and may well be the more realistic shape of copying.
+    - The overlap estimate assumes episodes fall independently across the window. Flags
+      cluster in real exams (everyone fidgets more in the last ten minutes), which
+      inflates `expected` a little and makes it slightly conservative — the safe
+      direction, but not a modelled one.
+    - **No outcome field** on a pair finding (§5.16).
+    - Seating is unknown to Vigil, and it is the single fact that would most change how
+      one of these should be read.
 
 18. **The room is never used as its own baseline.** `AMBIENT_BUDGET_PER_HOUR` is a global
     constant guessing at what a normal glance rate is, while every exam ships with a

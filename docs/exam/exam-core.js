@@ -52,6 +52,25 @@ export const HEADLINES = {
   inactive: "Present, but nothing happened",
 };
 
+// the same moment, when it kept happening to the same two people. It says what
+// was counted and it stops there — what it MEANS is the entire question the
+// teacher has to go and answer, and two friends by the same door produce this
+// exact pattern honestly.
+export const PAIR_HEADLINES = {
+  look_away: "Two students looked away together, repeatedly",
+  eyes_down: "Two students looked down together, repeatedly",
+  head_down: "Two students put their heads down together, repeatedly",
+  face_absent: "Two students left the frame together, repeatedly",
+  phone: "Two students had phones in view at the same moments",
+  second_face: "Two students had someone else in frame at the same moments",
+  monitor_hidden: "Two cameras went unreadable at the same moments",
+  camera_off: "Two cameras went off at the same moments",
+  inactive: "Two students went still at the same moments",
+  still_frame: "Two pictures stopped moving at the same moments",
+};
+export const pairHeadline = k =>
+  PAIR_HEADLINES[k] || ("Two students flagged together, repeatedly — " + label(k).toLowerCase());
+
 // the same moment, when it belonged to the room rather than one student
 export const ROOM_HEADLINES = {
   look_away: "The room looked away at once", head_down: "The room looked down at once",
@@ -382,6 +401,152 @@ export function roomMoments(events, rosterSize, opts = {}) {
   return out.sort((a, b) => a.startT - b.startT);
 }
 
+// ── two students, over and over, at the same moment ─────────────────────────
+// Room-wide moments need 60% of the roster, which makes them structurally blind
+// to the commonest shape of copying: EXACTLY TWO people, repeatedly, together.
+// Two is never a room and never a coincidence worth a finding on its own — but
+// two who keep doing the same thing within half a minute of each other, far more
+// often than their own rates predict, is the thing a human invigilator notices
+// from the front of the hall and no report has ever been able to say.
+//
+// Everything here is computed from events that already exist. No new detection,
+// no schema change, nothing extra sent from anybody's laptop.
+//
+// READ THE WARNING IN §5.16 BEFORE CHANGING ANY OF THIS. Co-occurrence is not
+// evidence of collusion — two friends sitting by the same door look exactly like
+// this — and it is the most accusatory thing this system can print. Everything
+// below is tuned to be quiet rather than clever: it reports what it counted and
+// what chance predicts, and it never once uses the word.
+export const PAIR_TOL_MS = 30_000;    // "at the same moment", generously read
+export const PAIR_MIN = 4;            // fewer togethers than this is noise at any ratio
+export const PAIR_LIFT = 3;           // …and it must be this many times what chance predicts
+export const PAIR_MAX_CLUSTER = 0.25; // a moment shared by more of the room than this is not a pair
+export const PAIR_ALPHA = 0.05;       // …and we still expect to be wrong about this often, per exam
+
+// P(X ≥ k) for a Poisson with mean λ. Small k and small λ here, so the naive sum
+// is exact enough and there is no library to reach for in a static site.
+export function poissonAtLeast(k, lambda) {
+  if (k <= 0) return 1;
+  if (!(lambda > 0)) return 0;
+  let term = Math.exp(-lambda), cdf = term;
+  for (let i = 1; i < k; i++) { term *= lambda / i; cdf += term; }
+  return Math.max(0, Math.min(1, 1 - cdf));
+}
+
+// Episodes overlap when their spans touch, allowing for one being a little late.
+const near = (a, b, tol) => a.startT - tol <= b.endT && b.startT - tol <= a.endT;
+
+export function pairMoments(students, opts = {}) {
+  const tol = opts.tol ?? PAIR_TOL_MS, minTogether = opts.pairMin ?? PAIR_MIN;
+  const lift = opts.lift ?? PAIR_LIFT;
+  if (!students || students.length < 3) return [];   // two students ARE the room
+  const maxCluster = Math.max(2, Math.floor(students.length * (opts.maxCluster ?? PAIR_MAX_CLUSTER)));
+
+  // one flat list of episodes per kind, so co-occurrence is a sweep rather than
+  // a comparison of every student against every other
+  const byKind = new Map();
+  const stats = new Map();          // student|kind → { n, dur }
+  for (const s of students) {
+    // `own` skips anything a room-wide moment already speaks for — otherwise the
+    // whole room looking up at a door would make a pair of every two people in it
+    const usable = s.own.filter(e => e.review !== "dismissed");
+    for (const ep of episodesOf(usable)) {
+      if (!byKind.has(ep.kind)) byKind.set(ep.kind, []);
+      byKind.get(ep.kind).push({ ...ep, s });
+      const k = s.p.id + "|" + ep.kind;
+      const st = stats.get(k) || { n: 0, dur: 0 };
+      st.n++; st.dur += ep.endT - ep.startT;
+      stats.set(k, st);
+    }
+  }
+
+  const pairs = new Map();
+  for (const [kind, eps] of byKind) {
+    eps.sort((a, b) => a.startT - b.startT);
+    for (let i = 0; i < eps.length; i++) {
+      // everything that could still overlap episode i, in start order
+      const cluster = [];
+      for (let j = i + 1; j < eps.length && eps[j].startT - tol <= eps[i].endT; j++)
+        if (eps[j].s !== eps[i].s && near(eps[i], eps[j], tol)) cluster.push(eps[j]);
+      // a moment shared by a crowd is a property of the room, not of any two
+      // people in it — and it would otherwise mint a pair for every couple in it
+      if (cluster.length + 1 > maxCluster) continue;
+      for (const o of cluster) {
+        const [a, b] = eps[i].s.p.id < o.s.p.id ? [eps[i].s, o.s] : [o.s, eps[i].s];
+        const key = a.p.id + "|" + b.p.id + "|" + kind;
+        let p = pairs.get(key);
+        if (!p) pairs.set(key, p = { a, b, kind, together: 0, events: [], startT: Infinity, endT: 0 });
+        p.together++;
+        p.events.push(...eps[i].events, ...o.events);
+        p.startT = Math.min(p.startT, eps[i].startT, o.startT);
+        p.endT = Math.max(p.endT, eps[i].endT, o.endT);
+      }
+    }
+  }
+
+  // HOW OFTEN CHANCE ALONE WOULD HAVE DONE THIS. Two students who each drift off
+  // twenty times in an hour will land together sometimes for no reason at all,
+  // and a raw count of togethers would report the two most fidgety people in the
+  // room every single time. What matters is the excess over their own rates.
+  //
+  // Two intervals dropped at random into a shared window W overlap with
+  // probability (durA + durB + 2·tol)/W, so nA·nB of them meet that many times.
+  // It is a first-order estimate and is called one — the finding says "chance
+  // predicts one", never a probability it cannot stand behind.
+  const cand = [];
+  for (const p of pairs.values()) {
+    const sa = stats.get(p.a.p.id + "|" + p.kind), sb = stats.get(p.b.p.id + "|" + p.kind);
+    if (!sa || !sb) continue;
+    const W = Math.max(MIN_WINDOW_MS, Math.min(
+      p.a.winTo ?? 0, p.b.winTo ?? 0) - Math.max(p.a.winFrom ?? 0, p.b.winFrom ?? 0));
+    if (!(W > 0)) continue;
+    const expected = sa.n * sb.n * ((sa.dur / sa.n) + (sb.dur / sb.n) + 2 * tol) / W;
+    cand.push({ ...p, expected, lift: p.together / Math.max(expected, 1e-9),
+      pv: poissonAtLeast(p.together, expected) });
+  }
+
+  // EVERY PAIR IN THE ROOM IS A SEPARATE QUESTION, AND WE ASK ALL OF THEM AT ONCE.
+  // Twenty students is a hundred and ninety pairs. Ask a hundred and ninety
+  // questions and a handful come back looking remarkable for no reason at all —
+  // four coincidences against an expectation of half a one is nine times chance
+  // and means nothing, because something had to come top.
+  //
+  // A first cut of this reported eleven pairs in a room where nobody had done
+  // anything, all of them wearing a confident-looking multiple. That is the
+  // failure that would end this feature's credibility on its first real exam:
+  // name a quarter of the class and no one believes the one pair that mattered.
+  //
+  // So the bar rises with the number of questions asked. `pv` is the chance of
+  // seeing this many togethers if the two of them had nothing to do with each
+  // other; it has to survive being multiplied by the number of pairs we tested.
+  // The effect-size floors stay as well — a big enough sample makes trivial
+  // differences significant, and a pair that is real but tiny is not a finding.
+  const tests = Math.max(1, cand.length);
+  const out = [];
+  for (const p of cand) {
+    if (p.together < minTogether) continue;
+    if (!(p.together >= p.expected * lift)) continue;
+    if (p.pv * tests > (opts.alpha ?? PAIR_ALPHA)) continue;
+    // One episode can overlap two of the other student's, so the same event
+    // arrives twice. Deduped and put in time order here, because the appendix
+    // groups these into runs and would otherwise list a moment twice and date
+    // the runs from whichever student happened to be swept first.
+    const seenId = new Set();
+    const events = p.events
+      .filter(e => (e.id == null ? true : !seenId.has(e.id) && seenId.add(e.id)))
+      .sort((x, y) => t(x.at) - t(y.at));
+    out.push({
+      kind: p.kind, pair: true, room: false, people: new Set([p.a.p.id, p.b.p.id]),
+      a: p.a, b: p.b, together: p.together, expected: p.expected, lift: p.lift,
+      pv: p.pv, tests,
+      startT: p.startT, endT: p.endT, count: p.together,
+      events, ids: events.map(e => e.id).filter(Boolean),
+      review: verdictOf(events),
+    });
+  }
+  return out.sort((x, y) => x.pv - y.pv || y.together - x.together);
+}
+
 // ── evidence quality ────────────────────────────────────────────────────────
 // Only the phone detector produces a real confidence number. Everything else is
 // rule-based and must say so rather than borrow a number it never computed.
@@ -623,8 +788,13 @@ export function kindChips(s) {
 // Room-wide moments are in this list even though they accuse no one. They are
 // what EXCUSES a whole room, and a summary that dropped them would read as
 // harsher than the evidence behind it.
+// A pair finding belongs on page one whatever kind it is built from. Its weight
+// is not in the kind — two people looking away together nine times is a weaker
+// flag repeated than one phone, and a much better reason to go and talk to
+// somebody — and compressing it to a line in the appendix would bury the one
+// thing here a teacher could not have worked out from the tiles.
 export const keyFinding = f =>
-  !!f && (f.room || SERIOUS_KINDS.has(f.kind) || (f.student && riskBand(f.student) === "high"));
+  !!f && (f.room || f.pair || SERIOUS_KINDS.has(f.kind) || (f.student && riskBand(f.student) === "high"));
 
 // ── what the two of them said about a finding ───────────────────────────────
 // A note hangs off (participant, kind) — the same unit a student-level finding is
@@ -711,6 +881,7 @@ export function readExam(participants, events, opts = {}) {
       said.set(kind, (notes.get(noteKey(p.id, kind)) || {}).student || null);
     return {
       p, calib, unverified, trust, coverage, events: evs, live, own, episodes: eps, counts, score, serious, windowMs, said,
+      winFrom: from, winTo: to,   // the pair test needs the window two students shared
       // watched, but not enough of the time to call the result clean
       thin: coverage != null && coverage < COVERAGE_FLOOR,
       band: score >= 10 ? "alert" : score >= FINDING_SCORE ? "warn" : "quiet",
@@ -749,6 +920,30 @@ export function readExam(participants, events, opts = {}) {
     score: episodePoints(m.kind, m.people.size),
     quality: evidenceQuality(m.events, null),
   }));
+
+  // TWO PEOPLE, REPEATEDLY. Read after the room, from what the room did not
+  // already explain, and it changes NOBODY'S SCORE. Their own flags are already
+  // counted once against each of them; counting them again because of who else
+  // was flagged at that second would be scoring a student for another student's
+  // behaviour, which is the one thing a number here must never do. This is a
+  // finding — a thing put in front of a person to decide — and nothing else.
+  const pairs = pairMoments(students, opts);
+  for (const m of pairs) {
+    findings.push({
+      kind: m.kind, pair: true, room: false, events: m.events, ids: m.ids, people: m.people,
+      review: m.review, startT: m.startT, endT: m.endT, count: m.together,
+      headline: pairHeadline(m.kind),
+      who: m.a.p.name + " and " + m.b.p.name,
+      score: episodePoints(m.kind, m.together),
+      // The finding states what was counted against what chance predicts, and
+      // that is all. It is a real ratio over real counts — not a probability,
+      // not a confidence, and §5.6's rule holds: we do not print numbers we did
+      // not compute, and we do not dress up the ones we did.
+      quality: m.expected < 0.5
+        ? "chance predicts under one"
+        : "chance predicts " + word(Math.round(m.expected)).toLowerCase(),
+    });
+  }
 
   for (const s of students) {
     const byKind = new Map();
