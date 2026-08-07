@@ -1,7 +1,7 @@
 // Vigil Exams · student monitor — MediaPipe runs entirely on this device.
 // Video/frames NEVER leave the laptop; only tiny events + presence go to Supabase.
 import { sb, currentUser, SUPABASE_URL, SUPABASE_ANON } from "/exam/sb.js";
-import { ALERT_KINDS } from "/exam/exam-core.js";
+import { ALERT_KINDS, INFO_KINDS } from "/exam/exam-core.js";
 import { FaceLandmarker, ObjectDetector, FilesetResolver } from "/vendor/mediapipe/vision_bundle.mjs";
 
 const CFG = {
@@ -32,6 +32,34 @@ const CFG = {
   // is behind another tab, another app, or minimised — so what matters is whether
   // frames actually stopped arriving, not which window happens to be in front.
   VISION_GAP_MS: 20000, WATCHDOG_MS: 2000,
+
+  // ── liveness: a person, or a picture of one? ──────────────────────────────
+  // Every other signal here fires when something CROSSES a threshold. A photo
+  // taped over the webcam crosses nothing, so it scores zero and lands in the
+  // "finished clear" list beside a student who actually sat the exam. Stillness
+  // is the one thing that can only be caught by watching nothing happen.
+  //
+  // These exams are taken ON the laptop, so the student is looking at the screen
+  // and their head barely moves — a head-motion test alone would flag every
+  // focused reader. What a screen reader always has is moving EYES and
+  // involuntary blinks. Nobody holds a blink for ninety seconds. So gaze is the
+  // primary signal, head motion the secondary, and the blink count is what
+  // separates "not a live person" from "a live person doing nothing".
+  //
+  // One measurement, two outcomes. Both thresholds are first guesses and are
+  // shown live in the debug panel so they can be set against a real webcam.
+  STILL_WINDOW_MS: 90000,     // history the liveness test reads
+  STILL_GAZE: 0.004,          // mean per-frame iris movement below this = not looking around
+  STILL_HEAD: 0.0012,         // mean per-frame head movement below this = not moving
+  STILL_COOLDOWN_MS: 60000,
+  IDLE_WINDOW_MS: 300000,     // a live person motionless this long is worth a neutral note
+  IDLE_COOLDOWN_MS: 300000,
+
+  // How often the running coverage counter is written. Coverage is the share of
+  // the exam we actually had eyes on this student, and it is the denominator the
+  // whole report was missing — "nothing was flagged" means very little until you
+  // know how much of the sitting it was true of.
+  COVERAGE_MS: 300000,
 };
 
 // ── the clock that doesn't sleep ────────────────────────────────────────────
@@ -92,7 +120,10 @@ const capt = { normal: null, away: null };   // captured peaks used to auto-sugg
 //
 // There is one list now. severity is derived, and a kind cannot be serious in the
 // database and ordinary in the report.
-const severityOf = kind => (kind === "calibrated" ? "info" : ALERT_KINDS.has(kind) ? "alert" : "warn");
+// Both lists come from the core, for the reason §7.15 records: a kind that is
+// serious here and ordinary there ships a row whose severity contradicts its own
+// report, and two hand-kept lists agree only until somebody adds a kind to one.
+const severityOf = kind => (INFO_KINDS.has(kind) ? "info" : ALERT_KINDS.has(kind) ? "alert" : "warn");
 
 async function emit(kind, meta) {
   const severity = severityOf(kind);
@@ -146,7 +177,39 @@ const sig = {
   cam: { off: false },   // one camera_off event per off-episode, not one per heartbeat
   phone: { lastFired: 0, recent: [] },   // recent = detector score of the last few passes
   gap: { since: null },   // a measured stretch where no camera frame arrived at all
+  // rolling history of how much the face MOVED, which is the only way to notice
+  // that nothing is happening. `prev` is the last frame we compared against.
+  live: { samples: [], prev: null, wasBlink: false, stillFired: 0, idleFired: 0 },
 };
+
+// ── how much of the exam we actually watched ────────────────────────────────
+// Every other number in the report is a numerator. A student can be flagged zero
+// times because they behaved, or because the camera was pointed at a wall for
+// half the exam, and the document could not tell those apart — it had no
+// denominator anywhere on the page.
+//
+// This is counted on the device, where the truth is: every detection tick adds
+// its own elapsed time to `total`, and only the ticks that actually resolved a
+// face add to `seen`. A camera switched off, a stalled feed and a student out of
+// frame all stop `seen` climbing while `total` keeps going, which is exactly
+// right — all three mean we were not watching.
+//
+// The counters are cumulative and written every few minutes, so the report can
+// difference two of them to get coverage over any window it likes (and so a
+// student who never sends a last one still has an honest figure to the last
+// write, rather than none at all).
+const cov = { seen: 0, total: 0, lastTick: 0, lastWrite: 0 };
+function countCoverage(mx, now) {
+  const dt = cov.lastTick ? Math.min(1000, now - cov.lastTick) : 0;   // clamped: a throttled
+  cov.lastTick = now;                                                 // tick must not inflate it
+  cov.total += dt;
+  if (mx.faces >= 1) cov.seen += dt;
+  if (now - cov.lastWrite < CFG.COVERAGE_MS) return;
+  cov.lastWrite = now;
+  writeCoverage();
+}
+const writeCoverage = () =>
+  record("coverage", { seen: Math.round(cov.seen / 1000), total: Math.round(cov.total / 1000) });
 
 function doMonitor(mx, now) {
   const haveFace = mx.faces >= 1 && state.baseline != null;
@@ -195,7 +258,76 @@ function doMonitor(mx, now) {
     if (!sig.second.since) sig.second.since = now;
     if (now - sig.second.since > CFG.SECOND_HOLD_MS && now - sig.second.lastFired > CFG.SECOND_COOLDOWN_MS) { emit("second_face"); sig.second.lastFired = now; }
   } else { sig.second.since = null; }
+  doLiveness(mx, now, blink);
+  countCoverage(mx, now);
   paintStatus(mx, now);
+}
+
+// ── nothing is happening, which is itself a thing that happened ─────────────
+// Reads the one measurement — how much moved since the last frame — over two
+// windows, and lets the blink count decide what it means.
+//
+//   no movement AND no blinks       → this is not a live person in front of the
+//                                     camera. A photo, a frozen feed, an empty
+//                                     chair with a face in shot. Ninety seconds
+//                                     is far longer than anyone holds a blink.
+//   no movement BUT they are blinking → a live person who is doing nothing. Not
+//                                     an accusation and never worded as one; it
+//                                     is simply the other half of the record.
+//
+// Blinking frames are excluded from the gaze figure — a closing eyelid moves the
+// iris landmark a long way and would read as somebody looking around.
+function liveWindow(now, ms) {
+  const from = now - ms;
+  let gaze = 0, head = 0, n = 0, g = 0, blinks = 0;
+  for (const s of sig.live.samples) {
+    if (s.t < from) continue;
+    n++; head += s.head;
+    if (s.gaze != null) { g++; gaze += s.gaze; }
+    if (s.blinkStart) blinks++;
+  }
+  return { n, blinks, head: n ? head / n : null, gaze: g ? gaze / g : null,
+           full: n >= (ms / CFG.DETECT_MS) * 0.5 };
+}
+
+function doLiveness(mx, now, blink) {
+  const L = sig.live;
+  if (mx.faces !== 1 || mx.noseGap == null) { L.prev = null; L.wasBlink = !!blink; return; }
+  const p = L.prev;
+  if (p) {
+    L.samples.push({
+      t: now,
+      head: Math.abs(mx.nx - p.nx) + Math.abs(mx.ny - p.ny) + Math.abs(mx.noseGap - p.noseGap),
+      gaze: (!blink && !L.wasBlink && mx.gazeX != null && p.gazeX != null)
+        ? Math.abs(mx.gazeX - p.gazeX) + Math.abs(mx.gazeY - p.gazeY) : null,
+      blinkStart: !!blink && !L.wasBlink,   // count each blink once, on the way down
+    });
+  }
+  L.prev = { nx: mx.nx, ny: mx.ny, noseGap: mx.noseGap, gazeX: mx.gazeX, gazeY: mx.gazeY };
+  L.wasBlink = !!blink;
+  const keep = now - CFG.IDLE_WINDOW_MS;
+  while (L.samples.length && L.samples[0].t < keep) L.samples.shift();
+
+  const still = liveWindow(now, CFG.STILL_WINDOW_MS);
+  state.liveNow = still;   // the debug panel reads this, so it can be tuned on a real webcam
+  // A window with too few samples is a window we mostly could not see. That is a
+  // coverage fact, already counted as one; it must not also read as stillness.
+  const frozen = still.full && still.head < CFG.STILL_HEAD &&
+    (still.gaze == null || still.gaze < CFG.STILL_GAZE);
+  if (frozen && still.blinks === 0 && now - L.stillFired > CFG.STILL_COOLDOWN_MS) {
+    L.stillFired = now;
+    emit("still_frame", { seconds: Math.round(CFG.STILL_WINDOW_MS / 1000),
+      head: +still.head.toFixed(5), gaze: still.gaze == null ? null : +still.gaze.toFixed(4) });
+    showWarn && showWarn("Vigil could not see any movement for a minute and a half — that was recorded.");
+    return;
+  }
+  const idle = liveWindow(now, CFG.IDLE_WINDOW_MS);
+  if (idle.full && idle.blinks > 0 && idle.head < CFG.STILL_HEAD &&
+      (idle.gaze == null || idle.gaze < CFG.STILL_GAZE) &&
+      now - L.idleFired > CFG.IDLE_COOLDOWN_MS) {
+    L.idleFired = now;
+    emit("inactive", { seconds: Math.round(CFG.IDLE_WINDOW_MS / 1000) });
+  }
 }
 
 function paintStatus(mx, now) {
@@ -227,6 +359,16 @@ function updateReadout() {
   set("headPeak", state.dropPeak.toFixed(3));
   set("headLimit", CFG.HEAD_ENTER.toFixed(2));
   flag("headFlag", sig.head.fired, "● DOWN");
+  // MOVING — the liveness window. Both figures are means per frame over the last
+  // 90s, so they settle slowly; the blink count is what tells a still person from
+  // a still picture. Held on a real webcam, this is how the two limits get set.
+  const lv = state.liveNow;
+  set("liveNow", !lv || !lv.n ? "—" : !lv.full ? "filling…"
+    : "gaze " + (lv.gaze == null ? "—" : lv.gaze.toFixed(4)) +
+      " · head " + lv.head.toFixed(5) + " · " + lv.blinks + " blink" + (lv.blinks === 1 ? "" : "s"));
+  set("liveLimit", CFG.STILL_GAZE.toFixed(4) + " / " + CFG.STILL_HEAD.toFixed(5));
+  flag("liveFlag", !!(lv && lv.full && lv.head < CFG.STILL_HEAD &&
+    (lv.gaze == null || lv.gaze < CFG.STILL_GAZE)), lv && lv.blinks === 0 ? "● NOT LIVE" : "● IDLE");
   if (lastMx.gazeX == null) { set("eyeNow", "no iris from model"); set("eyePeak", "—"); flag("eyeFlag", false, ""); return; }
   set("eyeNow", state.offNow != null ? state.offNow.toFixed(3) : "— blink");
   set("eyePeak", state.offPeak.toFixed(3));
@@ -361,13 +503,16 @@ function calibGrade() {
   const grade = reasons.length === 0 ? "solid" : reasons.length === 1 ? "fair" : "weak";
   return { grade, reasons, luma: Math.round(pfLuma), frames: state.calibSamples.length };
 }
-async function recordCalib(q) {
-  // direct insert (NOT emit) — a quality record must never push a warn status
+// A context row, not a flag: direct insert (NOT emit), because a record ABOUT the
+// monitoring must never push the student's own status to warn. Calibration quality
+// and coverage are both facts about how well we could see, not about what they did.
+async function record(kind, meta) {
   try {
     await sb.from("events").insert({ exam_id: examId, participant_id: part.id,
-      kind: "calibrated", severity: severityOf("calibrated"), meta: q });
+      kind, severity: severityOf(kind), meta });
   } catch (e) {}
 }
+const recordCalib = q => record("calibrated", q);
 
 function doCalib(mx, now) {
   sampleLuma(now);   // keep the lighting reading fresh for the quality grade
@@ -602,6 +747,9 @@ async function checkClosed() {
 
 function endExam() {
   if (state.mode === "ended") return;
+  // the last partial window, before the timers stop — without it a student who sat
+  // the whole exam reports coverage only up to the last five-minute write
+  if (cov.total) writeCoverage();
   state.mode = "ended"; state.running = false;
   stopTimers();
   try { state.stream && state.stream.getTracks().forEach(t => t.stop()); } catch (e) {}

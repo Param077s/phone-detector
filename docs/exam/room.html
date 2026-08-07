@@ -96,6 +96,11 @@
           <div class="tBig">
             <div class="tMetric"><span class="tl">EYES</span><span class="tv" id="eyeNow">—</span><span class="tp">peak <b id="eyePeak">—</b> · limit <b id="eyeLimit">—</b></span><span class="tflag" id="eyeFlag"></span></div>
             <div class="tMetric"><span class="tl">HEAD</span><span class="tv" id="headNow">—</span><span class="tp">peak <b id="headPeak">—</b> · limit <b id="headLimit">—</b></span><span class="tflag" id="headFlag"></span></div>
+            <!-- MOVING is the liveness test: how much the face and irises shift between
+                 frames, averaged over the last 90s, and how many blinks fell in it. Sit
+                 normally and read the two numbers; a photo held to the camera should send
+                 both to roughly zero and the blink count to none. -->
+            <div class="tMetric"><span class="tl">MOVING</span><span class="tv" id="liveNow">—</span><span class="tp">limit <b id="liveLimit">—</b></span><span class="tflag" id="liveFlag"></span></div>
           </div>
           <div class="tCap">
             <button class="btn ghost sm" id="recNormal" type="button">Record “at screen” (5s)</button>

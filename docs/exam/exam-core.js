@@ -19,15 +19,22 @@ export const LABELS = {
   face_absent: "Face not visible",
   second_face: "Second face detected", phone: "Phone detected", camera_off: "Camera off",
   monitor_hidden: "Camera not readable", left_exam: "Left the exam page", virtual_cam: "Virtual camera",
-  calibrated: "Calibrated",
+  still_frame: "Nothing moved", inactive: "Sat without moving",
+  calibrated: "Calibrated", coverage: "Coverage",
 };
+
+// Rows that describe the MONITORING rather than the student. They are never
+// flags, never scored, and never counted as anything anyone did — but they are
+// also the two rows that say how much the rest of the record is worth.
+export const INFO_KINDS = new Set(["calibrated", "coverage"]);
+export const isFlag = e => e && !INFO_KINDS.has(e.kind);
 
 // the short lowercase phrase a live tile wears — a glance, not a sentence
 export const PHRASES = {
   phone: "phone", second_face: "second face", virtual_cam: "virtual camera",
   camera_off: "camera off", monitor_hidden: "camera gap", left_exam: "left the page",
   face_absent: "face not visible", look_away: "eyes off screen", head_down: "head down",
-  eyes_down: "eyes on the desk",
+  eyes_down: "eyes on the desk", still_frame: "nothing moving", inactive: "not moving",
 };
 
 // the headline a finding wears in the document — describes, never accuses
@@ -37,6 +44,12 @@ export const HEADLINES = {
   monitor_hidden: "Vigil could not read the camera", left_exam: "Left the exam page",
   face_absent: "Face out of view", look_away: "Eyes off screen, repeatedly",
   head_down: "Head down, repeatedly", eyes_down: "Eyes on the desk, repeatedly",
+  // Says what was measured and stops. What it MEANS — a photograph, a paused
+  // video, an empty chair, or a camera that froze — is exactly the question a
+  // person has to answer, and a headline that guessed would be answering it for
+  // them with evidence that cannot tell those apart.
+  still_frame: "Nothing in the picture moved",
+  inactive: "Present, but nothing happened",
 };
 
 // the same moment, when it belonged to the room rather than one student
@@ -46,12 +59,15 @@ export const ROOM_HEADLINES = {
   eyes_down: "The room looked at their desks at once",
   second_face: "Second faces across the room", monitor_hidden: "Cameras unreadable across the room",
   camera_off: "Cameras went off across the room",
+  still_frame: "Nothing moved anywhere in the room", inactive: "The room went still at once",
 };
 
-export const ALERT_KINDS = new Set(["second_face", "phone", "camera_off", "monitor_hidden", "left_exam", "virtual_cam"]);
-// worth interrupting an invigilator mid-exam for — the live room shows only these
-export const SERIOUS_KINDS = new Set(["phone", "second_face", "virtual_cam"]);
-export const WEIGHT = { second_face: 5, phone: 5, virtual_cam: 5, left_exam: 4, monitor_hidden: 3, camera_off: 3, face_absent: 1.5, look_away: 1, head_down: 1, eyes_down: 0.4 };
+export const ALERT_KINDS = new Set(["second_face", "phone", "camera_off", "monitor_hidden", "left_exam", "virtual_cam", "still_frame"]);
+// worth interrupting an invigilator mid-exam for — the live room shows only these.
+// `still_frame` earns its place: for as long as it lasts we are not monitoring
+// anybody, and it is the one flag a teacher can settle by looking up at the room.
+export const SERIOUS_KINDS = new Set(["phone", "second_face", "virtual_cam", "still_frame"]);
+export const WEIGHT = { second_face: 5, phone: 5, virtual_cam: 5, still_frame: 5, left_exam: 4, monitor_hidden: 3, camera_off: 3, face_absent: 1.5, look_away: 1, head_down: 1, eyes_down: 0.4, inactive: 0.4 };
 
 // ── how a score is built ────────────────────────────────────────────────────
 // Two kinds of flag behave completely differently over time, and treating them
@@ -64,7 +80,10 @@ export const WEIGHT = { second_face: 5, phone: 5, virtual_cam: 5, left_exam: 4, 
 // Everything else is discrete. A phone is a phone whether the exam ran forty
 // minutes or three hours, so those are scored absolutely and never divided by
 // duration — that would quietly hide the most serious thing in the room.
-export const AMBIENT_KINDS = new Set(["look_away", "head_down", "face_absent", "eyes_down"]);
+// `inactive` is ambient for the same reason the others are: it is a fact about a
+// stretch of time, so twelve of them in a three-hour exam is a description of a
+// quiet afternoon, not twelve times the finding.
+export const AMBIENT_KINDS = new Set(["look_away", "head_down", "face_absent", "eyes_down", "inactive"]);
 // ambient weight-points per hour that read as ordinary; score counts the excess
 export const AMBIENT_BUDGET_PER_HOUR = 4;
 // nobody is judged on a rate measured over two minutes
@@ -79,7 +98,10 @@ export const MIN_WINDOW_MS = 20 * 60 * 1000;
 // `look_away` and `head_down` are edge-triggered: the student has to return to
 // baseline before another can fire. Eleven of those really are eleven separate
 // drifts, and compressing them would let the worst behaviour score the least.
-export const REFIRE_KINDS = new Set(["phone", "second_face"]);
+// `still_frame` re-fires every 60 s while the picture stays frozen, so a photo
+// left in front of the camera for an hour is ONE thing that happened for an hour
+// — the same shape as a phone held in view, and compressed the same way.
+export const REFIRE_KINDS = new Set(["phone", "second_face", "still_frame"]);
 export const episodePoints = (kind, count) => {
   const w = WEIGHT[kind] || 1, n = Math.max(1, count);
   return REFIRE_KINDS.has(kind) ? w * (1 + Math.log2(n)) : w * n;
@@ -324,7 +346,7 @@ export function roomMoments(events, rosterSize, opts = {}) {
   if (!rosterSize || rosterSize < min) return [];
   const buckets = new Map();
   for (const e of events) {
-    if (e.kind === "calibrated") continue;
+    if (!isFlag(e)) continue;
     const minute = Math.floor(t(e.at) / 60000);
     const key = e.kind + "|" + minute;
     let b = buckets.get(key);
@@ -369,6 +391,37 @@ export function evidenceQuality(events, calib) {
   if (calib && calib.grade && calib.grade !== "solid") return calib.grade + " camera setup";
   return "no confidence value";
 }
+
+// ── how much of the exam we actually watched ────────────────────────────────
+// The report was all numerator. "Nothing was flagged" is a very different claim
+// depending on whether we watched someone for the whole exam or for nine minutes
+// of it, and the document had no way to say which — a student whose camera faced
+// a wall came out reading exactly like one who behaved.
+//
+// The device writes cumulative {seen, total} seconds every few minutes, so any
+// window can be measured by differencing the two rows that bracket it.
+//
+// Returns null when there is nothing to read, and that is the important case:
+// every exam recorded before this shipped has no coverage rows at all, so every
+// surface must treat "unknown" as "carry on exactly as before" rather than as a
+// bad result. An old report may not grow a new complaint about its students.
+export const COVERAGE_FLOOR = 0.8;   // below this, "finished clear" is not a claim we can make
+export function coverageOf(events, from, to) {
+  const rows = (events || []).filter(e => e.kind === "coverage" && e.meta &&
+    typeof e.meta.seen === "number" && typeof e.meta.total === "number")
+    .sort((a, b) => t(a.at) - t(b.at));
+  if (!rows.length) return null;
+  // the counters are cumulative from the moment monitoring began, so the window
+  // is the difference between the last row inside it and the last one before it
+  const base = rows.filter(r => from == null || t(r.at) <= from).pop();
+  const end = rows.filter(r => to == null || t(r.at) <= to).pop();
+  if (!end || end === base) return null;
+  const seen = end.meta.seen - (base ? base.meta.seen : 0);
+  const total = end.meta.total - (base ? base.meta.total : 0);
+  if (!(total > 0)) return null;
+  return Math.max(0, Math.min(1, seen / total));
+}
+export const coveragePct = c => (c == null ? null : Math.round(c * 100));
 
 // ── the exam, read ──────────────────────────────────────────────────────────
 // One pass that both surfaces share: per-student events, calibration, score,
@@ -597,7 +650,7 @@ export function readExam(participants, events, opts = {}) {
   // anyone. (No starts_at — a pre-v12 exam — and nothing is excluded.)
   const examStartT = opts.startsAt ? t(opts.startsAt) : null;
   const examEndT = opts.endsAt ? t(opts.endsAt) : null;
-  if (examStartT) events = (events || []).filter(e => e.kind === "calibrated" || t(e.at) >= examStartT);
+  if (examStartT) events = (events || []).filter(e => !isFlag(e) || t(e.at) >= examStartT);
   const byP = new Map(roster.map(p => [p.id, []]));
   for (const e of (events || [])) {
     if (!byP.has(e.participant_id)) byP.set(e.participant_id, []);
@@ -609,14 +662,14 @@ export function readExam(participants, events, opts = {}) {
   // should not be held against the one student sitting in it.
   // Set-aside events are read here too: a finding that was considered and set
   // aside has to stay on the document wearing its verdict, or it isn't a record.
-  const flagEvents = (events || []).filter(e => e.kind !== "calibrated");
+  const flagEvents = (events || []).filter(isFlag);
   const moments = roomMoments(flagEvents, roster.length, opts);
   const inRoomMoment = new Set(moments.flatMap(m => m.events.map(e => e.id)));
 
   const students = roster.map(p => {
     const all = byP.get(p.id) || [];
     const calib = all.filter(e => e.kind === "calibrated").map(e => e.meta || {}).pop() || null;
-    const evs = all.filter(e => e.kind !== "calibrated");
+    const evs = all.filter(isFlag);
     const live = evs.filter(e => e.review !== "dismissed");   // set-aside flags stop counting
     const own = evs.filter(e => !inRoomMoment.has(e.id));     // what is theirs alone, verdict aside
     const counts = {};
@@ -634,6 +687,9 @@ export function readExam(participants, events, opts = {}) {
     if (examStartT) from = Math.max(from, examStartT);
     if (examEndT) to = Math.min(to, examEndT);
     const windowMs = Math.min(12 * 3600000, Math.max(0, to - from));
+    // the share of that window we actually had a face in view for — null on any
+    // exam recorded before the device started counting, which reads as before
+    const coverage = coverageOf(all, examStartT, examEndT);
     const trust = trustOf(calib);
     const score = scoreEpisodes(episodesOf(counted), windowMs, trust);
     const eps = episodesOf(evs);
@@ -654,7 +710,9 @@ export function readExam(participants, events, opts = {}) {
     for (const kind of new Set(evs.map(e => e.kind)))
       said.set(kind, (notes.get(noteKey(p.id, kind)) || {}).student || null);
     return {
-      p, calib, unverified, trust, events: evs, live, own, episodes: eps, counts, score, serious, windowMs, said,
+      p, calib, unverified, trust, coverage, events: evs, live, own, episodes: eps, counts, score, serious, windowMs, said,
+      // watched, but not enough of the time to call the result clean
+      thin: coverage != null && coverage < COVERAGE_FLOOR,
       band: score >= 10 ? "alert" : score >= FINDING_SCORE ? "warn" : "quiet",
       lastAt: evs.length ? t(evs[evs.length - 1].at) : null,
       phrase: top ? phrase(top[0], top[1]) : "",
@@ -723,9 +781,20 @@ export function readExam(participants, events, opts = {}) {
   const named = new Set(findings
     .filter(f => !f.room && f.student && f.review !== "dismissed")
     .map(f => f.student.p.id));
-  const clear = students.filter(s => !named.has(s.p.id) && s.score === 0 && !s.unverified);
+  // "Finished clear" is the strongest sentence in the document — it is the one a
+  // student would want quoted — so it has to be a claim we can actually stand
+  // behind. Nothing flagged, AND enough of the exam watched to mean it. Someone
+  // we only saw for half the sitting is not clear and is not accused; they are
+  // listed as what they are, which is barely watched.
+  const clear = students.filter(s => !named.has(s.p.id) && s.score === 0 && !s.unverified && !s.thin);
   // said separately from "clear", because it is the opposite of a clean result
   const unverified = students.filter(s => s.unverified);
+  const thin = students.filter(s => s.thin && !s.unverified);
+  // what the document can say about its own reliability, in one line
+  const seen = students.map(s => s.coverage).filter(c => c != null);
+  const coverage = seen.length
+    ? { mean: seen.reduce((a, b) => a + b, 0) / seen.length, thin: thin.length, n: seen.length }
+    : null;
 
   // setups worth walking over and fixing, while there is still time to fix them
   const poorSetups = students
@@ -747,7 +816,7 @@ export function readExam(participants, events, opts = {}) {
 
   const allT = (events || []).map(e => t(e.at)).filter(Boolean);
   return {
-    roster, students, moments, findings, clear, unverified, poorSetups, review,
+    roster, students, moments, findings, clear, unverified, thin, coverage, poorSetups, review,
     startT: allT.length ? Math.min(...allT) : null,
     endT: allT.length ? Math.max(...allT) : null,
   };

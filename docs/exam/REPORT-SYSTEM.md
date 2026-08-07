@@ -86,6 +86,10 @@ Notes:
 Every surface degrades gracefully when a migration hasn't been run — the note field
 simply doesn't appear, the third verdict reports that it isn't available, and so on.
 
+**Liveness and coverage (§4.6, §5.15) needed no migration.** `events.kind` is free text
+and `meta` is `jsonb`, so two new kinds and two new `meta` shapes are purely additive.
+Nothing in the database changed to ship them.
+
 ---
 
 ## 3. What the student's machine actually measures
@@ -109,7 +113,7 @@ A separate, slower object-detection pass (every 700 ms) looks for a phone.
 
 ---
 
-## 4. The eleven event kinds
+## 4. The thirteen event kinds
 
 An event is only written when a condition has **held continuously** for a hold time.
 This is what stops a single noisy frame becoming a flag.
@@ -126,7 +130,10 @@ This is what stops a single noisy frame becoming a flag.
 | `monitor_hidden` | Hid / left Vigil | alert | tab hidden ≥ 2 s (visibilitychange) | 2 s | 3 s |
 | `left_exam` | Closed Vigil | alert | `pagehide` (sent as a keepalive beacon) | — | — |
 | `virtual_cam` | Virtual camera | alert | camera label matches OBS/ManyCam/DroidCam/etc. | — | once at start |
+| `still_frame` | Nothing moved | alert | face and irises both below the movement floor **and zero blinks** | 90 s | 60 s |
+| `inactive` | Sat without moving | warn | the same stillness, but they **are** blinking | 5 min | 5 min |
 | `calibrated` | (not a flag) | info | calibration finished — carries quality in `meta` | — | once |
+| `coverage` | (not a flag) | info | cumulative `{seen, total}` seconds of monitoring | — | every 5 min |
 
 Important nuances:
 
@@ -240,6 +247,61 @@ accumulating into an accusation. Both are ambient (§5.3), so both are scored as
 The threshold and the hold are **unchanged**. This reclassifies flags; it does not raise
 or lower how many are raised.
 
+### 4.6 Stillness: a person, or a picture of one
+
+Every kind above this one fires when something **crosses a threshold**. That left the
+system's largest hole: a photograph taped over the webcam crosses nothing. Neither does a
+paused video, nor an empty chair with a face in shot. All of them scored **zero** and were
+filed in "finished clear", typographically identical to a student who sat the whole exam.
+
+The only way to catch that is to measure what does **not** happen.
+
+These exams are taken *on* the laptop, so the student is looking at the screen and their
+head barely moves — a head-motion test alone would flag every focused reader. What a
+screen reader always has is **moving eyes** and **involuntary blinks**. So:
+
+- per frame, the movement since the previous frame is accumulated for the head
+  (`nx`, `ny`, `noseGap`) and separately for the irises (`gazeX`, `gazeY`);
+- blinking frames are excluded from the gaze figure — a closing eyelid drags the iris
+  landmark a long way and would read as looking around;
+- blinks are counted once each, on the way down.
+
+One measurement, and the **blink count decides what it means**:
+
+| | movement | blinks | reads as |
+|---|---|---|---|
+| `still_frame` | below floor | **none in 90 s** | not a live person in front of the camera |
+| `inactive` | below floor | some | a live person who is doing nothing |
+
+Ninety seconds is far longer than anyone holds a blink, which is what makes the split
+safe. `still_frame` is an **alert** and is in `SERIOUS_KINDS` — for as long as it lasts we
+are not monitoring anybody, and it is the one flag a teacher can settle by looking up at
+the room. It re-fires every 60 s while the picture stays frozen, so it is in
+`REFIRE_KINDS` and a photo left there for an hour compresses to one thing that happened
+for an hour, exactly like a phone held in view.
+
+`inactive` is weight **0.4** and ambient. It is a neutral observation, worded as one
+(*"Present, but nothing happened"*), and at that weight an entire still hour registers
+without ever approaching an accusation.
+
+**A window we mostly could not see is not stillness.** Both tests require the window to be
+at least half full of real samples; a face that was absent produces no samples and raises
+nothing here. That is a coverage fact and it is counted as one (§5.15).
+
+**The headline says what was measured and stops.** A photograph, a paused video, an empty
+chair and a frozen camera driver are indistinguishable from landmarks alone, and naming
+one of them would be answering, on the reader's behalf, the exact question they have to
+go and answer themselves.
+
+**Both floors are first guesses**, and the honest limit of this feature. They are shown
+live in the room's debug panel as `MOVING` (mean gaze movement, mean head movement, blink
+count over the window) so they can be set against a real webcam, which is the only place
+the true scale of these numbers exists. Until that is done, expect to tune them.
+
+**A looped video defeats this**, deliberately and knowingly. It has real motion and real
+blinks. Catching it needs autocorrelation over the movement series to find the loop point
+— computable from the same samples, not built.
+
 ---
 
 ## 5. How events become the report
@@ -260,7 +322,12 @@ DOM — so both surfaces read the same exam the same way and cannot drift apart.
 4. Their **score** is the weighted sum over their own events, excluding `dismissed` ones.
 5. **Findings** are built from the moments plus each student's own events (§5.4).
 
-It returns `{ roster, students, moments, findings, clear, startT, endT }`.
+It returns `{ roster, students, moments, findings, clear, thin, coverage, unverified,
+poorSetups, review, startT, endT }`.
+
+`calibrated` and `coverage` are the two rows that describe the **monitoring** rather than
+the student. They are held in one place — `INFO_KINDS`, with an `isFlag()` beside it — so
+that a row about how well we could see can never be scored as something somebody did.
 
 ### 5.2 Room-wide moments
 
@@ -290,11 +357,12 @@ configurable per exam.
 Each kind still carries a fixed weight:
 
 ```
-second_face 5   phone 5   virtual_cam 5
+second_face 5   phone 5   virtual_cam 5   still_frame 5
 left_exam   4
 monitor_hidden 3   camera_off 3
 face_absent 1.5
 look_away   1   head_down 1
+eyes_down   0.4   inactive 0.4
 ```
 
 What changed is that a score is no longer a plain sum, because a plain sum grows
@@ -452,7 +520,8 @@ Structure, in order, and nothing else:
    under a document read end to end, and the page used to look identical either way.
 4. **Findings**, each exactly two lines: number · headline · verdict chip, then one grey
    line of `who · when · how many · evidence quality`.
-5. A compact list of the students who finished clear.
+5. A compact list of the students who finished clear, then — when there are any — the
+   students **watched only partly** (§5.15), each with their coverage percentage.
 6. A one-line privacy statement above a hairline.
 7. Sign-off: `REVIEWED BY` / `SIGNATURE` / `DATE`, three 1px rules.
 8. An **appendix** with per-episode timings, on its own printed page. Most readers will
@@ -641,6 +710,47 @@ statement can carry no verified identity into a filed document. The document att
 to the name they typed. That is a property of guest join, not of this feature, but it is
 worth knowing before the report is relied on.
 
+### 5.15 How much of the exam we actually watched
+
+Every other number in this document is a **numerator**. How many flags, how many findings,
+how many students finished clear. None of them mean anything without the share of the exam
+we had eyes on, and until now the document had no denominator anywhere on the page.
+
+So a student whose camera faced a wall for half the exam read **exactly like** one who
+behaved. Both were flagged zero times; both were filed as clear. "Finished clear" is the
+strongest sentence in this document — it is the one a student would want quoted — and it
+was being printed about people we had barely watched.
+
+- The device counts it, where the truth is. Every detection tick adds its own elapsed time
+  to `total`; only ticks that actually resolved a face add to `seen`. A camera switched
+  off, a stalled feed and a student out of frame all stop `seen` climbing while `total`
+  keeps going — all three mean we were not watching, and all three now say so.
+- The counters are **cumulative**, written every 5 minutes and once more at the end, so
+  any window can be measured by differencing the two rows that bracket it.
+- `coverage` is an **info** row like `calibrated`, written with a direct insert rather than
+  `emit()` — a record *about* the monitoring must never push the student's status to warn.
+
+Three things read it:
+
+1. **The standfirst states the document's own reliability**: *"Watched for 94% of the exam
+   on average, two under 80%."* Said in one clause, and only when there is something to
+   say — a room watched 99%+ throughout says nothing, because that is chrome.
+2. **`clear` requires it.** A student is only "finished clear" with nothing flagged **and**
+   coverage at or above `COVERAGE_FLOOR` (80%).
+3. **A third list**, between "finished clear" and "no monitoring data": *Watched only
+   partly*, naming each student with their percentage. They are not accused and they are
+   not cleared, because neither is supportable — they are described.
+
+**Unknown coverage reads exactly as before.** Every exam recorded before this shipped has
+no `coverage` rows, so `coverageOf` returns `null`, `thin` is false, and those students
+remain clear. An old report may not grow a new complaint about its students.
+
+**Known limit:** the counters start when monitoring begins, not when the teacher presses
+Start. If the exam starts less than 5 minutes after a student joins there is no row to use
+as the window's baseline, so their settling-in minutes — usually well-monitored — are
+included, which nudges coverage slightly **up**. It is the wrong direction for honesty and
+it is bounded by one write interval.
+
 ---
 
 ## 6. Design constraints (please don't propose breaking these)
@@ -752,6 +862,39 @@ now partly or wholly addressed and are marked as such.
     the database and ordinary in the report. Verified against the old hand-written table:
     zero rows change. Still open: rows written before this keep whatever they were given —
     which, since nothing had drifted yet, is the same answer.
+
+16. ~~Nothing fires when nothing happens.~~ **Addressed** (§4.6, §5.15) — this was the
+    structural version of items 1–15: every kind fired on a threshold crossing, so a
+    photograph over the webcam, an empty chair, or a camera pointed at a wall all scored
+    zero and were filed as "finished clear". Stillness is now measured, and coverage is
+    counted and printed. Still open, and the honest limits of it:
+    - **The two movement floors are guesses**, like `AMBIENT_BUDGET_PER_HOUR` before them.
+      They are exposed live in the debug panel (`MOVING`) precisely so they can be set
+      against a real webcam, and they have never seen one.
+    - **A looped video still defeats the liveness test** — it has real motion and real
+      blinks. Autocorrelation over the same movement series would find the loop; unbuilt.
+    - `COVERAGE_FLOOR = 0.8` is a round number chosen by judgement.
+    - Coverage's window baseline is imprecise for exams that start within 5 minutes of a
+      student joining (§5.15).
+
+17. **No pairwise analysis.** Room-wide moments (§5.2) need ≥60% of the roster, which is
+    structurally unable to see the commonest shape of collusion: *exactly two* students
+    flagging together, repeatedly. Comparing each pair's co-flagged minutes against what
+    their individual rates predict is pure interpretation over data that already exists —
+    no schema change, no new detection — and it is what a human invigilator notices
+    intuitively.
+
+18. **The room is never used as its own baseline.** `AMBIENT_BUDGET_PER_HOUR` is a global
+    constant guessing at what a normal glance rate is, while every exam ships with a
+    control group sitting in it. Scoring against the room's own median per kind would
+    self-calibrate, and would make paper and on-screen exams work without configuration.
+    It needs a floor, or a wholly compromised room normalises itself clean.
+
+19. **Rough paper work is not declared.** These are on-screen exams where students may do
+    rough work on paper, which is exactly what `eyes_down` looks like. Its weight is
+    already the lowest in the set (0.4) for that reason, but a "rough paper allowed"
+    checkbox at exam creation would let it be discounted further when the teacher has
+    sanctioned it — one field, and a whole class of false flags goes away.
 
 ---
 
