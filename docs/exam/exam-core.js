@@ -935,6 +935,9 @@ export function readExam(participants, events, opts = {}) {
       headline: pairHeadline(m.kind),
       who: m.a.p.name + " and " + m.b.p.name,
       score: episodePoints(m.kind, m.together),
+      // carried onto the finding so the arithmetic behind it can be inspected
+      // without re-deriving it — the pilot run-sheet asks for exactly these
+      expected: m.expected, lift: m.lift, pv: m.pv, tests: m.tests,
       // The finding states what was counted against what chance predicts, and
       // that is all. It is a real ratio over real counts — not a probability,
       // not a confidence, and §5.6's rule holds: we do not print numbers we did

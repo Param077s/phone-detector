@@ -106,6 +106,21 @@ loosen detection — that's deliberate anti-tamper; don't undo it).
   second half: it only parses, so a page that calls `examOver()` without importing it passes
   cleanly and then throws in front of a teacher. That has already happened — a string
   replacement missed the import line in two files and `--check` said yes twice.
+- **And the behaviour it cannot see:**
+
+  ```bash
+  node tools/test-exam.mjs
+  ```
+
+  Thirty-odd assertions against the real `exam-core.js` and the real `room.js` (loaded
+  through browser shims, not reimplemented), covering what the report *promises* rather
+  than whether it parses: that an exam recorded before coverage existed still reads
+  exactly as it did, that a student concentrating on their screen is not mistaken for a
+  photograph, that a pair finding never moves anybody's score, and that no wording
+  anywhere accuses. Several of these look like they assert nothing — a number that stays
+  the same, a word that is absent. Those are the ones to keep: they are promises made to
+  the person the report is written about, and nothing else in the repo would notice them
+  going.
 - **Role = ownership/context, never auth type.** Teacher vs student is decided by who owns the
   exam (`exam.owner === uid`) and how you arrived (`?as=student` / `vg_role`). Don't bring back
   `is_anonymous`/has-email role checks — that was the bug that dumped students on the console.
