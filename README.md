@@ -73,3 +73,14 @@ python -m uvicorn app:app --port 8000
 ```
 
 Runs on Apple Silicon GPU (MPS) automatically when available.
+
+## Licence
+
+**[AGPL-3.0](LICENSE).** Vigil's detection is built on
+[Ultralytics YOLO](https://github.com/ultralytics/ultralytics), which is AGPL-3.0
+— strong copyleft, so the combined work is AGPL-3.0 as well. In practice: anyone
+who receives a Vigil build is entitled to the complete corresponding source under
+the same terms, which is why this repository is public.
+
+Licences for every bundled component are listed in
+[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
