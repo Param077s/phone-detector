@@ -44,3 +44,6 @@ build/
 
 # Desktop shell: per-user stable port (runtime artifact)
 .vigil-port
+
+# Claude Code: per-user local tool settings, not project config
+.claude/

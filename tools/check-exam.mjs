@@ -171,6 +171,15 @@ function declared(src) {
 // `await sb.from(…)` would find `await` and then never see `sb` at all.
 function usedNames(src) {
   const names = new Set();
+  // SPREAD IS NOT PROPERTY ACCESS. The lookbehind below rejects a name preceded
+  // by a dot, which is right for `obj.name` and wrong for `[...NAME]` — the last
+  // dot of the spread looks exactly like an accessor. That cost a real false
+  // positive: console.html was reported as importing ALERT_KINDS and never using
+  // it, while using it on the next screenful as `.in("kind", [...ALERT_KINDS])`.
+  // A checker that cries wolf is a checker nobody runs, so the spread is removed
+  // before scanning. Only names are collected here, so the shifted offsets that
+  // costs us are not offsets anybody reads.
+  src = src.replace(/\.\.\./g, " ");
   for (const m of src.matchAll(/(?<![\w$.])([A-Za-z_$][\w$]*)(:?)/g)) {
     if (m[2] === ":") continue;                     // an object key, not a use
     names.add(m[1]);

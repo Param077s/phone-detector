@@ -48,6 +48,10 @@
       padding-left:11px;border-left:2px solid var(--line);line-height:1.45}
     .said .by{font-family:var(--font);font-size:12px;color:var(--faint);white-space:nowrap}
     .outcome{font-size:13.5px;color:var(--muted);margin:8px 0 0 30px;line-height:1.45}
+    /* the caution under a pair finding — it prints, because the printed copy is
+       the one that travels to people who were never in the room */
+    .pnote{font-family:var(--voice);font-size:13px;color:var(--muted);margin:7px 0 0 30px;
+           line-height:1.5;max-width:46em}
     .outcome .lb{font-size:10.5px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;
       color:var(--faint);margin-right:7px}
 
@@ -238,7 +242,7 @@
     import { esc, label, clock, clockRange, dateLong, word, readExam, spanTxt, roomHeadline, isOnline, ago,
              examWindow, examOver, useTimezone, tzNote,
              keyFinding, BAND_KEY, REPORT_BANDS, splitByBand, chartHtml,
-             whenChart, kindChips } from "/exam/exam-core.js";
+             whenChart, kindChips, coveragePct } from "/exam/exam-core.js";
     const $ = id => document.getElementById(id);
     const examId = new URLSearchParams(location.search).get("e");
     // Set now, not inside the async boot below: an <a> whose destination
@@ -266,6 +270,21 @@
       const last = parts.pop();
       const s = parts.length ? parts.join(", ") + " and " + last : last;
       return s.charAt(0).toUpperCase() + s.slice(1) + ".";
+    }
+
+    // WHAT THIS DOCUMENT IS WORTH, said by the document. Every other number here
+    // is a numerator: how many flags, how many findings, how many students. None
+    // of them mean anything without the share of the exam we actually had eyes
+    // on, and a report that quietly omits its own denominator is overstating
+    // itself. Said in one clause, and only when there is something to say —
+    // "watched 99% on average" is chrome, and an exam recorded before the device
+    // counted has nothing to report and says nothing.
+    function coverageSentence(c) {
+      if (!c) return "";
+      const pct = coveragePct(c.mean);
+      if (pct >= 99 && !c.thin) return "";
+      return ' Watched for ' + pct + '% of the exam on average' +
+        (c.thin ? ', ' + word(c.thin).toLowerCase() + ' under 80%.' : '.');
     }
 
     // ── the report: the chart, then the students behind it ─────────────────
@@ -438,7 +457,8 @@
       const stand = all.length
         ? '<span>' + word(all.length) + (all.length === 1 ? " finding." : " findings.") + '</span> ' +
           '<span class="rest">' + (rev ? esc(rev) + " " : "") +
-          word(clear.length) + ' student' + (clear.length === 1 ? "" : "s") + ' finished clear.</span>'
+          word(clear.length) + ' student' + (clear.length === 1 ? "" : "s") + ' finished clear.' +
+          coverageSentence(read.coverage) + '</span>'
         : "";
 
       // The student's own account of a finding, printed under it and attributed.
@@ -450,11 +470,23 @@
       const outcomeHtml = x => x.outcome
         ? '<div class="outcome"><span class="lb">Outcome</span> ' + esc(x.outcome.body) + '</div>' : "";
 
+      // A pair's count is not a count of flags — it is a count of the times the
+      // two of them coincided, and printing "9 flags" beside two names would be
+      // saying something the number does not mean.
+      const countPhrase = x => x.pair
+        ? x.count + " times together"
+        : x.count + " flag" + (x.count === 1 ? "" : "s");
+
       const findingHtml = x =>
         '<div class="finding">' +
           '<div class="fl1"><span class="n">' + x.n + '</span><span class="h">' + esc(x.headline) + '</span>' + chipHtml(x) + '</div>' +
-          '<div class="fl2">' + esc(x.who) + ' · ' + clock(x.startT) + ' · ' + x.count + ' flag' + (x.count === 1 ? "" : "s") +
+          '<div class="fl2">' + esc(x.who) + ' · ' + clock(x.startT) + ' · ' + countPhrase(x) +
             ' · ' + esc(x.quality) + '</div>' +
+          // A pair finding is the one thing here that points at two people at
+          // once, so it is the one that most needs saying what it is not.
+          (x.pair ? '<div class="pnote">Two students flagging together is a reason to look, ' +
+            'not a conclusion. Students sitting near the same door or window produce this ' +
+            'pattern honestly.</div>' : "") +
           saidHtml(x) + outcomeHtml(x) +
         '</div>';
 
@@ -465,7 +497,7 @@
           list.map(x => '<div class="bl"><span class="n">' + x.n + '</span>' +
             '<span class="h">' + esc(x.headline) + '</span>' +
             '<span class="w">' + esc(x.who) + '</span>' +
-            '<span class="t">' + clock(x.startT) + ' · ' + x.count + ' flag' + (x.count === 1 ? "" : "s") +
+            '<span class="t">' + clock(x.startT) + ' · ' + countPhrase(x) +
             (x.said ? ' · account on file' : '') + '</span></div>').join("") +
           '<p class="bn">' + (f.length ? "These sat below the serious bar and are given in brief. "
             : "None of these reached the serious bar. ") +
@@ -489,8 +521,16 @@
       const clearList = (all.length && clear.length)
         ? '<div class="clearlist"><span class="lab">Finished clear</span>' +
           clear.map(s => esc(s.p.name)).join(", ") + '</div>' : "";
+      // Between "clear" and "no data" there was nowhere to put the student whose
+      // camera faced a wall for half the exam. They were being filed as clear,
+      // which is the one thing this document could say that isn't supported.
+      const thinList = read.thin.length
+        ? '<div class="clearlist"><span class="lab">Watched only partly</span>' +
+          read.thin.map(x => esc(x.p.name) + ' (' + coveragePct(x.coverage) + '%)').join(", ") +
+          ' — their face was in view for less than 80% of the exam, so neither a finding ' +
+          'nor a clear result would be safe to draw about the rest of it.</div>' : "";
 
-      $("body").innerHTML = body + clearList + unver +
+      $("body").innerHTML = body + clearList + thinList + unver +
         '<p class="privacy">No video, audio or images left any student’s device. Every finding above is an on-device ' +
         'detection, offered as an aid to human judgement and not as a conclusion.</p>' +
         '<div class="sign"><span>Reviewed by</span><span>Signature</span><span>Date</span></div>' +
@@ -503,6 +543,8 @@
     function drawIfChanged() {
       const sig = read.findings.map(x => x.n + ":" + x.ids.length + ":" + (x.review || "-")).join("|") +
         "#" + read.clear.length + "#" + read.roster.length +
+        // coverage keeps climbing while an exam runs, and it is on the page now
+        "#" + read.thin.length + "#" + (read.coverage ? coveragePct(read.coverage.mean) : "-") +
         "#key";
       if (sig === docSig) { drawReport(); return; }
       docSig = sig; draw();
@@ -622,6 +664,12 @@
     // given — before that there is nothing to have concluded, and an empty box
     // against every finding would be exactly the chrome this document avoids.
     function outcomeFieldHtml(f) {
+      // A finding with two names on it has nowhere to put an outcome: a note
+      // hangs off (participant, kind), so a pair would either have to pick one
+      // of them or collide with that student's own finding of the same kind.
+      // The verdict still works, which is the action that matters; recording
+      // what the conversation concluded needs a key of its own (§5.16).
+      if (f.pair) return "";
       if (!notesOn || !f.review) return f.outcome
         ? '<div class="pout"><span class="lb">Outcome</span> ' + esc(f.outcome.body) + '</div>' : "";
       const key = f.student.p.id + "|" + f.kind;
@@ -631,7 +679,10 @@
     }
     function studentHtml(pid) {
       const s = read.students.find(x => x.p.id === pid); if (!s) return false;
-      const mine = read.findings.filter(f => !f.room && f.student && f.student.p.id === pid);
+      // their own findings, plus any pair finding they are half of — a student's
+      // page must not omit the one finding that has their name on it
+      const mine = read.findings.filter(f => !f.room &&
+        ((f.student && f.student.p.id === pid) || (f.pair && f.people.has(pid))));
       const eps = s.episodes;
       const caveat = s.calib && s.calib.grade && s.calib.grade !== "solid"
         ? '<div class="caveat">Setup was ' + esc(s.calib.grade) +
@@ -639,7 +690,10 @@
       $("popIn").innerHTML =
         '<div class="ptop"><span class="dot ' + (s.band === "quiet" ? "" : s.band) + '"></span>' +
         '<h2 id="popName">' + esc(s.p.name) + '</h2></div>' +
-        '<p class="pstat">' + presenceLine(s) + (s.unverified ? "No monitoring data — setup never completed" : s.score === 0 ? "Finished clear" :
+        '<p class="pstat">' + presenceLine(s) + (s.unverified ? "No monitoring data — setup never completed" :
+          s.thin ? "Watched for only " + coveragePct(s.coverage) + "% of the exam" :
+          s.score === 0 ? "Finished clear" +
+            (s.coverage != null ? " · watched " + coveragePct(s.coverage) + "% of the exam" : "") :
           s.live.length + " flag" + (s.live.length === 1 ? "" : "s") + " · " + esc(s.phrase)) + '</p>' +
         // the verdicts that belong to this student, decidable right here — and
         // beneath each, what they said about it and what the conversation concluded
